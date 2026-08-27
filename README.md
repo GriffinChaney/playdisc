@@ -2,81 +2,100 @@
 
 > **Working on this project?** Read [`CLAUDE.md`](CLAUDE.md) for architecture,
 > conventions, and things not to break, and
-> [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md) for current bugs/in-progress work
-> before making changes. This README is a lighter intro/setup guide and may lag
-> behind those two.
+> [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md) for current bugs / in-progress
+> work before making changes. This README is a lighter intro and may lag behind
+> those two.
 
-A personal, local-only music player. You add exactly the songs you want —
-own tracks, friends' tracks, downloads — nothing else ever shows up.
-Runs as a desktop app (Electron), library stored locally in IndexedDB
-(no server, no account, no sync).
+A personal, local-only music player. You add exactly the songs you want — your
+own tracks, friends' mixes, downloads — and nothing else ever shows up. Desktop
+app (Electron + React), library stored locally in IndexedDB. No server, no
+account, no sync, no catalog.
 
-## Features in this scaffold
+## What it does
 
-- Upload button (multi-file, drag-free file picker) for mp3/wav/flac/m4a/aac/ogg
-- Automatic ID3 metadata + embedded artwork extraction on upload
-- Library sidebar: search, tag filter, sorted newest-added-first
-- Inline tag editing (`+ tag` on each track row)
-- Scrubbable waveform (click or drag anywhere to jump to that point) via wavesurfer.js
-- Two views: sidebar + player, and a fullscreen focus view (artwork, title,
-  waveform, transport only — no tags, no queue)
-- Playback position/state carries over when you switch between the two views
+**Library**
+- Drag-free multi-file import for `mp3 / wav / flac / m4a / aac / ogg`, with a
+  progress overlay and a slide-in confirmation toast
+- Automatic ID3 / atom metadata + embedded artwork extraction on import
+- Search, per-track tags (inline `+ tag`, plus bulk tag / delete on a selection),
+  tag-group filtering
+- Multi-select (⌘-click, shift-click, ⌘-drag to paint a range)
+
+**Playlists** (three-column library view, Spotify-style)
+- **Left** — "Imported" (your whole library) + your playlists; pin a playlist to
+  the top, rename, or delete it (deleting a playlist never deletes the songs)
+- **Middle** — the track list for whatever's selected, as a list or an album-art
+  grid; drag to reorder within a playlist
+- **Right** — now playing: artwork (click for fullscreen), color-reactive
+  waveform, pixel-art EQ, transport
+- Add to a playlist by right-clicking a track (or a multi-selection), or the
+  `+ playlist` button on the selection bar
+- Both side columns are drag-resizable; **Tab** hides the playlist nav and splits
+  the window evenly between the track list and the artwork zone
+
+**Playback**
+- Browsing a track (single click) never interrupts what's playing — a floating
+  bar keeps the real playing track reachable
+- Scrubbable / scroll-to-scrub waveform (wavesurfer.js)
+- Manual **queue** ("up next", drag to reorder) consumed before library order
+- Browser-style **play history**: Previous / Next walk what you actually played
+  (with a "recently played" list you can jump around in); playing from a playlist
+  keeps Next inside that playlist
+- Shuffle, adjustable volume, fully rebindable keyboard shortcuts (Settings)
+
+**Views**
+- Normal 3-column library view, a fullscreen **focus** view (ambient backdrop
+  sampled from the cover art), and a real OS-window **mini** mode
+- The single audio engine is shared across all views — switching never restarts
+  playback
 
 ## Setup
 
 ```bash
-cd my-music-player
+cd music-player-app
 npm install
-npm run electron:dev
+npm run electron:dev      # Vite dev server + Electron, hot reload
 ```
 
-This starts the Vite dev server and opens the Electron window pointed at
-it, with hot reload. `npm run dev` alone runs it as a regular browser tab
-if you'd rather iterate there first.
+`npm run dev` alone runs it as a plain browser tab (no Electron-only features
+like mini mode, but faster to iterate on UI).
 
-To build a distributable app:
+### Building the app
 
 ```bash
 npm run electron:build
+codesign --sign - --force --deep "release/mac-arm64/Sona.app"
 ```
 
-## Known limitations / next steps
+The ad-hoc re-sign is required every build — electron-builder doesn't sign
+(no paid Apple cert), and unsigned the app hits a hard Gatekeeper block. See
+`CLAUDE.md` for the full rebuild → re-sign → replace `/Applications/Sona.app`
+loop.
 
-- **Waveform remounts on view switch.** Switching between sidebar and
-  focus view currently reloads the waveform (it reseeks to your current
-  position and resumes playback, but there's a brief flash). Fixing this
-  properly means having wavesurfer attach to one persistent `<audio>`
-  element that never unmounts — worth doing once the rest feels solid.
-- **Tag editing is minimal** — one tag at a time, no rename/delete UI yet.
-  Delete/rename would just be a couple more IndexedDB calls plus a
-  small UI affordance.
-- **No queue/shuffle** — skip next/previous currently just walks the
-  newest-added-first list. A real queue is a reasonable v2 addition.
-- **Spotify-downloaded files**: if any of yours are DRM-protected or have
-  stripped tags, metadata extraction will silently fall back to the
-  filename — worth testing a few early.
-- **No folder-watching** — everything comes in through the upload button.
-  Electron *can* watch a folder on disk directly, which would be a nice
-  addition via the (currently empty) preload bridge.
+## Stack
+
+React 18 (no state library — all state in `App.jsx`), Vite 5, Electron 31
+(electron-builder), wavesurfer.js 7, music-metadata-browser, `idb`. Plain CSS
+with custom properties, no framework, no TypeScript.
 
 ## Project structure
 
 ```
 electron/
-  main.js        # creates the app window
-  preload.js      # placeholder for future native bridge
+  main.js          # window creation, mini-mode IPC, acceptFirstMouse
+  preload.cjs      # contextBridge (must stay .cjs)
 src/
   components/
-    Sidebar.jsx       # library: upload, search, tags, track list
-    TrackItem.jsx      # one row in the library
-    UploadButton.jsx
-    NowPlaying.jsx     # sidebar-mode player panel
-    FocusView.jsx      # fullscreen player
-    Waveform.jsx       # wavesurfer.js wrapper, scrubbable
+    PlaylistNav.jsx    # left column: Imported + playlists + queue/history panels
+    LibraryList.jsx    # middle column: track list / grid, search, tags, bulk bar
+    NowPlaying.jsx     # right column: artwork + waveform + transport
+    QueuePanel.jsx     HistoryPanel.jsx    ContextMenu.jsx   PromptModal.jsx
+    TrackItem.jsx      FocusView.jsx       MiniPlayer.jsx     Waveform.jsx
+    WaveformSlot.jsx   BackgroundPlayBar.jsx  SettingsModal.jsx  ...
   lib/
-    db.js              # IndexedDB (tracks, tags, dateAdded)
-    parseTrack.js       # ID3 + artwork extraction on upload
-    useObjectUrl.js     # Blob -> object URL hook
-  App.jsx              # state + view switching
+    db.js            # IndexedDB: tracks + playlists stores (v2)
+    parseTrack.js    # metadata + artwork extraction
+    keybindings.js   dominantColor.js   useObjectUrl.js   artworkTilt.js
+  App.jsx            # all state + orchestration
   styles.css
 ```
