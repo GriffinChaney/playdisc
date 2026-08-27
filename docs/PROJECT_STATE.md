@@ -64,7 +64,22 @@ project up in a fresh session, read both before changing anything.
   the above. Only works when both machines are on the same LAN. Not removed — ask
   Griffin if it should be revoked once no longer useful.
 
-## Just finished (most recent session before the above)
+## Just finished (2nd laptop session, 2026-08-26)
+
+- **Import UX** (`ed5b460`): new `ImportOverlay` (full-screen blurred backdrop +
+  determinate `done/total` progress bar with an indeterminate sheen) shown while
+  samples parse/write, and `ImportToast` (top-right "N samples imported", slides in →
+  holds ~2.5s → slides off to the right → unmounts; red error variant on throw).
+  `handleFilesSelected` reworked to report per-file progress and to `try/finally` so
+  the overlay always clears. Verified in the browser dev build (Vite); **not yet
+  tested in the packaged app** — needs a rebuild/re-sign/reinstall.
+  - Note: CSS entrance animations pause when the tab/window is hidden; the overlay
+    card keyframe starts at `opacity: 0`, so if you ever see a "dim empty card" it's
+    just a hidden-window animation pause, not a bug.
+- Committed the electron 31.7.7 bump + dropped dead `allowScripts` (see above), and
+  removed the dead `handleReady` resume branch (`96ea4db`).
+
+## Just finished (earlier — reminders-list batches)
 
 Two back-to-back reminders-list batches, each rebuilt/re-signed/reinstalled to
 `/Applications/Sona.app`:
