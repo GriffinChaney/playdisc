@@ -8,7 +8,13 @@ function isAudioFile(file) {
   return !!ext && AUDIO_EXTENSIONS.includes(ext);
 }
 
-export default function UploadButton({ onFilesSelected }) {
+// One button, both ways in: click opens a small menu (reusing the app's
+// existing right-click ContextMenu) offering "select file(s)" — the normal
+// multi-file picker — or "select folder" — which recursively scans every
+// subfolder for audio files and imports whatever it finds, skipping
+// anything that isn't a supported audio type.
+export default function UploadButton({ onFilesSelected, onOpenMenu }) {
+  const buttonRef = useRef(null);
   const fileInputRef = useRef(null);
   const folderInputRef = useRef(null);
 
@@ -42,13 +48,22 @@ export default function UploadButton({ onFilesSelected }) {
     e.target.value = '';
   }
 
+  function openPicker() {
+    const rect = buttonRef.current?.getBoundingClientRect();
+    onOpenMenu({
+      x: rect ? rect.left : 0,
+      y: rect ? rect.bottom + 4 : 0,
+      items: [
+        { label: 'select file(s)', onClick: () => fileInputRef.current?.click() },
+        { label: 'select folder', onClick: () => folderInputRef.current?.click() }
+      ]
+    });
+  }
+
   return (
     <>
-      <button className="upload-btn" onClick={() => fileInputRef.current?.click()}>
+      <button ref={buttonRef} className="upload-btn" onClick={openPicker}>
         upload song
-      </button>
-      <button className="upload-btn" onClick={() => folderInputRef.current?.click()}>
-        import folder
       </button>
       <input
         ref={fileInputRef}

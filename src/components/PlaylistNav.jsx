@@ -145,7 +145,7 @@ function PlaylistNav({
 
   return (
     <div className="playlist-nav">
-      <UploadButton onFilesSelected={onFilesSelected} />
+      <UploadButton onFilesSelected={onFilesSelected} onOpenMenu={onOpenMenu} />
 
       <button
         className={`nav-item${activeView.type === 'imported' ? ' active' : ''}`}
