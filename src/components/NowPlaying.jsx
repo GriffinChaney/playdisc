@@ -22,7 +22,8 @@ export default function NowPlaying({
   onSkip,
   onEnterFocus,
   shuffleEnabled,
-  onToggleShuffle
+  onToggleShuffle,
+  onResizeStart
 }) {
   const artworkUrl = useObjectUrl(track?.artworkBlob);
 
@@ -32,6 +33,7 @@ export default function NowPlaying({
   // on top of it instead of swapping it out for other content.
   return (
     <div className={`now-playing${!track ? ' empty' : ''}`}>
+      {onResizeStart && <div className="np-resize-handle" onMouseDown={onResizeStart} />}
       {!track ? (
         <p className="empty-state">select a track to start listening.</p>
       ) : (

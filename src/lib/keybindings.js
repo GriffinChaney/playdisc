@@ -8,6 +8,7 @@ export const DEFAULT_KEYBINDINGS = {
   fullscreen: { label: 'toggle fullscreen', key: 'f' },
   miniPlayer: { label: 'toggle mini player', key: 'm' },
   expandTrack: { label: 'expand track row', key: 'z' },
+  toggleNav: { label: 'hide / show playlists', key: 'tab' },
   seekBack: { label: 'seek back 5s', key: 'h' },
   seekForward: { label: 'seek forward 5s', key: 'l' },
   volumeUp: { label: 'volume up', key: 'arrowup' },

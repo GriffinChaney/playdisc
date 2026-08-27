@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import TrackItem from './TrackItem';
 import { useObjectUrl } from '../lib/useObjectUrl';
 
@@ -38,7 +38,7 @@ function GridItem({ track, isActive, isPlayingTrack, isSelected, onSelect, onPla
 // Middle column of the library view: header (title / count / total time /
 // list-grid toggle), search + tag filter, the track list or grid, the
 // multi-select bulk bar, and (in an unfiltered playlist view) drag-to-reorder.
-export default function LibraryList({
+function LibraryList({
   tracks, // already resolved + ordered for the active view
   viewTitle,
   isPlaylistView,
@@ -61,6 +61,7 @@ export default function LibraryList({
   onRemoveTrackFromPlaylist,
   onReorderPlaylistTracks,
   onOpenMenu,
+  onPrompt,
   searchInputRef
 }) {
   const [query, setQuery] = useState('');
@@ -189,11 +190,14 @@ export default function LibraryList({
       {
         label: 'New playlist…',
         onClick: () => {
-          const name = prompt('New playlist name');
-          if (name && name.trim()) {
-            onCreatePlaylistWithTracks(name.trim(), ids);
-            setSelectedIds(new Set());
-          }
+          onPrompt({
+            title: `New playlist from ${ids.length} ${ids.length === 1 ? 'track' : 'tracks'}`,
+            placeholder: 'Playlist name',
+            onSubmit: (name) => {
+              onCreatePlaylistWithTracks(name, ids);
+              setSelectedIds(new Set());
+            }
+          });
         }
       }
     ];
@@ -368,11 +372,15 @@ export default function LibraryList({
                   {
                     label: 'New playlist…',
                     onClick: () => {
-                      const name = prompt('New playlist name');
-                      if (name && name.trim()) {
-                        onCreatePlaylistWithTracks(name.trim(), selectedInOrder());
-                        setSelectedIds(new Set());
-                      }
+                      const ids = selectedInOrder();
+                      onPrompt({
+                        title: `New playlist from ${ids.length} tracks`,
+                        placeholder: 'Playlist name',
+                        onSubmit: (name) => {
+                          onCreatePlaylistWithTracks(name, ids);
+                          setSelectedIds(new Set());
+                        }
+                      });
                     }
                   }
                 ]
@@ -463,3 +471,5 @@ export default function LibraryList({
     </div>
   );
 }
+
+export default memo(LibraryList);

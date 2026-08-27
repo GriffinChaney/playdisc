@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import PlaylistNav from './components/PlaylistNav';
 import LibraryList from './components/LibraryList';
 import ContextMenu from './components/ContextMenu';
+import PromptModal from './components/PromptModal';
 import NowPlaying from './components/NowPlaying';
 import FocusView from './components/FocusView';
 import MiniPlayer from './components/MiniPlayer';
@@ -42,6 +43,8 @@ export default function App() {
     () => localStorage.getItem('libraryViewMode') || 'list'
   );
   const [contextMenu, setContextMenu] = useState(null);
+  const [promptConfig, setPromptConfig] = useState(null);
+  const [navCollapsed, setNavCollapsed] = useState(false);
   // ordering context for skip/auto-advance: follows whichever list a new
   // playing track was chosen from ('library' order, or a specific playlist)
   const [playbackContext, setPlaybackContext] = useState({ type: 'library' });
@@ -87,25 +90,46 @@ export default function App() {
   }, [shuffleEnabled]);
   const handleToggleShuffle = useCallback(() => setShuffleEnabled((v) => !v), []);
 
-  // width of the left playlist-nav column (drag handle on its right edge)
+  // draggable column widths — left nav (handle on its right edge) and the
+  // right now-playing column (handle on its left edge)
   const [navWidth, setNavWidth] = useState(() => {
     const saved = parseInt(localStorage.getItem('navWidth'), 10);
     return Number.isFinite(saved) ? Math.min(340, Math.max(170, saved)) : 200;
   });
+  const [npWidth, setNpWidth] = useState(() => {
+    const saved = parseInt(localStorage.getItem('npWidth'), 10);
+    return Number.isFinite(saved) ? Math.min(640, Math.max(300, saved)) : 340;
+  });
   const isResizingSidebarRef = useRef(false);
+  const isResizingNpRef = useRef(false);
+  const navWidthRef = useRef(navWidth);
+  navWidthRef.current = navWidth;
 
   useEffect(() => {
     function handleMouseMove(e) {
-      if (!isResizingSidebarRef.current) return;
-      setNavWidth(Math.min(340, Math.max(170, e.clientX)));
+      if (isResizingSidebarRef.current) {
+        setNavWidth(Math.min(340, Math.max(170, e.clientX)));
+      } else if (isResizingNpRef.current) {
+        // never let the now-playing column starve the middle track list
+        const maxNp = Math.max(300, window.innerWidth - navWidthRef.current - 300);
+        setNpWidth(Math.min(640, maxNp, Math.max(300, window.innerWidth - e.clientX)));
+      }
     }
     function handleMouseUp() {
-      if (!isResizingSidebarRef.current) return;
-      isResizingSidebarRef.current = false;
-      setNavWidth((w) => {
-        localStorage.setItem('navWidth', String(w));
-        return w;
-      });
+      if (isResizingSidebarRef.current) {
+        isResizingSidebarRef.current = false;
+        setNavWidth((w) => {
+          localStorage.setItem('navWidth', String(w));
+          return w;
+        });
+      }
+      if (isResizingNpRef.current) {
+        isResizingNpRef.current = false;
+        setNpWidth((w) => {
+          localStorage.setItem('npWidth', String(w));
+          return w;
+        });
+      }
     }
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
@@ -177,16 +201,19 @@ export default function App() {
   const isViewingPlayingTrack = currentTrackId === playingTrackId;
 
   // the ordered track list the middle column shows for the active left-nav
-  // item: a playlist's manual order, or the whole library newest-first
+  // item: a playlist's manual order, or the whole library newest-first.
+  // Memoised so a playback-time re-render (currentTime ticks) doesn't hand
+  // LibraryList a brand-new array and force every row to re-render — that
+  // regressed the "clicks feel laggy / inconsistent" complaint.
   const activePlaylist =
     activeView.type === 'playlist' ? playlists.find((p) => p.id === activeView.id) || null : null;
-  const shownTracks = (() => {
+  const shownTracks = useMemo(() => {
     if (activePlaylist) {
       const byId = new Map(tracks.map((t) => [t.id, t]));
       return activePlaylist.trackIds.map((id) => byId.get(id)).filter(Boolean);
     }
     return [...tracks].sort((a, b) => b.dateAdded - a.dateAdded);
-  })();
+  }, [tracks, activePlaylist]);
 
   const dismissImportToast = useCallback(() => setImportToast(null), []);
 
@@ -741,6 +768,15 @@ export default function App() {
 
       if (isTyping) return;
 
+      if (keyStr === keybindings.toggleNav.key) {
+        // only meaningful in the 3-column library view
+        if (view === 'sidebar') {
+          e.preventDefault();
+          setNavCollapsed((c) => !c);
+        }
+        return;
+      }
+
       if (keyStr === keybindings.playPause.key) {
         e.preventDefault();
         // not just waveformRef.toggle() — if you're browsing a track that
@@ -788,13 +824,20 @@ export default function App() {
     currentTrackId,
     keybindings,
     settingsOpen,
+    view,
     handleSetVolume,
     handleTogglePlay,
     handleToggleShuffle
   ]);
 
   return (
-    <div className="app" style={{ '--nav-width': `${navWidth}px`, '--np-width': '278px' }}>
+    <div
+      className={`app${navCollapsed && view === 'sidebar' ? ' nav-collapsed' : ''}`}
+      style={{
+        '--nav-width': `${navCollapsed && view === 'sidebar' ? 0 : navWidth}px`,
+        '--np-width': `${npWidth}px`
+      }}
+    >
       {createPortal(
         <Waveform
           ref={waveformRef}
@@ -866,9 +909,13 @@ export default function App() {
             onRemoveTrackFromPlaylist={handleRemoveTrackFromPlaylist}
             onReorderPlaylistTracks={handleReorderPlaylistTracks}
             onOpenMenu={setContextMenu}
+            onPrompt={setPromptConfig}
             searchInputRef={searchInputRef}
           />
           <NowPlaying
+            onResizeStart={() => {
+              isResizingNpRef.current = true;
+            }}
             track={currentTrack}
             waveformHost={waveformHostRef.current}
             isCurrentlyPlayingTrack={isViewingPlayingTrack}
@@ -954,6 +1001,7 @@ export default function App() {
         />
       )}
       <ContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} />
+      <PromptModal config={promptConfig} onClose={() => setPromptConfig(null)} />
     </div>
   );
 }

@@ -217,6 +217,17 @@ persisted to `localStorage.navWidth`) / `1fr` / `var(--np-width)` (fixed 278px).
   Every mutation writes the whole record through via `persistPlaylist` /
   `putPlaylist`. `handleDeleteTrack` also prunes the id from every playlist.
 - `libraryViewMode`: `'list' | 'grid'`, persisted to `localStorage.libraryViewMode`.
+- `npWidth`: right now-playing column width, drag-handle on its LEFT edge
+  (`.np-resize-handle`), persisted to `localStorage.npWidth`, clamped so the middle
+  column keeps ≥300px.
+- `navCollapsed`: `Tab` (the `toggleNav` keybinding) slides `PlaylistNav` out of view
+  in the `'sidebar'` view — grid's `--nav-width` animates to 0 + `.playlist-nav`
+  `translateX(-100%)`. `.app.nav-collapsed .library-list` gets extra left padding to
+  clear the traffic lights.
+- **`window.prompt()` does NOT work in Electron** (throws "not supported"). Anything
+  needing a typed string (naming a new playlist) uses `<PromptModal>`, controlled by
+  App's `promptConfig` state. `window.confirm()` *is* fine and is still used for
+  destructive confirms.
 - `playbackContext`: `{ type: 'library' }` or `{ type: 'playlist', id }`. Set whenever
   a NEW playing track is chosen from the middle column (`handlePlayTrack`,
   `handleTogglePlay` adopting a browsed track, `handlePlayPlaylist`) — derived from

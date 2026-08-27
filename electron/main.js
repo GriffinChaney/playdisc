@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
 
-const DEFAULT_MIN_WIDTH = 820;
+const DEFAULT_MIN_WIDTH = 900;
 const DEFAULT_MIN_HEIGHT = 560;
 const MINI_WIDTH = 240;
 const MINI_HEIGHT = 240;

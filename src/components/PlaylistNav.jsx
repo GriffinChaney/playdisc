@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import UploadButton from './UploadButton';
 import QueuePanel from './QueuePanel';
 import HistoryPanel from './HistoryPanel';
@@ -6,7 +6,7 @@ import HistoryPanel from './HistoryPanel';
 // Left column of the library view: upload, the "Imported" (whole-library)
 // view, the playlist list (pinned first), a new-playlist affordance, then
 // the queue and recently-played panels.
-export default function PlaylistNav({
+function PlaylistNav({
   playlists,
   activeView,
   onSelectView,
@@ -110,23 +110,39 @@ export default function PlaylistNav({
               />
             </form>
           ) : (
-            <button
+            <div
               key={pl.id}
-              className={`playlist-item${
+              className={`playlist-item-row${pl.pinned ? ' pinned' : ''}${
                 activeView.type === 'playlist' && activeView.id === pl.id ? ' active' : ''
               }`}
-              onClick={() => onSelectView({ type: 'playlist', id: pl.id })}
-              onContextMenu={(e) => playlistMenu(e, pl)}
-              title={pl.name}
             >
-              {pl.pinned && (
-                <span className="playlist-pin" aria-label="pinned">
-                  ▲
-                </span>
-              )}
-              <span className="playlist-item-name">{pl.name}</span>
+              <button
+                className="playlist-item"
+                onClick={() => onSelectView({ type: 'playlist', id: pl.id })}
+                onContextMenu={(e) => playlistMenu(e, pl)}
+                title={pl.name}
+              >
+                <span className="playlist-item-name">{pl.name}</span>
+              </button>
+              <button
+                className="playlist-pin-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onTogglePin(pl.id);
+                }}
+                title={pl.pinned ? 'Unpin' : 'Pin to top'}
+                aria-label={pl.pinned ? 'unpin playlist' : 'pin playlist to top'}
+                aria-pressed={!!pl.pinned}
+              >
+                <svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true">
+                  <path
+                    d="M9.6 1.6 14.4 6.4l-2.9 1-1.4 4.1-2.4-2.5-3.9 4-.7-.7 4-3.9L2.5 6l4.1-1.4z"
+                    fill="currentColor"
+                  />
+                </svg>
+              </button>
               <span className="playlist-item-count">{pl.trackIds.length}</span>
-            </button>
+            </div>
           )
         )}
 
@@ -169,3 +185,5 @@ export default function PlaylistNav({
     </div>
   );
 }
+
+export default memo(PlaylistNav);

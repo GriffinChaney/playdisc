@@ -98,7 +98,22 @@ project up in a fresh session, read both before changing anything.
   - Verified in dev build: 3-col layout, create/rename/pin/delete playlist, add via
     menu + bulk, delete-preserves-library, playlist playback order, grid toggle,
     drag-reorder, persistence across reload, fullscreen + mini still fine.
-  - **Not yet in the packaged app** — needs a rebuild.
+  - Follow-up fixes (same session, after user tested the packaged build):
+    - **Add-to-playlist was broken** — the "New playlist…" flow used `window.prompt()`,
+      which Electron doesn't implement. Replaced with `<PromptModal>` (App `promptConfig`
+      state). `window.confirm()` is fine, still used.
+    - **Click lag regressed** — App was handing `LibraryList` a freshly-built
+      `shownTracks` array every render (incl. every 200ms currentTime tick), forcing a
+      full list re-render. Fixed: `useMemo` on `shownTracks`, `React.memo` on
+      LibraryList + PlaylistNav.
+    - Right now-playing column is now bigger (default 340) and **drag-resizable** (handle
+      on its left edge, `npWidth` / `localStorage.npWidth`, clamped to keep middle ≥300).
+      Electron min window width 820→900.
+    - **`Tab`** slides the left playlist nav out of view / back (`toggleNav` keybinding,
+      in Settings). Grid `--nav-width`→0 + slide animation.
+    - Pin/unpin: added a hover pin button on each playlist row (was right-click only).
+    - Subtle lift + shadow on grid-item hover.
+  - **Not yet in the packaged app after the follow-ups** — needs a rebuild.
 
 
 - **Play history / recently-played** (browser-style back/forward): new `history` +
