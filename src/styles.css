@@ -78,6 +78,17 @@ body {
   gap: 12px;
   overflow: hidden;
   animation: view-enter 260ms cubic-bezier(0.16, 1, 0.3, 1);
+  /* nothing in these columns is meant to be text-selected — without this a
+     ⌘-drag over rows / grid tiles / playlists also rubber-bands the text */
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* ...except the fields you actually type in */
+.playlist-nav input,
+.library-list input,
+.library-list textarea {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .playlist-nav {
