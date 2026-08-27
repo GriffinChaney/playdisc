@@ -80,6 +80,27 @@ project up in a fresh session, read both before changing anything.
 
 ## Just finished (2nd laptop session, 2026-08-26)
 
+- **Playlist system + 3-column library view** (big one — backup tag
+  `pre-playlists-2026-08-26`, zip `~/Downloads/sona-backup-20260826-2204.zip`):
+  - DB v1→v2: new `playlists` store `{ id, name, trackIds[], pinned, createdAt,
+    updatedAt }`. Playlists are ordered id-lists; deleting one never touches tracks.
+  - `view === 'sidebar'` is now 3 columns: `PlaylistNav` (left) / `LibraryList`
+    (middle) / `NowPlaying` (right). Fullscreen + mini untouched. Old monolithic
+    `Sidebar.jsx` split into PlaylistNav + LibraryList + extracted QueuePanel +
+    HistoryPanel. New `ContextMenu.jsx` (reusable right-click menu w/ 1-level submenu).
+  - "Imported" left-nav item = the whole library. Playlists below it, pinned first.
+  - Add-to-playlist via track right-click or the `+ playlist` bulk-bar button (both
+    honour multi-select). Right-click a playlist → Play / Pin / Rename / Delete.
+  - `playbackContext` state: skip/auto-advance follow the playlist you started
+    playing from, else library order.
+  - Extras done this pass: list⇄grid toggle (persisted), drag-reorder within a
+    playlist (disabled while searching/filtering), "N songs · M min" subtitle.
+  - Verified in dev build: 3-col layout, create/rename/pin/delete playlist, add via
+    menu + bulk, delete-preserves-library, playlist playback order, grid toggle,
+    drag-reorder, persistence across reload, fullscreen + mini still fine.
+  - **Not yet in the packaged app** — needs a rebuild.
+
+
 - **Play history / recently-played** (browser-style back/forward): new `history` +
   `historyIndex` state in `App.jsx`. Prev/Next transport (and `u`/`d` + arrow keys)
   now walk the real play trail — Back = last actually-played track, Forward retraces,

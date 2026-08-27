@@ -40,10 +40,14 @@ music-player-app/
 │   ├── main.jsx          # React entry point; Buffer polyfill lives here (critical, see below)
 │   ├── styles.css        # single global stylesheet, CSS variables for theming
 │   ├── components/
-│   │   ├── Sidebar.jsx        # library list, search, tag filter, multi-select, queue panel, resize handle
-│   │   ├── TrackItem.jsx      # one row in the sidebar list
+│   │   ├── PlaylistNav.jsx    # LEFT column of the library view: Imported item, playlist list (pin/rename/delete via right-click), + new playlist, then QueuePanel + HistoryPanel, resize handle
+│   │   ├── LibraryList.jsx    # MIDDLE column: header (title/count/time), list⇄grid toggle, search, tag filter, multi-select + bulk bar, track list or grid, drag-reorder (playlist views), track right-click menu
+│   │   ├── QueuePanel.jsx     # "up next" panel w/ drag-reorder (was inline in old Sidebar)
+│   │   ├── HistoryPanel.jsx   # "recently played" collapsible panel (was inline in old Sidebar)
+│   │   ├── ContextMenu.jsx    # reusable right-click menu (controlled: App holds `contextMenu` state, renders one instance); supports one level of submenu
+│   │   ├── TrackItem.jsx      # one row in the track list
 │   │   ├── UploadButton.jsx   # file picker
-│   │   ├── NowPlaying.jsx     # right-hand panel in normal (non-fullscreen) view
+│   │   ├── NowPlaying.jsx     # RIGHT column of the library view (artwork + waveform + transport)
 │   │   ├── FocusView.jsx      # fullscreen "focus mode" view
 │   │   ├── MiniPlayer.jsx     # content shown when the OS window is shrunk to mini mode
 │   │   ├── BackgroundPlayBar.jsx  # floating pill shown when browsing ≠ playing track
@@ -193,13 +197,43 @@ track pauses what's playing." Root-caused and fixed by:
 it under some condition, use the overlay pattern — never make `<WaveformSlot>`'s
 presence conditional.**
 
+### Library view = 3 columns (`view === 'sidebar'`)
+
+The `'sidebar'` view (the name is now historical — it's the normal/general view)
+renders a 3-column CSS grid on `.app`:
+`[PlaylistNav | LibraryList | NowPlaying]`, widths `var(--nav-width)` (drag-resizable,
+persisted to `localStorage.navWidth`) / `1fr` / `var(--np-width)` (fixed 278px).
+**`'focus'` and `'mini'` views are untouched** — `.focus-view` still spans
+`grid-column: 1 / -1`, `.mini-player` is still `position: fixed; inset: 0`.
+
+- `activeView`: `{ type: 'imported' }` or `{ type: 'playlist', id }` — which left-nav
+  item the middle column shows. "Imported" = the **entire library** (newest-first),
+  not "songs not in a playlist". Purely a view; never changes `currentTrackId`/
+  `playingTrackId`.
+- `playlists`: array of `{ id, name, trackIds: string[], pinned, createdAt, updatedAt }`.
+  A playlist is just an **ordered list of track ids** — deleting one never touches the
+  tracks. Stored in a new IndexedDB store `playlists` (**DB_VERSION bumped 1→2**; the
+  `upgrade` callback is now `oldVersion`-guarded so existing v1 dbs migrate cleanly).
+  Every mutation writes the whole record through via `persistPlaylist` /
+  `putPlaylist`. `handleDeleteTrack` also prunes the id from every playlist.
+- `libraryViewMode`: `'list' | 'grid'`, persisted to `localStorage.libraryViewMode`.
+- `playbackContext`: `{ type: 'library' }` or `{ type: 'playlist', id }`. Set whenever
+  a NEW playing track is chosen from the middle column (`handlePlayTrack`,
+  `handleTogglePlay` adopting a browsed track, `handlePlayPlaylist`) — derived from
+  `activeView` at that moment. `handleSkip` / `handleFinish` traverse
+  `orderedContextTracks()` (the playlist's manual order, else library newest-first)
+  instead of always library order. This is what makes "next" stay inside a playlist.
+- `contextMenu`: `{ x, y, items }` for the single `<ContextMenu>`. `setContextMenu` is
+  passed to PlaylistNav (playlist right-click) and LibraryList (track right-click,
+  which acts on the whole multi-selection if the clicked row is part of one).
+
 ### Other App.jsx state
 
-- `view`: `'sidebar' | 'focus' | 'mini'` — which of the three top-level layouts is
-  showing. Sidebar+NowPlaying and FocusView are mutually exclusive (conditional
-  render, which is safe for *those* because neither owns the waveform DOM node
-  directly — `WaveformSlot` re-mounts into whichever is active and just reparents the
-  persistent host). Mini uses the same pattern via its own `<WaveformSlot>` (hidden).
+- `view`: `'sidebar' | 'focus' | 'mini'` — which top-level layout shows. `'sidebar'`
+  is the 3-column library view (see above); it and FocusView are mutually exclusive
+  (conditional render, safe because neither owns the waveform DOM node directly —
+  `WaveformSlot` re-mounts into whichever is active and reparents the persistent host).
+  Mini uses the same pattern via its own `<WaveformSlot>` (hidden).
 - `isPlaying`, `currentTime`, `duration`: engine playback state, driven by WaveSurfer
   events (`play`/`pause`/`audioprocess`/`ready`).
   - `currentTime` updates are **throttled to 200ms** via `handleTimeUpdate` in
@@ -223,9 +257,11 @@ presence conditional.**
   `setHistory(prev => …)` updater with ref/setState side effects inside, because
   StrictMode double-invokes updaters and that double-applied the index math (dev-only
   bug: forward tail wasn't truncated on a new play).**
-- `sidebarWidth`: persisted to `localStorage`, applied via CSS var `--sidebar-width` on
-  `.app`. Drag-resize handled by a `mousemove`/`mouseup` listener pair gated by
-  `isResizingSidebarRef`, started via `.sidebar-resize-handle`'s `onMouseDown`.
+- `navWidth`: width of the left playlist-nav column, persisted to
+  `localStorage.navWidth`, applied via CSS var `--nav-width` on `.app` (clamped
+  170–340). Drag-resize handled by a `mousemove`/`mouseup` listener pair gated by
+  `isResizingSidebarRef`, started via `.sidebar-resize-handle`'s `onMouseDown` (the
+  handle lives on PlaylistNav's right edge).
 - `volume`: persisted to `localStorage`. Applied via `volumeRef` (not just state)
   because **each track switch recreates the WaveSurfer instance** (see below), which
   resets volume to its default — `handleReady` re-applies `volumeRef.current` on every
@@ -255,9 +291,10 @@ presence conditional.**
 }
 ```
 
-IndexedDB database name is `"my-music-player"` (store `"tracks"`) — **not** renamed to
-`"sona"` when the app was rebranded. Harmless (it's an internal identifier the user
-never sees), but don't be surprised finding it while debugging storage, and don't
+IndexedDB database name is `"my-music-player"` (stores `"tracks"` and, since
+DB_VERSION 2, `"playlists"`) — **not** renamed to `"sona"` when the app was rebranded.
+Harmless (it's an internal identifier the user never sees), but don't be surprised
+finding it while debugging storage, and don't
 "fix" it without checking whether a migration is worth the churn — a rename would
 require a migration path or it just creates a second empty database.
 

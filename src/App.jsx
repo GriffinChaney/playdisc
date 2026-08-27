@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import Sidebar from './components/Sidebar';
+import PlaylistNav from './components/PlaylistNav';
+import LibraryList from './components/LibraryList';
+import ContextMenu from './components/ContextMenu';
 import NowPlaying from './components/NowPlaying';
 import FocusView from './components/FocusView';
 import MiniPlayer from './components/MiniPlayer';
@@ -10,7 +12,15 @@ import SettingsModal from './components/SettingsModal';
 import VolumeIcon from './components/VolumeIcon';
 import ImportOverlay from './components/ImportOverlay';
 import ImportToast from './components/ImportToast';
-import { addTrack, getAllTracks, updateTrack, deleteTrack } from './lib/db';
+import {
+  addTrack,
+  getAllTracks,
+  updateTrack,
+  deleteTrack,
+  getAllPlaylists,
+  putPlaylist,
+  deletePlaylistRecord
+} from './lib/db';
 import { parseTrack } from './lib/parseTrack';
 import { useObjectUrl } from './lib/useObjectUrl';
 import { loadKeybindings, saveKeybindings, eventToKeyString, DEFAULT_KEYBINDINGS } from './lib/keybindings';
@@ -24,6 +34,23 @@ export default function App() {
   const [currentTrackId, setCurrentTrackId] = useState(null);
   const [playingTrackId, setPlayingTrackId] = useState(null);
   const [view, setView] = useState('sidebar'); // 'sidebar' | 'focus' | 'mini'
+
+  // playlists + which left-nav item the middle column is showing
+  const [playlists, setPlaylists] = useState([]);
+  const [activeView, setActiveView] = useState({ type: 'imported' }); // | { type: 'playlist', id }
+  const [libraryViewMode, setLibraryViewMode] = useState(
+    () => localStorage.getItem('libraryViewMode') || 'list'
+  );
+  const [contextMenu, setContextMenu] = useState(null);
+  // ordering context for skip/auto-advance: follows whichever list a new
+  // playing track was chosen from ('library' order, or a specific playlist)
+  const [playbackContext, setPlaybackContext] = useState({ type: 'library' });
+  const playlistsRef = useRef(playlists);
+  const playbackContextRef = useRef(playbackContext);
+  const activeViewRef = useRef(activeView);
+  playlistsRef.current = playlists;
+  playbackContextRef.current = playbackContext;
+  activeViewRef.current = activeView;
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -60,22 +87,23 @@ export default function App() {
   }, [shuffleEnabled]);
   const handleToggleShuffle = useCallback(() => setShuffleEnabled((v) => !v), []);
 
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const saved = parseInt(localStorage.getItem('sidebarWidth'), 10);
-    return Number.isFinite(saved) ? saved : 300;
+  // width of the left playlist-nav column (drag handle on its right edge)
+  const [navWidth, setNavWidth] = useState(() => {
+    const saved = parseInt(localStorage.getItem('navWidth'), 10);
+    return Number.isFinite(saved) ? Math.min(340, Math.max(170, saved)) : 200;
   });
   const isResizingSidebarRef = useRef(false);
 
   useEffect(() => {
     function handleMouseMove(e) {
       if (!isResizingSidebarRef.current) return;
-      setSidebarWidth(Math.min(520, Math.max(220, e.clientX)));
+      setNavWidth(Math.min(340, Math.max(170, e.clientX)));
     }
     function handleMouseUp() {
       if (!isResizingSidebarRef.current) return;
       isResizingSidebarRef.current = false;
-      setSidebarWidth((w) => {
-        localStorage.setItem('sidebarWidth', String(w));
+      setNavWidth((w) => {
+        localStorage.setItem('navWidth', String(w));
         return w;
       });
     }
@@ -100,7 +128,19 @@ export default function App() {
 
   useEffect(() => {
     getAllTracks().then(setTracks);
+    getAllPlaylists().then((pls) => setPlaylists(pls.map((p) => ({ pinned: false, ...p }))));
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem('libraryViewMode', libraryViewMode);
+  }, [libraryViewMode]);
+
+  // if the active playlist is deleted elsewhere, fall back to Imported
+  useEffect(() => {
+    if (activeView.type === 'playlist' && !playlists.some((p) => p.id === activeView.id)) {
+      setActiveView({ type: 'imported' });
+    }
+  }, [playlists, activeView]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -135,6 +175,18 @@ export default function App() {
   // the audio engine always follows the PLAYING track, never the browsed one
   const audioUrl = useObjectUrl(playingTrack?.audioBlob);
   const isViewingPlayingTrack = currentTrackId === playingTrackId;
+
+  // the ordered track list the middle column shows for the active left-nav
+  // item: a playlist's manual order, or the whole library newest-first
+  const activePlaylist =
+    activeView.type === 'playlist' ? playlists.find((p) => p.id === activeView.id) || null : null;
+  const shownTracks = (() => {
+    if (activePlaylist) {
+      const byId = new Map(tracks.map((t) => [t.id, t]));
+      return activePlaylist.trackIds.map((id) => byId.get(id)).filter(Boolean);
+    }
+    return [...tracks].sort((a, b) => b.dateAdded - a.dateAdded);
+  })();
 
   const dismissImportToast = useCallback(() => setImportToast(null), []);
 
@@ -187,19 +239,39 @@ export default function App() {
     setIsPlaying(false); // not actually playing yet — flips true once loaded audio starts (if autoPlay)
   }, [playingTrackId]);
 
+  // the ordering context that skip / auto-advance should follow, derived
+  // from whichever left-nav view a play was initiated from
+  const contextFromActiveView = useCallback(() => {
+    const av = activeViewRef.current;
+    return av.type === 'playlist' ? { type: 'playlist', id: av.id } : { type: 'library' };
+  }, []);
+
   const handlePlayTrack = useCallback((id) => {
+    setPlaybackContext(contextFromActiveView());
     handleAdoptAndPlay(id, { autoPlay: true });
-  }, [handleAdoptAndPlay]);
+  }, [handleAdoptAndPlay, contextFromActiveView]);
+
+  const handlePlayPlaylist = useCallback(
+    (id) => {
+      const pl = playlistsRef.current.find((p) => p.id === id);
+      const firstId = pl?.trackIds.find((tid) => tracks.some((t) => t.id === tid));
+      if (!firstId) return;
+      setPlaybackContext({ type: 'playlist', id });
+      handleAdoptAndPlay(firstId, { autoPlay: true });
+    },
+    [tracks, handleAdoptAndPlay]
+  );
 
   // play/pause button: if browsing a track that isn't the one playing,
   // pressing play adopts it instead of toggling whatever's in the background
   const handleTogglePlay = useCallback(() => {
     if (currentTrackId && currentTrackId !== playingTrackId) {
+      setPlaybackContext(contextFromActiveView());
       handleAdoptAndPlay(currentTrackId, { autoPlay: true });
     } else {
       waveformRef.current?.toggle();
     }
-  }, [currentTrackId, playingTrackId, handleAdoptAndPlay]);
+  }, [currentTrackId, playingTrackId, handleAdoptAndPlay, contextFromActiveView]);
 
   const handleAddTag = useCallback(async (id, tag) => {
     setTracks((prev) =>
@@ -260,6 +332,94 @@ export default function App() {
       return next;
     });
   }, []);
+
+  // ---- playlists ----
+  // A playlist is a named, ordered list of track ids. Every mutation writes
+  // the whole record through to IndexedDB. Deleting a playlist never touches
+  // the tracks it referenced.
+  const persistPlaylist = useCallback((pl) => {
+    const withStamp = { ...pl, updatedAt: Date.now() };
+    setPlaylists((prev) => {
+      const i = prev.findIndex((p) => p.id === pl.id);
+      return i === -1 ? [...prev, withStamp] : prev.map((p) => (p.id === pl.id ? withStamp : p));
+    });
+    putPlaylist(withStamp);
+    return withStamp;
+  }, []);
+
+  const handleCreatePlaylist = useCallback(
+    (name, trackIds = []) => {
+      const pl = {
+        id: crypto.randomUUID(),
+        name,
+        trackIds: [...new Set(trackIds)],
+        pinned: false,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      };
+      setPlaylists((prev) => [...prev, pl]);
+      putPlaylist(pl);
+      setActiveView({ type: 'playlist', id: pl.id });
+      return pl.id;
+    },
+    []
+  );
+
+  const handleRenamePlaylist = useCallback(
+    (id, name) => {
+      const pl = playlistsRef.current.find((p) => p.id === id);
+      if (pl) persistPlaylist({ ...pl, name });
+    },
+    [persistPlaylist]
+  );
+
+  const handleTogglePinPlaylist = useCallback(
+    (id) => {
+      const pl = playlistsRef.current.find((p) => p.id === id);
+      if (pl) persistPlaylist({ ...pl, pinned: !pl.pinned });
+    },
+    [persistPlaylist]
+  );
+
+  const handleDeletePlaylist = useCallback((id) => {
+    setPlaylists((prev) => prev.filter((p) => p.id !== id));
+    deletePlaylistRecord(id);
+    setPlaybackContext((ctx) => (ctx.type === 'playlist' && ctx.id === id ? { type: 'library' } : ctx));
+  }, []);
+
+  const handleAddTracksToPlaylist = useCallback(
+    (id, trackIds) => {
+      const pl = playlistsRef.current.find((p) => p.id === id);
+      if (!pl) return;
+      const merged = [...pl.trackIds];
+      trackIds.forEach((tid) => {
+        if (!merged.includes(tid)) merged.push(tid);
+      });
+      persistPlaylist({ ...pl, trackIds: merged });
+    },
+    [persistPlaylist]
+  );
+
+  const handleRemoveTrackFromPlaylist = useCallback(
+    (id, trackId) => {
+      const pl = playlistsRef.current.find((p) => p.id === id);
+      if (pl) persistPlaylist({ ...pl, trackIds: pl.trackIds.filter((t) => t !== trackId) });
+    },
+    [persistPlaylist]
+  );
+
+  const handleReorderPlaylistTracks = useCallback(
+    (id, fromIndex, insertBeforeIndex) => {
+      const pl = playlistsRef.current.find((p) => p.id === id);
+      if (!pl) return;
+      const next = [...pl.trackIds];
+      const [moved] = next.splice(fromIndex, 1);
+      const adjusted = insertBeforeIndex > fromIndex ? insertBeforeIndex - 1 : insertBeforeIndex;
+      next.splice(adjusted, 0, moved);
+      persistPlaylist({ ...pl, trackIds: next });
+    },
+    [persistPlaylist]
+  );
 
   // ---- play history: browser-style back/forward through what actually played ----
   // Every genuinely-new track that starts playing is appended. Back/Forward
@@ -362,6 +522,21 @@ export default function App() {
     commitHistory([], 0);
   }, [commitHistory]);
 
+  // the ordered track list that skip / auto-advance traverses: the playlist
+  // the current playback started from, else plain library (newest-first) order
+  const orderedContextTracks = useCallback(() => {
+    const ctx = playbackContextRef.current;
+    if (ctx.type === 'playlist') {
+      const pl = playlistsRef.current.find((p) => p.id === ctx.id);
+      if (pl) {
+        const byId = new Map(tracks.map((t) => [t.id, t]));
+        const list = pl.trackIds.map((tid) => byId.get(tid)).filter(Boolean);
+        if (list.length) return list;
+      }
+    }
+    return [...tracks].sort((a, b) => b.dateAdded - a.dateAdded);
+  }, [tracks]);
+
   const handleSkip = useCallback((direction) => {
     if (!tracks.length) return;
 
@@ -379,7 +554,7 @@ export default function App() {
       const h = historyRef.current;
       if (h.length > 0) {
         const anchorId = h[0]?.trackId;
-        const sortedLib = [...tracks].sort((a, b) => b.dateAdded - a.dateAdded);
+        const sortedLib = orderedContextTracks();
         const ai = sortedLib.findIndex((t) => t.id === anchorId);
         if (ai !== -1) {
           const prevTrack = sortedLib[(ai - 1 + sortedLib.length) % sortedLib.length];
@@ -415,7 +590,7 @@ export default function App() {
       handleAdoptAndPlay(next.trackId, { autoPlay: isPlaying });
       return;
     }
-    const sorted = [...tracks].sort((a, b) => b.dateAdded - a.dateAdded);
+    const sorted = orderedContextTracks();
     // skip always moves relative to what's actually playing, not whatever
     // happens to be browsed, so it stays correct even mid-browse
     const referenceId = playingTrackId ?? currentTrackId;
@@ -428,7 +603,7 @@ export default function App() {
     const idx = sorted.findIndex((t) => t.id === referenceId);
     const nextIdx = (idx + direction + sorted.length) % sorted.length;
     handleAdoptAndPlay(sorted[nextIdx].id, { autoPlay: isPlaying });
-  }, [tracks, playingTrackId, currentTrackId, handleAdoptAndPlay, isPlaying, queue, shuffleEnabled, goToHistory, stepHistory, commitHistory]);
+  }, [tracks, playingTrackId, currentTrackId, handleAdoptAndPlay, isPlaying, queue, shuffleEnabled, goToHistory, stepHistory, commitHistory, orderedContextTracks]);
 
   const handleReady = useCallback((dur) => {
     setDuration(dur);
@@ -464,7 +639,7 @@ export default function App() {
       return;
     }
     if (!tracks.length) return;
-    const sorted = [...tracks].sort((a, b) => b.dateAdded - a.dateAdded);
+    const sorted = orderedContextTracks();
     const referenceId = playingTrackId ?? currentTrackId;
     if (shuffleEnabled && sorted.length > 1) {
       const candidates = sorted.filter((t) => t.id !== referenceId);
@@ -475,7 +650,7 @@ export default function App() {
     const idx = sorted.findIndex((t) => t.id === referenceId);
     const nextIdx = (idx + 1) % sorted.length;
     handleAdoptAndPlay(sorted[nextIdx].id, { autoPlay: true });
-  }, [tracks, playingTrackId, currentTrackId, handleAdoptAndPlay, queue, shuffleEnabled, goToHistory, stepHistory]);
+  }, [tracks, playingTrackId, currentTrackId, handleAdoptAndPlay, queue, shuffleEnabled, goToHistory, stepHistory, orderedContextTracks]);
 
   // audioprocess fires many times a second — updating currentTime state on
   // every tick meant the whole app re-rendered constantly during playback,
@@ -507,7 +682,13 @@ export default function App() {
     if (filtered.length !== historyRef.current.length) {
       commitHistory(filtered, Math.min(historyIndexRef.current, filtered.length));
     }
-  }, [currentTrackId, playingTrackId, commitHistory]);
+    // drop the deleted track from every playlist that referenced it
+    playlistsRef.current.forEach((pl) => {
+      if (pl.trackIds.includes(id)) {
+        persistPlaylist({ ...pl, trackIds: pl.trackIds.filter((t) => t !== id) });
+      }
+    });
+  }, [currentTrackId, playingTrackId, commitHistory, persistPlaylist]);
 
   // focus the search box once we're back in sidebar view after cmd+s
   useEffect(() => {
@@ -613,7 +794,7 @@ export default function App() {
   ]);
 
   return (
-    <div className="app" style={{ '--sidebar-width': `${sidebarWidth}px` }}>
+    <div className="app" style={{ '--nav-width': `${navWidth}px`, '--np-width': '278px' }}>
       {createPortal(
         <Waveform
           ref={waveformRef}
@@ -638,20 +819,19 @@ export default function App() {
         />
       ) : view === 'sidebar' ? (
         <>
-          <Sidebar
-            tracks={tracks}
-            currentTrackId={currentTrackId}
-            playingTrackId={playingTrackId}
-            expandedTrackId={expandedTrackId}
-            onSelectTrack={handleViewTrack}
-            onPlayTrack={handlePlayTrack}
+          <PlaylistNav
+            playlists={playlists}
+            activeView={activeView}
+            onSelectView={setActiveView}
             onFilesSelected={handleFilesSelected}
-            onAddTag={handleAddTag}
-            onRemoveTag={handleRemoveTag}
-            onDeleteTagGroup={handleDeleteTagGroup}
-            onDeleteTrack={handleDeleteTrack}
+            onCreatePlaylist={handleCreatePlaylist}
+            onOpenMenu={setContextMenu}
+            onTogglePin={handleTogglePinPlaylist}
+            onRenamePlaylist={handleRenamePlaylist}
+            onDeletePlaylist={handleDeletePlaylist}
+            onPlayPlaylist={handlePlayPlaylist}
             queue={queue}
-            onAddToQueue={handleAddToQueue}
+            tracks={tracks}
             onRemoveFromQueue={handleRemoveFromQueue}
             onReorderQueue={handleReorderQueue}
             onClearQueue={handleClearQueue}
@@ -659,10 +839,34 @@ export default function App() {
             historyIndex={historyIndex}
             onJumpToHistory={handleJumpToHistory}
             onClearHistory={handleClearHistory}
-            searchInputRef={searchInputRef}
             onResizeStart={() => {
               isResizingSidebarRef.current = true;
             }}
+          />
+          <LibraryList
+            tracks={shownTracks}
+            viewTitle={activePlaylist ? activePlaylist.name : 'Imported'}
+            isPlaylistView={!!activePlaylist}
+            playlistId={activePlaylist?.id}
+            playlists={playlists}
+            currentTrackId={currentTrackId}
+            playingTrackId={playingTrackId}
+            expandedTrackId={expandedTrackId}
+            viewMode={libraryViewMode}
+            onSetViewMode={setLibraryViewMode}
+            onSelectTrack={handleViewTrack}
+            onPlayTrack={handlePlayTrack}
+            onAddTag={handleAddTag}
+            onRemoveTag={handleRemoveTag}
+            onDeleteTagGroup={handleDeleteTagGroup}
+            onDeleteTrack={handleDeleteTrack}
+            onAddToQueue={handleAddToQueue}
+            onAddTracksToPlaylist={handleAddTracksToPlaylist}
+            onCreatePlaylistWithTracks={handleCreatePlaylist}
+            onRemoveTrackFromPlaylist={handleRemoveTrackFromPlaylist}
+            onReorderPlaylistTracks={handleReorderPlaylistTracks}
+            onOpenMenu={setContextMenu}
+            searchInputRef={searchInputRef}
           />
           <NowPlaying
             track={currentTrack}
@@ -701,11 +905,10 @@ export default function App() {
           onTogglePlay={() => waveformRef.current?.toggle()}
           onJumpToTrack={() => setCurrentTrackId(playingTrackId)}
           // centered on the whole window in focus view, but on just the
-          // main content area (right of the sidebar) in sidebar view —
-          // otherwise it visually skews left, eaten into by the sidebar
+          // middle (track-list) column in the 3-column library view
           style={
             view === 'sidebar'
-              ? { left: `calc((100% + var(--sidebar-width, 300px)) / 2)` }
+              ? { left: `calc((100% + var(--nav-width) - var(--np-width)) / 2)` }
               : undefined
           }
         />
@@ -750,6 +953,7 @@ export default function App() {
           onClose={() => setSettingsOpen(false)}
         />
       )}
+      <ContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} />
     </div>
   );
 }

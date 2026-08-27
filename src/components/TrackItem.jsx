@@ -19,6 +19,7 @@ export default function TrackItem({
   onPlay,
   onMouseDownTrack,
   onMouseEnterTrack,
+  onContextMenuTrack,
   onAddTag,
   onRemoveTag,
   onDelete,
@@ -48,6 +49,7 @@ export default function TrackItem({
       className={`track-item${isActive ? ' active' : ''}${isExpanded ? ' expanded' : ''}${isSelected ? ' selected' : ''}`}
       onClick={(e) => onSelect(track.id, e)}
       onDoubleClick={() => onPlay(track.id)}
+      onContextMenu={(e) => onContextMenuTrack?.(e, track.id)}
       onMouseDown={(e) => onMouseDownTrack(track.id, e)}
       onMouseEnter={() => onMouseEnterTrack(track.id)}
     >
@@ -59,9 +61,7 @@ export default function TrackItem({
           {isPlayingTrack && <span className="now-playing-dot" aria-label="now playing" />}
           {track.title}
         </p>
-        <p className="track-artist">
-          {track.artist} — {formatDuration(track.duration)}
-        </p>
+        <p className="track-artist">{track.artist}</p>
         <div className="track-tags" onClick={(e) => e.stopPropagation()}>
           {track.tags.map((tag) => (
             <span className="tag-chip" key={tag}>
@@ -93,6 +93,7 @@ export default function TrackItem({
           )}
         </div>
       </div>
+      <span className="track-duration">{formatDuration(track.duration)}</span>
       <button
         className="track-queue-btn"
         onClick={(e) => {
