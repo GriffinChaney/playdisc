@@ -19,9 +19,16 @@ export default function Sidebar({
   onRemoveFromQueue,
   onReorderQueue,
   onClearQueue,
+  history,
+  historyIndex,
+  onJumpToHistory,
+  onClearHistory,
   searchInputRef,
   onResizeStart
 }) {
+  const [historyOpen, setHistoryOpen] = useState(
+    () => localStorage.getItem('historyPanelOpen') === '1'
+  );
   const [query, setQuery] = useState('');
   const [activeTag, setActiveTag] = useState(null);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
@@ -259,6 +266,53 @@ export default function Sidebar({
               );
             })}
           </div>
+        </div>
+      )}
+
+      {history.length > 0 && (
+        <div className="history-panel">
+          <div className="queue-panel-header">
+            <button
+              className="history-toggle"
+              onClick={() => {
+                const next = !historyOpen;
+                setHistoryOpen(next);
+                localStorage.setItem('historyPanelOpen', next ? '1' : '0');
+              }}
+            >
+              <span className={`history-chevron${historyOpen ? ' open' : ''}`} aria-hidden="true">
+                ›
+              </span>
+              recently played — {history.length}
+            </button>
+            {historyOpen && (
+              <button className="queue-clear-btn" onClick={onClearHistory}>
+                clear
+              </button>
+            )}
+          </div>
+          {historyOpen && (
+            <div className="history-list">
+              {history
+                .map((entry, i) => ({ entry, i }))
+                .reverse()
+                .map(({ entry, i }) => {
+                  const t = tracks.find((tr) => tr.id === entry.trackId);
+                  if (!t) return null;
+                  return (
+                    <button
+                      key={entry.hid}
+                      className={`history-item${i === historyIndex ? ' current' : ''}`}
+                      onClick={() => onJumpToHistory(i)}
+                      title={`${t.title} — ${t.artist}`}
+                    >
+                      <span className="history-item-title">{t.title}</span>
+                      <span className="history-item-artist">{t.artist}</span>
+                    </button>
+                  );
+                })}
+            </div>
+          )}
         </div>
       )}
 

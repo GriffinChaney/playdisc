@@ -261,8 +261,154 @@ export default function App() {
     });
   }, []);
 
+  // ---- play history: browser-style back/forward through what actually played ----
+  // Every genuinely-new track that starts playing is appended. Back/Forward
+  // (handleSkip -1 / +1) walk this list; playing something brand-new while
+  // stepped back truncates the "forward" tail, exactly like browser history.
+  // Persisted (ids + timestamps only). `historyIndex` points at the currently
+  // playing entry and always starts at the live edge (== history.length) on
+  // load, so the first Back press lands on the last-played track.
+  const MAX_HISTORY = 50;
+
+  const [history, setHistory] = useState(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem('playHistory') || '[]');
+      return Array.isArray(raw) ? raw.filter((h) => h && typeof h.trackId === 'string') : [];
+    } catch {
+      return [];
+    }
+  });
+  const [historyIndex, setHistoryIndex] = useState(() => history.length);
+  const historyRef = useRef(history);
+  const historyIndexRef = useRef(historyIndex);
+  historyRef.current = history;
+  historyIndexRef.current = historyIndex;
+  // set true right before a Back/Forward/list-jump adopt, so the append
+  // effect below knows that playingTrackId change is navigation, not a new play
+  const historyNavRef = useRef(false);
+
+  // All history mutations go through these two so the refs stay in lockstep
+  // with state. They set plain values (never updater fns) — under StrictMode
+  // an updater fn is invoked twice, which would double-apply ref side effects.
+  const setHistoryPos = useCallback((i) => {
+    historyIndexRef.current = i;
+    setHistoryIndex(i);
+  }, []);
+  const commitHistory = useCallback((list, pos) => {
+    historyRef.current = list;
+    setHistory(list);
+    historyIndexRef.current = pos;
+    setHistoryIndex(pos);
+  }, []);
+
+  useEffect(() => {
+    if (!playingTrackId) return;
+    if (historyNavRef.current) {
+      historyNavRef.current = false;
+      return;
+    }
+    const i = historyIndexRef.current;
+    const prev = historyRef.current;
+    if (prev[i]?.trackId === playingTrackId) return; // same track re-triggered
+    let next = [
+      ...prev.slice(0, i + 1),
+      { hid: crypto.randomUUID(), trackId: playingTrackId, playedAt: Date.now() }
+    ];
+    if (next.length > MAX_HISTORY) next = next.slice(next.length - MAX_HISTORY);
+    commitHistory(next, next.length - 1);
+  }, [playingTrackId, commitHistory]);
+
+  useEffect(() => {
+    localStorage.setItem('playHistory', JSON.stringify(history));
+  }, [history]);
+
+  // once the library has loaded, drop entries for tracks deleted between sessions
+  const historyPrunedRef = useRef(false);
+  useEffect(() => {
+    if (historyPrunedRef.current || tracks.length === 0) return;
+    historyPrunedRef.current = true;
+    const ids = new Set(tracks.map((t) => t.id));
+    const filtered = historyRef.current.filter((h) => ids.has(h.trackId));
+    if (filtered.length === historyRef.current.length) return;
+    commitHistory(filtered, Math.min(historyIndexRef.current, filtered.length));
+  }, [tracks, commitHistory]);
+
+  // move the cursor to a specific history position and play that entry
+  const goToHistory = useCallback((i, autoPlay) => {
+    const entry = historyRef.current[i];
+    if (!entry || !tracks.some((t) => t.id === entry.trackId)) return;
+    setHistoryPos(i);
+    if (entry.trackId === playingTrackId) {
+      if (autoPlay) waveformRef.current?.play();
+      return;
+    }
+    historyNavRef.current = true;
+    handleAdoptAndPlay(entry.trackId, { autoPlay });
+  }, [tracks, playingTrackId, handleAdoptAndPlay, setHistoryPos]);
+
+  // nearest history position from `from` in direction `dir` (±1) whose track
+  // still exists, or -1 if there's none
+  const stepHistory = useCallback((from, dir) => {
+    const h = historyRef.current;
+    const ids = new Set(tracks.map((t) => t.id));
+    let j = from + dir;
+    while (j >= 0 && j < h.length && !ids.has(h[j].trackId)) j += dir;
+    return j >= 0 && j < h.length ? j : -1;
+  }, [tracks]);
+
+  const handleJumpToHistory = useCallback((i) => goToHistory(i, true), [goToHistory]);
+
+  const handleClearHistory = useCallback(() => {
+    commitHistory([], 0);
+  }, [commitHistory]);
+
   const handleSkip = useCallback((direction) => {
     if (!tracks.length) return;
+
+    // BACK: walk the real play history
+    if (direction === -1) {
+      const j = stepHistory(historyIndexRef.current, -1);
+      if (j !== -1) {
+        goToHistory(j, isPlaying);
+        return;
+      }
+      // no earlier history entry. If there's a history at all, keep going
+      // backward in library order but PREPEND (extend the trail backward) so
+      // the forward tail you'd built up isn't lost — same as a browser
+      // stepping back past where its history began.
+      const h = historyRef.current;
+      if (h.length > 0) {
+        const anchorId = h[0]?.trackId;
+        const sortedLib = [...tracks].sort((a, b) => b.dateAdded - a.dateAdded);
+        const ai = sortedLib.findIndex((t) => t.id === anchorId);
+        if (ai !== -1) {
+          const prevTrack = sortedLib[(ai - 1 + sortedLib.length) % sortedLib.length];
+          if (prevTrack.id !== playingTrackId) {
+            let extended = [
+              { hid: crypto.randomUUID(), trackId: prevTrack.id, playedAt: Date.now() },
+              ...h
+            ];
+            if (extended.length > MAX_HISTORY) extended = extended.slice(0, MAX_HISTORY);
+            historyNavRef.current = true;
+            commitHistory(extended, 0);
+            handleAdoptAndPlay(prevTrack.id, { autoPlay: isPlaying });
+          }
+          return;
+        }
+      }
+      // history is empty — plain library-order previous (the effect will
+      // append it as the first entry)
+    }
+
+    // FORWARD: if we've stepped back, retrace forward through history first
+    if (direction === 1 && historyIndexRef.current < historyRef.current.length - 1) {
+      const j = stepHistory(historyIndexRef.current, 1);
+      if (j !== -1) {
+        goToHistory(j, isPlaying);
+        return;
+      }
+    }
+
     if (direction === 1 && queue.length > 0) {
       const [next, ...rest] = queue;
       setQueue(rest);
@@ -282,7 +428,7 @@ export default function App() {
     const idx = sorted.findIndex((t) => t.id === referenceId);
     const nextIdx = (idx + direction + sorted.length) % sorted.length;
     handleAdoptAndPlay(sorted[nextIdx].id, { autoPlay: isPlaying });
-  }, [tracks, playingTrackId, currentTrackId, handleAdoptAndPlay, isPlaying, queue, shuffleEnabled]);
+  }, [tracks, playingTrackId, currentTrackId, handleAdoptAndPlay, isPlaying, queue, shuffleEnabled, goToHistory, stepHistory, commitHistory]);
 
   const handleReady = useCallback((dur) => {
     setDuration(dur);
@@ -303,6 +449,14 @@ export default function App() {
   // a track finishing naturally should always auto-advance and keep
   // playing, regardless of ambient isPlaying state at that instant
   const handleFinish = useCallback(() => {
+    // if the finish happened while stepped back in history, retrace forward
+    if (historyIndexRef.current < historyRef.current.length - 1) {
+      const j = stepHistory(historyIndexRef.current, 1);
+      if (j !== -1) {
+        goToHistory(j, true);
+        return;
+      }
+    }
     if (queue.length > 0) {
       const [next, ...rest] = queue;
       setQueue(rest);
@@ -321,7 +475,7 @@ export default function App() {
     const idx = sorted.findIndex((t) => t.id === referenceId);
     const nextIdx = (idx + 1) % sorted.length;
     handleAdoptAndPlay(sorted[nextIdx].id, { autoPlay: true });
-  }, [tracks, playingTrackId, currentTrackId, handleAdoptAndPlay, queue, shuffleEnabled]);
+  }, [tracks, playingTrackId, currentTrackId, handleAdoptAndPlay, queue, shuffleEnabled, goToHistory, stepHistory]);
 
   // audioprocess fires many times a second — updating currentTime state on
   // every tick meant the whole app re-rendered constantly during playback,
@@ -349,7 +503,11 @@ export default function App() {
     if (id === currentTrackId) {
       setCurrentTrackId(null);
     }
-  }, [currentTrackId, playingTrackId]);
+    const filtered = historyRef.current.filter((h) => h.trackId !== id);
+    if (filtered.length !== historyRef.current.length) {
+      commitHistory(filtered, Math.min(historyIndexRef.current, filtered.length));
+    }
+  }, [currentTrackId, playingTrackId, commitHistory]);
 
   // focus the search box once we're back in sidebar view after cmd+s
   useEffect(() => {
@@ -497,6 +655,10 @@ export default function App() {
             onRemoveFromQueue={handleRemoveFromQueue}
             onReorderQueue={handleReorderQueue}
             onClearQueue={handleClearQueue}
+            history={history}
+            historyIndex={historyIndex}
+            onJumpToHistory={handleJumpToHistory}
+            onClearHistory={handleClearHistory}
             searchInputRef={searchInputRef}
             onResizeStart={() => {
               isResizingSidebarRef.current = true;

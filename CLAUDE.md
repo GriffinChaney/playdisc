@@ -211,6 +211,18 @@ presence conditional.**
 - `queue`: array of track IDs, a manually-built play queue. Consumed first (shift off
   the front) by both `handleSkip(1)` and `handleFinish` before falling back to
   library-order traversal. Not persisted across restarts (in-memory only).
+- `history` / `historyIndex`: browser-style play-history back/forward stack. Every
+  genuinely-new track that starts playing is appended (`{ hid, trackId, playedAt }`);
+  `historyIndex` points at the currently-playing entry. `handleSkip(-1)` walks back
+  through it, `handleSkip(1)` retraces forward before falling to queue/shuffle/library;
+  playing something brand-new while stepped back truncates the forward tail. Persisted
+  to `localStorage` (`playHistory`); `historyIndex` always re-inits to the live edge
+  (`history.length`) on load. Shown in Sidebar's collapsible "recently played" panel.
+  **All history mutations go through `commitHistory(list, pos)` / `setHistoryPos(pos)`
+  which set plain values and keep `historyRef`/`historyIndexRef` in lockstep — never a
+  `setHistory(prev => …)` updater with ref/setState side effects inside, because
+  StrictMode double-invokes updaters and that double-applied the index math (dev-only
+  bug: forward tail wasn't truncated on a new play).**
 - `sidebarWidth`: persisted to `localStorage`, applied via CSS var `--sidebar-width` on
   `.app`. Drag-resize handled by a `mousemove`/`mouseup` listener pair gated by
   `isResizingSidebarRef`, started via `.sidebar-resize-handle`'s `onMouseDown`.

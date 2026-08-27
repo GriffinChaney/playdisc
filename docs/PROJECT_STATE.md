@@ -66,6 +66,20 @@ project up in a fresh session, read both before changing anything.
 
 ## Just finished (2nd laptop session, 2026-08-26)
 
+- **Play history / recently-played** (browser-style back/forward): new `history` +
+  `historyIndex` state in `App.jsx`. Prev/Next transport (and `u`/`d` + arrow keys)
+  now walk the real play trail — Back = last actually-played track, Forward retraces,
+  playing something new mid-rewind truncates the forward tail. Backing past the oldest
+  entry extends the trail backward in library order (prepend, no truncate). Collapsible
+  "recently played" panel in the sidebar (click a row to jump; "clear" button;
+  collapsed by default, state in `localStorage.historyPanelOpen`). Persisted to
+  `localStorage.playHistory`; deleted tracks pruned. Verified in the dev build across
+  all cases (append, back, forward-retrace, truncate, prepend-extend, list-click,
+  reload persistence, clear). **Not yet in the packaged app** — needs a rebuild.
+  - Hit and fixed a **StrictMode double-invoke bug**: side effects (ref writes,
+    `setHistoryIndex`) inside a `setHistory(prev => …)` updater ran twice in dev, so a
+    new play while stepped-back didn't truncate. Fixed by routing all history writes
+    through `commitHistory`/`setHistoryPos` (plain-value setters). See CLAUDE.md.
 - **Import UX** (`ed5b460`): new `ImportOverlay` (full-screen blurred backdrop +
   determinate `done/total` progress bar with an indeterminate sheen) shown while
   samples parse/write, and `ImportToast` (top-right "N samples imported", slides in →
