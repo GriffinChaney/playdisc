@@ -144,6 +144,15 @@ export default function Sidebar({
     }
   }
 
+  // queue every selected track, in the order they appear in the list (not
+  // the order they were clicked)
+  function handleBulkAddToQueue() {
+    visibleTracks.forEach((t) => {
+      if (selectedIds.has(t.id)) onAddToQueue(t.id);
+    });
+    setSelectedIds(new Set());
+  }
+
   function submitBulkTag(e) {
     e.preventDefault();
     const value = bulkTagInput.trim();
@@ -335,6 +344,9 @@ export default function Sidebar({
               + tag
             </button>
           )}
+          <button className="bulk-btn" onClick={handleBulkAddToQueue}>
+            + queue
+          </button>
           <button className="bulk-btn danger" onClick={handleBulkDelete}>
             delete
           </button>
