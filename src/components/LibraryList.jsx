@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import TrackItem from './TrackItem';
 import { useObjectUrl } from '../lib/useObjectUrl';
+import { useListSelection } from '../lib/useListSelection';
 
 function formatTotal(seconds) {
   const mins = Math.round(seconds / 60);
@@ -10,11 +11,24 @@ function formatTotal(seconds) {
   return m ? `${h} hr ${m} min` : `${h} hr`;
 }
 
-function GridItem({ track, isActive, isPlayingTrack, isSelected, onSelect, onPlay, onContextMenu }) {
+function GridItem({
+  track,
+  isActive,
+  isPlayingTrack,
+  isSelected,
+  onSelect,
+  onMouseDownItem,
+  onMouseOverItem,
+  onPlay,
+  onContextMenu
+}) {
   const artworkUrl = useObjectUrl(track.artworkBlob);
   return (
     <div
       className={`grid-item${isActive ? ' active' : ''}${isSelected ? ' selected' : ''}`}
+      data-sel-id={track.id}
+      onMouseDown={(e) => onMouseDownItem(track.id, e)}
+      onMouseOver={() => onMouseOverItem(track.id)}
       onClick={(e) => onSelect(track.id, e)}
       onDoubleClick={() => onPlay(track.id)}
       onContextMenu={(e) => onContextMenu(e, track.id)}
@@ -66,13 +80,10 @@ function LibraryList({
 }) {
   const [query, setQuery] = useState('');
   const [activeTag, setActiveTag] = useState(null);
-  const [selectedIds, setSelectedIds] = useState(() => new Set());
-  const [lastClickedId, setLastClickedId] = useState(null);
   const [addingBulkTag, setAddingBulkTag] = useState(false);
   const [bulkTagInput, setBulkTagInput] = useState('');
   const [dropIndex, setDropIndex] = useState(null);
   const dragIndexRef = useRef(null);
-  const dragModeRef = useRef(null); // 'add' | 'remove' | null (cmd-drag select)
 
   const allTags = useMemo(() => {
     const set = new Set();
@@ -99,68 +110,22 @@ function LibraryList({
     [visibleTracks]
   );
 
-  useEffect(() => {
-    if (selectedIds.size === 0) return;
-    function onKey(e) {
-      if (e.key === 'Escape') setSelectedIds(new Set());
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [selectedIds.size]);
-
-  useEffect(() => {
-    function onUp() {
-      dragModeRef.current = null;
-    }
-    document.addEventListener('mouseup', onUp);
-    return () => document.removeEventListener('mouseup', onUp);
-  }, []);
+  const {
+    selectedIds,
+    setSelectedIds,
+    clearSelection,
+    onItemMouseDown,
+    onItemMouseOver,
+    onItemClick
+  } = useListSelection(() => visibleTracks.map((t) => t.id));
 
   // clear selection when the view changes out from under it
   useEffect(() => {
-    setSelectedIds(new Set());
-    setLastClickedId(null);
-  }, [viewTitle, isPlaylistView]);
-
-  function handleMouseDown(id, e) {
-    if (!e.metaKey && !e.ctrlKey) return;
-    e.preventDefault();
-    const already = selectedIds.has(id);
-    dragModeRef.current = already ? 'remove' : 'add';
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (already) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-    setLastClickedId(id);
-  }
-
-  function handleMouseEnter(id) {
-    if (!dragModeRef.current) return;
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (dragModeRef.current === 'add') next.add(id);
-      else next.delete(id);
-      return next;
-    });
-  }
+    clearSelection();
+  }, [viewTitle, isPlaylistView, clearSelection]);
 
   function handleClick(id, e) {
-    if (e.metaKey || e.ctrlKey) return;
-    if (e.shiftKey && lastClickedId) {
-      const ids = visibleTracks.map((t) => t.id);
-      const a = ids.indexOf(lastClickedId);
-      const b = ids.indexOf(id);
-      if (a !== -1 && b !== -1) {
-        const [from, to] = a < b ? [a, b] : [b, a];
-        setSelectedIds((prev) => new Set([...prev, ...ids.slice(from, to + 1)]));
-      }
-      return;
-    }
-    setSelectedIds(new Set());
-    setLastClickedId(id);
-    onSelectTrack(id);
+    if (onItemClick(id, e) === 'plain') onSelectTrack(id);
   }
 
   // right-click target: the whole selection if the clicked row is part of a
@@ -392,7 +357,7 @@ function LibraryList({
           <button className="bulk-btn danger" onClick={handleBulkDelete}>
             delete
           </button>
-          <button className="bulk-btn" onClick={() => setSelectedIds(new Set())}>
+          <button className="bulk-btn" onClick={clearSelection}>
             clear
           </button>
         </div>
@@ -408,6 +373,8 @@ function LibraryList({
               isPlayingTrack={track.id === playingTrackId}
               isSelected={selectedIds.has(track.id)}
               onSelect={handleClick}
+              onMouseDownItem={onItemMouseDown}
+              onMouseOverItem={onItemMouseOver}
               onPlay={onPlayTrack}
               onContextMenu={openTrackMenu}
             />
@@ -420,6 +387,8 @@ function LibraryList({
             <div
               key={track.id}
               className="lib-row-wrap"
+              data-sel-id={track.id}
+              onMouseOver={() => onItemMouseOver(track.id)}
               draggable={reorderEnabled}
               onDragStart={(e) => {
                 if (!reorderEnabled) return;
@@ -452,8 +421,7 @@ function LibraryList({
                 isSelected={selectedIds.has(track.id)}
                 onSelect={handleClick}
                 onPlay={onPlayTrack}
-                onMouseDownTrack={handleMouseDown}
-                onMouseEnterTrack={handleMouseEnter}
+                onMouseDownTrack={onItemMouseDown}
                 onContextMenuTrack={openTrackMenu}
                 onAddTag={onAddTag}
                 onRemoveTag={onRemoveTag}

@@ -1469,6 +1469,10 @@ body {
 .playlist-item-row.active {
   background: var(--selection-bg);
 }
+.playlist-item-row.multi-selected {
+  background: var(--selection-bg);
+  box-shadow: inset 0 0 0 1px var(--selection);
+}
 .playlist-item {
   flex: 1;
   min-width: 0;
@@ -1633,9 +1637,9 @@ body {
 
 .track-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(116px, 148px));
+  grid-template-columns: repeat(auto-fill, minmax(150px, 190px));
   justify-content: start;
-  gap: 16px;
+  gap: 18px;
   overflow-y: auto;
   padding: 4px 2px 2px;
   align-content: start;
@@ -1891,24 +1895,20 @@ body {
 }
 
 /* ---------- Press feedback ("click-down") ---------- */
-/* :active only — no JS, no state. A quick scale-down on anything clickable
-   so a click/press feels tactile, iOS-style. Held during a drag too. */
+/* :active only, pure CSS. ROWS use a brightness dip, NOT a scale — a scale
+   shrinks the row out from under the cursor, so a click near the edge would
+   land on empty space and never register. BUTTONS keep the scale-down since
+   you click their centre. */
 
 .track-item:active,
-.grid-item:active {
-  transform: scale(0.985);
-  transition: transform 0.06s ease;
-}
-.grid-item:active {
-  transform: translateY(-1px) scale(0.97);
-}
+.grid-item:active,
 .playlist-item:active,
 .nav-item:active,
 .new-playlist:active,
 .history-item:active,
 .queue-item:active {
-  transform: scale(0.97);
-  transition: transform 0.06s ease;
+  filter: brightness(0.82);
+  transition: filter 0.05s ease;
 }
 .upload-btn:active,
 .bulk-btn:active,

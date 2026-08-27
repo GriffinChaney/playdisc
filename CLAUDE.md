@@ -254,6 +254,15 @@ persisted to `localStorage.navWidth`) / `1fr` / `var(--np-width)` (fixed 278px).
 - `contextMenu`: `{ x, y, items }` for the single `<ContextMenu>`. `setContextMenu` is
   passed to PlaylistNav (playlist right-click) and LibraryList (track right-click,
   which acts on the whole multi-selection if the clicked row is part of one).
+- **Multi-select** (tracks in list *and* grid, and playlists) all goes through
+  `src/lib/useListSelection.js`. ⌘/ctrl-drag paints a **range** (anchor → row under
+  cursor, rebuilt on every `onMouseOver` + an `elementFromPoint` backstop) so a fast
+  drag never skips rows; shift-click extends; plain click clears. Rows carry
+  `data-sel-id`. Playlists: Delete/Backspace or right-click "Delete N playlists"
+  removes the selection (songs stay in the library). **Press feedback on rows is a
+  `filter: brightness()` dip, NOT a `transform: scale()`** — a scale-down shrinks the
+  row out from under the cursor and the click lands on empty space (this was the
+  "clicks feel inconsistent" bug). Buttons keep the scale-down.
 
 ### Other App.jsx state
 

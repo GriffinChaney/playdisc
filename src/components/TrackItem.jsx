@@ -18,7 +18,6 @@ export default function TrackItem({
   onSelect,
   onPlay,
   onMouseDownTrack,
-  onMouseEnterTrack,
   onContextMenuTrack,
   onAddTag,
   onRemoveTag,
@@ -59,7 +58,6 @@ export default function TrackItem({
       onDoubleClick={() => onPlay(track.id)}
       onContextMenu={(e) => onContextMenuTrack?.(e, track.id)}
       onMouseDown={(e) => onMouseDownTrack(track.id, e)}
-      onMouseEnter={() => onMouseEnterTrack(track.id)}
     >
       <div className="track-thumb" style={artworkUrl ? { backgroundImage: `url(${artworkUrl})` } : undefined}>
         {!artworkUrl && <span className="thumb-fallback">♪</span>}

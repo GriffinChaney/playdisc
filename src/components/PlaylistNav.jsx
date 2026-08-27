@@ -1,7 +1,8 @@
-import { memo, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import UploadButton from './UploadButton';
 import QueuePanel from './QueuePanel';
 import HistoryPanel from './HistoryPanel';
+import { useListSelection } from '../lib/useListSelection';
 
 // Left column of the library view: upload, the "Imported" (whole-library)
 // view, the playlist list (pinned first), a new-playlist affordance, then
@@ -42,6 +43,44 @@ function PlaylistNav({
     return (a.sortIndex ?? a.createdAt) - (b.sortIndex ?? b.createdAt);
   });
 
+  const {
+    selectedIds,
+    clearSelection,
+    onItemMouseDown,
+    onItemMouseOver,
+    onItemClick
+  } = useListSelection(() => sorted.map((p) => p.id));
+
+  function deleteSelected() {
+    const ids = [...selectedIds];
+    if (!ids.length) return;
+    const names = ids
+      .map((id) => playlists.find((p) => p.id === id)?.name)
+      .filter(Boolean);
+    const msg =
+      ids.length === 1
+        ? `Delete playlist "${names[0]}"? Your songs stay in the library.`
+        : `Delete ${ids.length} playlists? Your songs stay in the library.`;
+    if (confirm(msg)) {
+      ids.forEach((id) => onDeletePlaylist(id));
+      clearSelection();
+    }
+  }
+
+  // Delete / Backspace removes the multi-selection (when not editing text)
+  useEffect(() => {
+    if (selectedIds.size === 0) return;
+    function onKey(e) {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && !/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) {
+        e.preventDefault();
+        deleteSelected();
+      }
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedIds]);
+
   function finalizeDrop() {
     const draggedId = dragIdRef.current;
     const dt = dropTarget;
@@ -70,31 +109,38 @@ function PlaylistNav({
 
   function playlistMenu(e, pl) {
     e.preventDefault();
-    onOpenMenu({
-      x: e.clientX,
-      y: e.clientY,
-      items: [
-        { label: 'Play', onClick: () => onPlayPlaylist(pl.id) },
-        { label: pl.pinned ? 'Unpin' : 'Pin to top', onClick: () => onTogglePin(pl.id) },
-        {
-          label: 'Rename',
-          onClick: () => {
-            setRenamingId(pl.id);
-            setRenameValue(pl.name);
+    // if the right-clicked playlist is part of a multi-selection, act on all
+    const multi = selectedIds.has(pl.id) && selectedIds.size > 1;
+    const items = multi
+      ? [
+          {
+            label: `Delete ${selectedIds.size} playlists`,
+            danger: true,
+            onClick: deleteSelected
           }
-        },
-        { separator: true },
-        {
-          label: 'Delete playlist',
-          danger: true,
-          onClick: () => {
-            if (confirm(`Delete playlist "${pl.name}"? Your songs stay in the library.`)) {
-              onDeletePlaylist(pl.id);
+        ]
+      : [
+          { label: 'Play', onClick: () => onPlayPlaylist(pl.id) },
+          { label: pl.pinned ? 'Unpin' : 'Pin to top', onClick: () => onTogglePin(pl.id) },
+          {
+            label: 'Rename',
+            onClick: () => {
+              setRenamingId(pl.id);
+              setRenameValue(pl.name);
+            }
+          },
+          { separator: true },
+          {
+            label: 'Delete playlist',
+            danger: true,
+            onClick: () => {
+              if (confirm(`Delete playlist "${pl.name}"? Your songs stay in the library.`)) {
+                onDeletePlaylist(pl.id);
+              }
             }
           }
-        }
-      ]
-    });
+        ];
+    onOpenMenu({ x: e.clientX, y: e.clientY, items });
   }
 
   return (
@@ -125,10 +171,13 @@ function PlaylistNav({
           ) : (
             <div
               key={pl.id}
+              data-sel-id={pl.id}
               className={`playlist-item-row${pl.pinned ? ' pinned' : ''}${
                 activeView.type === 'playlist' && activeView.id === pl.id ? ' active' : ''
-              }`}
+              }${selectedIds.has(pl.id) ? ' multi-selected' : ''}`}
               draggable
+              onMouseDown={(e) => onItemMouseDown(pl.id, e)}
+              onMouseOver={() => onItemMouseOver(pl.id)}
               onDragStart={(e) => {
                 dragIdRef.current = pl.id;
                 e.dataTransfer.effectAllowed = 'move';
@@ -156,7 +205,9 @@ function PlaylistNav({
               )}
               <button
                 className="playlist-item"
-                onClick={() => onSelectView({ type: 'playlist', id: pl.id })}
+                onClick={(e) => {
+                  if (onItemClick(pl.id, e) === 'plain') onSelectView({ type: 'playlist', id: pl.id });
+                }}
                 onContextMenu={(e) => playlistMenu(e, pl)}
                 title={pl.name}
               >
