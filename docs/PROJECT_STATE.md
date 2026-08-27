@@ -5,10 +5,52 @@ architecture/conventions context this builds on. Update this file as work progre
 move finished items out of "unfinished," log new bugs as they're found, and keep
 "just finished" trimmed to roughly the last session or two, not the full history.
 
-_Last updated: end of the session covering the icon/reminders-list batch below (dated
-2026-08-25)._
+_Last updated: end of the session that set up git + multi-machine sync (dated 2026-08-26)._
 
-## Just finished (most recent session)
+## Working across two machines now (desktop + laptop)
+
+The project is a git repo, backed up to a **private** GitHub repo:
+`https://github.com/GriffinChaney/sona`. Both the desktop and Griffin's laptop
+(`Griffins-MacBook-Pro`, macOS 14.6) have their own clone, authenticated via `gh`
+(GitHub CLI). Normal flow: `git pull` before starting work, `git add -A && git commit
+-m "..." && git push` when done. `claude` (Claude Code CLI) is installed on both
+machines now, so either one can run its own independent session — **a new session on
+the laptop does NOT share this conversation's history**; it relies on this file +
+`../CLAUDE.md` for context, which is exactly why they exist. If you're picking this
+project up in a fresh session, read both before changing anything.
+
+### Laptop-specific setup notes (don't repeat this diagnosis if it comes up again)
+
+- Laptop's Homebrew installed **Node 26.7.0** (bleeding-edge, not LTS) as the default
+  `node`. This caused `extract-zip` (used by Electron's own install script) to fail
+  **silently** — no error, no output, just never wrote `node_modules/electron/dist`.
+  Fixed by installing `node@22` via Homebrew (keg-only) and prepending it to `PATH` in
+  `~/.zshrc`. If Electron ever silently fails to install again on a machine, check
+  `node --version` first — anything not an LTS release (even-numbered major, e.g. 20,
+  22, 24) is suspect.
+- **`npm run electron:dev` doesn't work on the laptop yet.** The raw
+  `node_modules/electron/dist/Electron.app` gets killed on launch (`SIGKILL`) by
+  macOS's XProtect malware scanner, showing "Electron will damage your computer."
+  Confirmed **not** version-specific (tried both 31.3.0 and 31.7.7, both blocked) and,
+  critically, **no "Open Anyway" override appears in System Settings** for it — unlike
+  the packaged `Sona.app`, which hit an ordinary (overridable) unnotarized-app Gatekeeper
+  block instead. Working theory: Apple's XProtect specifically distrusts generically-named
+  `Electron.app` bundles (a name real malware has impersonated), and that class of block
+  has no user override by design. **Workaround in place**: use the packaged-app flow
+  (`npm run electron:build`, then codesign/xattr/open — see CLAUDE.md's codesign section)
+  instead of live-reload dev mode on the laptop. **Not yet fixed**: the real fix is
+  likely renaming the extracted bundle away from the generic "Electron.app"/
+  `com.github.Electron` identity (rename the `.app`, update `Info.plist`'s
+  `CFBundleName`/`CFBundleExecutable`/`CFBundleIdentifier`, and update
+  `node_modules/electron/path.txt` to match) — attempt this next time dev-mode on the
+  laptop actually matters, ideally while both machines are on the same network so
+  Claude can iterate quickly via SSH rather than relaying every command through the user.
+- SSH access from desktop→laptop was set up temporarily (key added to laptop's
+  `~/.ssh/authorized_keys`, labeled `griffin-desktop-to-laptop`) to speed up debugging
+  the above. Only works when both machines are on the same LAN. Not removed — ask
+  Griffin if it should be revoked once no longer useful.
+
+## Just finished (most recent session before the above)
 
 Two back-to-back reminders-list batches, each rebuilt/re-signed/reinstalled to
 `/Applications/Sona.app`:
