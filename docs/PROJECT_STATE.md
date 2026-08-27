@@ -113,7 +113,16 @@ project up in a fresh session, read both before changing anything.
       in Settings). Grid `--nav-width`→0 + slide animation.
     - Pin/unpin: added a hover pin button on each playlist row (was right-click only).
     - Subtle lift + shadow on grid-item hover.
-  - **Not yet in the packaged app after the follow-ups** — needs a rebuild.
+  - Round 2 of follow-ups:
+    - Column resize was laggy — `setState` per mousemove + a `transition:
+      grid-template-columns` that can't interpolate a `1fr` track (left the grid
+      stuck at a stale width). Now the drag writes `--nav-width` / `--np-width`
+      straight to the `.app` node (zero re-render); state + `localStorage` commit on
+      mouseup only. No grid transition at all now.
+    - `Tab` collapses the nav to a **50/50 split** between the track list and the
+      artwork zone (`--np-width: 50vw`); nav content slides out via its own transform.
+    - Grid hover is transform-only now (box-shadow / filter transitions were the jank).
+  - Shipped to `/Applications/Sona.app` (`a91dd7d`).
 
 
 - **Play history / recently-played** (browser-style back/forward): new `history` +
