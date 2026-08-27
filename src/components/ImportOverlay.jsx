@@ -1,0 +1,19 @@
+// Full-screen overlay shown while samples are being imported. Determinate
+// progress bar (done / total), with a moving sheen on the fill for a bit of
+// "loading" motion. Rendered only while an import is in flight.
+export default function ImportOverlay({ done, total }) {
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  const label = total === 1 ? 'sample' : 'samples';
+
+  return (
+    <div className="import-overlay">
+      <div className="import-card">
+        <p className="import-title">Importing {total} {label}…</p>
+        <div className="import-bar-track">
+          <div className="import-bar-fill" style={{ width: `${pct}%` }} />
+        </div>
+        <p className="import-count">{done} / {total}</p>
+      </div>
+    </div>
+  );
+}

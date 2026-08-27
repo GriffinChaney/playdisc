@@ -1,0 +1,44 @@
+import { useEffect, useState } from 'react';
+
+// Top-right confirmation toast shown after an import finishes. Slides in from
+// the right, holds briefly, then slides back out off-screen and asks the
+// parent to unmount it. Keyed by `toast.id` so a fresh import restarts the
+// timers even if one is still on screen.
+const HOLD_MS = 2500;
+const SLIDE_MS = 380;
+
+export default function ImportToast({ toast, onDismiss }) {
+  const [exiting, setExiting] = useState(false);
+
+  useEffect(() => {
+    setExiting(false);
+    const outTimer = setTimeout(() => setExiting(true), HOLD_MS);
+    const doneTimer = setTimeout(() => onDismiss(), HOLD_MS + SLIDE_MS);
+    return () => {
+      clearTimeout(outTimer);
+      clearTimeout(doneTimer);
+    };
+  }, [toast.id, onDismiss]);
+
+  const { count, error } = toast;
+  const text = error
+    ? 'Import failed'
+    : `${count} ${count === 1 ? 'sample' : 'samples'} imported`;
+
+  return (
+    <div className={`import-toast${exiting ? ' exiting' : ''}${error ? ' error' : ''}`}>
+      <span className="import-toast-icon" aria-hidden="true">
+        {error ? (
+          <svg viewBox="0 0 16 16" width="14" height="14">
+            <path d="M8 1.5v9M8 13.5v.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 16 16" width="14" height="14">
+            <path d="M3.5 8.5l3 3 6-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+          </svg>
+        )}
+      </span>
+      <span className="import-toast-text">{text}</span>
+    </div>
+  );
+}

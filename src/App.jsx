@@ -8,6 +8,8 @@ import BackgroundPlayBar from './components/BackgroundPlayBar';
 import Waveform from './components/Waveform';
 import SettingsModal from './components/SettingsModal';
 import VolumeIcon from './components/VolumeIcon';
+import ImportOverlay from './components/ImportOverlay';
+import ImportToast from './components/ImportToast';
 import { addTrack, getAllTracks, updateTrack, deleteTrack } from './lib/db';
 import { parseTrack } from './lib/parseTrack';
 import { useObjectUrl } from './lib/useObjectUrl';
@@ -32,6 +34,10 @@ export default function App() {
   const [pendingFocusSearch, setPendingFocusSearch] = useState(false);
   const [expandedTrackId, setExpandedTrackId] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // import UX: progress overlay while parsing/storing, then a self-dismissing
+  // top-right confirmation toast. Both null when no import is happening.
+  const [importProgress, setImportProgress] = useState(null); // { done, total }
+  const [importToast, setImportToast] = useState(null); // { id, count } | { id, error }
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
   const [keybindings, setKeybindingsState] = useState(() => loadKeybindings());
   const [volume, setVolume] = useState(() => {
@@ -130,16 +136,33 @@ export default function App() {
   const audioUrl = useObjectUrl(playingTrack?.audioBlob);
   const isViewingPlayingTrack = currentTrackId === playingTrackId;
 
+  const dismissImportToast = useCallback(() => setImportToast(null), []);
+
   const handleFilesSelected = useCallback(async (files) => {
-    const parsed = await Promise.all(files.map(parseTrack));
-    for (const track of parsed) {
-      await addTrack(track);
-    }
-    setTracks((prev) => [...prev, ...parsed]);
-    // nothing loaded yet — safe to both show and load the first upload
-    if (!currentTrackId && parsed.length) {
-      setCurrentTrackId(parsed[0].id);
-      setPlayingTrackId(parsed[0].id);
+    setImportProgress({ done: 0, total: files.length });
+    let done = 0;
+    try {
+      const parsed = await Promise.all(
+        files.map(async (file) => {
+          const track = await parseTrack(file);
+          await addTrack(track);
+          done += 1;
+          setImportProgress({ done, total: files.length });
+          return track;
+        })
+      );
+      setTracks((prev) => [...prev, ...parsed]);
+      // nothing loaded yet — safe to both show and load the first upload
+      if (!currentTrackId && parsed.length) {
+        setCurrentTrackId(parsed[0].id);
+        setPlayingTrackId(parsed[0].id);
+      }
+      setImportToast({ id: Date.now(), count: parsed.length });
+    } catch (err) {
+      console.error('[import] failed:', err);
+      setImportToast({ id: Date.now(), error: true });
+    } finally {
+      setImportProgress(null);
     }
   }, [currentTrackId]);
 
@@ -549,6 +572,12 @@ export default function App() {
           style={{ '--vol-pct': `${volume * 100}%` }}
         />
       </div>
+      {importProgress && (
+        <ImportOverlay done={importProgress.done} total={importProgress.total} />
+      )}
+      {importToast && (
+        <ImportToast toast={importToast} onDismiss={dismissImportToast} />
+      )}
       {settingsOpen && (
         <SettingsModal
           theme={theme}
