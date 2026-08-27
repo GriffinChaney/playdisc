@@ -27,14 +27,17 @@ import { useObjectUrl } from './lib/useObjectUrl';
 import { loadKeybindings, saveKeybindings, eventToKeyString, DEFAULT_KEYBINDINGS } from './lib/keybindings';
 
 // One-time: earlier builds could persist a hand-dragged column width (often
-// from an accidental grab of a resize handle) that no longer matches the
-// re-tuned default proportions. Clear those once so the measured default
-// applies; the user can still drag to a new width afterwards and that sticks.
+// from an accidental grab of a resize handle, or — before this fix — a
+// resize-driven auto-clamp that got saved as if it were a real drag) that
+// no longer matches the re-tuned default proportions. Clear those once so
+// the measured default applies; the user can still drag to a new width
+// afterwards and that sticks. Bump this version string again any time a
+// stale saved width needs to be force-reset.
 try {
-  if (localStorage.getItem('layoutDefaults') !== 'v2.4') {
+  if (localStorage.getItem('layoutDefaults') !== 'v2.5') {
     localStorage.removeItem('npWidth');
     localStorage.removeItem('navWidth');
-    localStorage.setItem('layoutDefaults', 'v2.4');
+    localStorage.setItem('layoutDefaults', 'v2.5');
   }
 } catch {
   /* localStorage unavailable — nothing to reset */
@@ -185,23 +188,24 @@ export default function App() {
   }, []);
 
   // track the viewport, and if the window shrinks pull the (pinned) column
-  // widths back into a range that still leaves the middle track list room
+  // widths back into a range that still leaves the middle track list room.
+  // This clamp is display-only — it does NOT touch localStorage. It used
+  // to persist the shrunk value on every resize event, including a
+  // transient small measurement while the window was still being created
+  // or restored on launch (not an actual user drag) — that permanently
+  // ratcheted the saved width down with no way back up, which is exactly
+  // what made the layout look "too small" after quitting and reopening.
+  // Only an explicit drag (the mouseup handlers above) should persist.
   useEffect(() => {
     let raf = 0;
     function onResize() {
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
         setViewportW(window.innerWidth);
-        setNavWidth((w) => {
-          const next = Math.min(w, Math.max(170, window.innerWidth - 460));
-          if (next !== w) localStorage.setItem('navWidth', String(next));
-          return next;
-        });
+        setNavWidth((w) => Math.min(w, Math.max(170, window.innerWidth - 460)));
         setNpWidth((w) => {
           if (w == null) return w;
-          const next = Math.min(w, Math.max(300, window.innerWidth - navWidthRef.current - 300));
-          if (next !== w) localStorage.setItem('npWidth', String(next));
-          return next;
+          return Math.min(w, Math.max(300, window.innerWidth - navWidthRef.current - 300));
         });
       });
     }
