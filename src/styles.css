@@ -203,13 +203,33 @@ body {
   margin: 0;
 }
 
+/* floats over the bottom of the track list instead of sitting in the flow —
+   otherwise it shoved the whole list down every time the selection went
+   0 -> 1+ (and yanked it back on clear), which read as the screen jumping */
 .bulk-bar {
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  bottom: 14px;
+  z-index: 20;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 8px;
-  border-radius: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 0.5px solid var(--border);
   background: var(--surface-2);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.38);
+  animation: bulk-bar-in 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes bulk-bar-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+/* keep the last rows reachable above the floating bar */
+.library-list:has(.bulk-bar) .track-list,
+.library-list:has(.bulk-bar) .track-grid {
+  padding-bottom: 56px;
 }
 .bulk-count {
   font-size: 12px;
