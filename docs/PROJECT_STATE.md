@@ -178,11 +178,15 @@ re-signed, and reinstalled to `/Applications/Sona.app`:
 
 ## Known bugs / open issues
 
-- **Not yet re-verified after the latest rebuild**: the user reported (in the same
-  message that led to the throttle fix) that clicking through tracks "still sometimes
-  takes two clicks" and generally felt laggy. The throttle fix targets the most likely
-  root cause, but this has not been explicitly confirmed fixed by the user yet in a
-  follow-up message. **Ask or check before assuming it's resolved.**
+- ~~**Click lag / "two clicks" to switch tracks.**~~ **Confirmed resolved by the user
+  2026-08-26** — the 200ms `currentTime` throttle (`handleTimeUpdate` in `App.jsx`)
+  fixed it: "feels way better, almost perfect." User notes a click still *very
+  occasionally* fails to register — not enough to chase yet; revisit only if it gets
+  worse. Do not remove or loosen the throttle.
+- ~~**Queue drag-reorder landing one song off from the cursor.**~~ **Confirmed
+  resolved by the user 2026-08-26** ("feels great right now") after the batch-2 fix
+  (absolutely-positioned `.queue-drop-line` so the indicator never nudges row layout).
+  Index math in `handleReorderQueue` reviewed and correct.
 - ~~**`handleReady`'s resume-position logic is dead code.**~~ **Fixed 2026-08-26** —
   deleted the dead `if (currentTime > 0 && dur > 0) seekTo(...)` branch (and its now-
   unneeded `eslint-disable`). It never fired (empty-deps `useCallback` froze
