@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 
 const AUDIO_EXTENSIONS = ['mp3', 'wav', 'flac', 'm4a', 'aac', 'ogg'];
 const ACCEPTED = AUDIO_EXTENSIONS.map((ext) => `.${ext}`).join(',') + ',audio/*';
@@ -8,61 +8,38 @@ function isAudioFile(file) {
   return !!ext && AUDIO_EXTENSIONS.includes(ext);
 }
 
-// One button, both ways in: click opens a small menu (reusing the app's
-// existing right-click ContextMenu) offering "select file(s)" — the normal
-// multi-file picker — or "select folder" — which recursively scans every
-// subfolder for audio files and imports whatever it finds, skipping
-// anything that isn't a supported audio type.
-export default function UploadButton({ onFilesSelected, onOpenMenu }) {
-  const buttonRef = useRef(null);
+// One button, one native dialog: window.electronAPI.selectAudioImport()
+// (see electron/main.js) opens a real macOS open panel with BOTH files and
+// folders selectable at once — something an HTML <input type="file"> can't
+// do (it's file-only or folder-only, never both). Whatever's picked gets
+// scanned recursively for audio in the main process and handed back ready
+// to import, so from here it's just "select anything, it figures out what
+// you meant."
+export default function UploadButton({ onFilesSelected }) {
   const fileInputRef = useRef(null);
-  const folderInputRef = useRef(null);
 
-  // webkitdirectory has to be set as a DOM property, not a JSX attribute —
-  // React doesn't recognize it and won't reliably reflect it onto the
-  // actual <input>, so it's applied imperatively here instead.
-  useEffect(() => {
-    if (folderInputRef.current) {
-      folderInputRef.current.webkitdirectory = true;
-    }
-  }, []);
-
-  function handleFilesChange(e) {
-    const files = Array.from(e.target.files || []);
+  // Fallback for `npm run dev` in a plain browser tab, where there's no
+  // Electron main process to ask — same old file-only picker as before.
+  function handleFallbackChange(e) {
+    const files = Array.from(e.target.files || []).filter(isAudioFile);
     if (files.length) onFilesSelected(files);
-    e.target.value = ''; // allow re-selecting the same file later
-  }
-
-  function handleFolderChange(e) {
-    const all = Array.from(e.target.files || []);
-    // webkitdirectory hands back every file under the chosen folder,
-    // already flattened recursively through any nested subfolders — no
-    // manual walking needed. Just filter down to files that look like
-    // audio so junk (.DS_Store, artwork, project files, etc.) is skipped.
-    const audioFiles = all.filter(isAudioFile);
-    if (audioFiles.length) {
-      onFilesSelected(audioFiles);
-    } else if (all.length) {
-      alert('No supported audio files (mp3/wav/flac/m4a/aac/ogg) found in that folder.');
-    }
     e.target.value = '';
   }
 
-  function openPicker() {
-    const rect = buttonRef.current?.getBoundingClientRect();
-    onOpenMenu({
-      x: rect ? rect.left : 0,
-      y: rect ? rect.bottom + 4 : 0,
-      items: [
-        { label: 'select file(s)', onClick: () => fileInputRef.current?.click() },
-        { label: 'select folder', onClick: () => folderInputRef.current?.click() }
-      ]
-    });
+  async function handleClick() {
+    if (!window.electronAPI?.selectAudioImport) {
+      fileInputRef.current?.click();
+      return;
+    }
+    const results = await window.electronAPI.selectAudioImport();
+    if (!results.length) return;
+    const files = results.map((r) => new File([r.data], r.name));
+    onFilesSelected(files);
   }
 
   return (
     <>
-      <button ref={buttonRef} className="upload-btn" onClick={openPicker}>
+      <button className="upload-btn" onClick={handleClick}>
         upload song
       </button>
       <input
@@ -71,14 +48,7 @@ export default function UploadButton({ onFilesSelected, onOpenMenu }) {
         accept={ACCEPTED}
         multiple
         style={{ display: 'none' }}
-        onChange={handleFilesChange}
-      />
-      <input
-        ref={folderInputRef}
-        type="file"
-        multiple
-        style={{ display: 'none' }}
-        onChange={handleFolderChange}
+        onChange={handleFallbackChange}
       />
     </>
   );

@@ -1,5 +1,6 @@
-import { app, BrowserWindow, ipcMain, screen, session } from 'electron';
+import { app, BrowserWindow, ipcMain, screen, session, dialog } from 'electron';
 import path from 'node:path';
+import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -96,6 +97,53 @@ ipcMain.on('exit-mini-mode', (event) => {
     win.setBounds(boundsBeforeMini);
     boundsBeforeMini = null;
   }
+});
+
+const AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'flac', 'm4a', 'aac', 'ogg']);
+
+// Recursively collects every audio file under the given paths, which may be
+// a mix of individual files and folders (folders get walked all the way
+// down through nested subfolders). Runs in the main process because the
+// renderer has no filesystem access — this is exactly why "select either
+// files or a folder in one native dialog, then just scan for audio" needs
+// an IPC round-trip rather than a plain <input type="file">.
+async function collectAudioFiles(paths) {
+  const found = [];
+  async function walk(p) {
+    const name = path.basename(p);
+    if (name.startsWith('.')) return; // skip .DS_Store and other hidden junk
+    const stat = await fs.stat(p);
+    if (stat.isDirectory()) {
+      const entries = await fs.readdir(p);
+      await Promise.all(entries.map((entry) => walk(path.join(p, entry))));
+    } else if (stat.isFile()) {
+      const ext = path.extname(p).slice(1).toLowerCase();
+      if (AUDIO_EXTENSIONS.has(ext)) found.push(p);
+    }
+  }
+  await Promise.all(paths.map(walk));
+  return found;
+}
+
+// One native dialog where BOTH files and folders are selectable at once
+// (macOS only allows this combination from a real Cocoa open panel — an
+// HTML <input type="file"> can only ever be file-only or folder-only).
+// Whatever's picked gets scanned for audio recursively, read into memory
+// here (the renderer can't read the filesystem), and handed back as plain
+// {name, data} pairs the renderer wraps into File objects.
+ipcMain.handle('select-audio-import', async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const result = await dialog.showOpenDialog(win, {
+    properties: ['openFile', 'openDirectory', 'multiSelections']
+  });
+  if (result.canceled || !result.filePaths.length) return [];
+  const audioPaths = await collectAudioFiles(result.filePaths);
+  return Promise.all(
+    audioPaths.map(async (p) => ({
+      name: path.basename(p),
+      data: await fs.readFile(p)
+    }))
+  );
 });
 
 app.whenReady().then(() => {
