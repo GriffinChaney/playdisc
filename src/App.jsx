@@ -266,16 +266,15 @@ export default function App() {
     // each track switch recreates the underlying WaveSurfer instance, which
     // resets volume to its default — reapply the user's chosen level
     waveformRef.current?.setVolume(volumeRef.current);
-    // resume position when the waveform remounts (e.g. after switching
-    // between sidebar and focus view)
-    if (currentTime > 0 && dur > 0) {
-      waveformRef.current?.seekTo(Math.min(currentTime / dur, 1));
-    }
+    // NOTE: no position-resume here. `onReady` only fires when a *new* WaveSurfer
+    // instance is created, which only happens on a real track switch — and
+    // `handleAdoptAndPlay` already resets `currentTime` to 0 for that. Switching
+    // between sidebar/focus/mini views reparents the *same* waveform node (see
+    // WaveformSlot), so it never re-fires `ready` and never loses its position.
     if (shouldAutoPlayRef.current) {
       shouldAutoPlayRef.current = false;
       waveformRef.current?.play();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // a track finishing naturally should always auto-advance and keep

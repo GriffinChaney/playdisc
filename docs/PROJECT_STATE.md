@@ -183,16 +183,13 @@ re-signed, and reinstalled to `/Applications/Sona.app`:
   takes two clicks" and generally felt laggy. The throttle fix targets the most likely
   root cause, but this has not been explicitly confirmed fixed by the user yet in a
   follow-up message. **Ask or check before assuming it's resolved.**
-- **`handleReady`'s resume-position logic is dead code.** In `App.jsx`, `handleReady`
-  is `useCallback(..., [])` (empty deps, intentionally, to avoid re-running on every
-  render) but closes over `currentTime` for its "resume position on remount" check
-  (`if (currentTime > 0 && dur > 0) seekTo(...)`). Because the deps array is empty,
-  that `currentTime` is frozen at whatever it was on the *first* render (effectively
-  always `0`), so this branch never actually fires. This was noticed during a code
-  review pass but **not fixed** — low priority since the feature it's meant to support
-  (resuming scroll position when a view remounts) may no longer even be needed given
-  the persistent-`WaveformSlot` architecture change. Worth revisiting: either wire it
-  correctly (e.g. a ref instead of state) or delete the dead branch entirely.
+- ~~**`handleReady`'s resume-position logic is dead code.**~~ **Fixed 2026-08-26** —
+  deleted the dead `if (currentTime > 0 && dur > 0) seekTo(...)` branch (and its now-
+  unneeded `eslint-disable`). It never fired (empty-deps `useCallback` froze
+  `currentTime` at 0) and isn't needed: `onReady` only fires on a real track switch,
+  for which `handleAdoptAndPlay` already zeroes `currentTime`, and view swaps reparent
+  the same waveform node without re-firing `ready`. A comment in `handleReady` now
+  records why there's deliberately no resume here.
 - **Queue is not persisted.** Restarting the app loses any manually-queued tracks.
   Not reported as a bug yet, but worth knowing before someone asks "why did my queue
   disappear."
