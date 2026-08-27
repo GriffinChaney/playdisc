@@ -42,23 +42,37 @@ project up in a fresh session, read both before changing anything.
     off the **ad-hoc signature + `com.github.Electron` signing identity + null team** —
     a Gatekeeper *execution* policy block, and this class has no "Open Anyway" override
     in System Settings.
-  - Odd data point: `spctl -a -vvv -t exec node_modules/electron/dist/Electron.app`
-    reports `accepted, source=SonaDev` — i.e. a `SonaDev` spctl label rule was added at
-    some point (`spctl --add --label SonaDev ...`), and `spctl` *says* accepted, yet the
-    kernel ASP layer still kills it. spctl labels don't override the ASP exec block here.
-  - No quarantine xattr is present (`xattr -l` empty), so `xattr -dr com.apple.quarantine`
-    won't help.
-  - **Workaround still in place**: packaged-app flow (`npm run electron:build`, then
-    codesign — see CLAUDE.md) instead of live-reload dev mode on the laptop.
-  - **Untried next angles** (deferred at user's request — low priority, packaged flow
-    works): (a) re-sign the dist bundle with a *fresh signing identifier*
-    `codesign --sign - --force --deep --identifier com.sona.electron-dev node_modules/electron/dist/Electron.app`
-    and retest — the ASP log pins the block to `id: com.github.Electron`, so a new id
-    may clear it without a full rename; (b) failing that, the full rename (rename the
-    `.app` + `Contents/MacOS/Electron` executable, update `Info.plist`
-    `CFBundleName`/`CFBundleExecutable`/`CFBundleIdentifier`, update
-    `node_modules/electron/path.txt`, re-sign); (c) either survives only until the next
-    `npm install`, so it'd need a `postinstall` script to be durable.
+  - **More digging, 2026-08-26 (same session):** fuller `syspolicyd` log during a
+    launch attempt:
+    ```
+    GK evaluateScanResult: 2, PST: (vuid: 5D053D89-...), (team: (null)), (id: (null))
+    Prompt shown (2, 0), waiting for response
+    Terminating process due to Gatekeeper rejection
+    ```
+    So it's a Gatekeeper **prompt** verdict (scanResult 2 = "unverified developer, ask
+    the user"), and a GUI dialog *is* shown — headless launches (scripts, `electron:dev`)
+    just have nobody to click it, so it times out (~15–20s) and gets SIGKILLed.
+  - **Things tried this session that did NOT fix it:**
+    - Re-sign with a fresh identifier (`--identifier com.sona.electrondev`) — still
+      killed. So the block is **not** just the `com.github.Electron` name; a rename is
+      unlikely to be the answer.
+    - `xattr -rc` — `com.apple.provenance` / `com.apple.macl` xattrs are protected,
+      can't be removed without root; didn't help anyway.
+    - The old `SonaDev` `spctl` label rule (`2719[SonaDev] P0 allow execute [...Electron.app]`)
+      is now **stale** (re-signing changed the cdhash); `spctl -a` reports `rejected`.
+    - `open`-ing the bundle from Finder to get the dialog → **"Open Anyway" does NOT
+      appear** in System Settings › Privacy & Security (user confirmed). This class of
+      block really has no GUI override.
+  - **Only remaining paths, all needing the user's password in the terminal** (deferred
+    — packaged flow works, ~2 min/iteration):
+    - `sudo spctl --add --label SonaDev node_modules/electron/dist/Electron.app` (re-add
+      the rule against the *current* cdhash) — but a prior `spctl` "accepted" still got
+      ASP-killed, so low confidence.
+    - `sudo xattr`/`sudo spctl --master-disable` (disables Gatekeeper globally — heavy
+      hammer, not recommended).
+    - Full bundle rename — low confidence given the identifier test above.
+  - **Workaround in place**: packaged-app flow (`npm run electron:build`, then codesign
+    — see CLAUDE.md) instead of live-reload dev mode on the laptop.
 - SSH access from desktop→laptop was set up temporarily (key added to laptop's
   `~/.ssh/authorized_keys`, labeled `griffin-desktop-to-laptop`) to speed up debugging
   the above. Only works when both machines are on the same LAN. Not removed — ask
