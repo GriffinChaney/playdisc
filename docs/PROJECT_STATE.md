@@ -5,9 +5,9 @@ architecture/conventions context this builds on. Update this file as work progre
 move finished items out of "unfinished," log new bugs as they're found, and keep
 "just finished" trimmed to roughly the last session or two, not the full history.
 
-_Last updated: 2026-08-26, 2nd laptop session — electron:dev block re-diagnosed (see
-below), electron bumped to 31.7.7 + lockfile synced, dead `allowScripts` block removed
-from package.json._
+_Last updated: 2026-08-27 — playlist system, 3-column library view, play history, and
+a batch of view/UX polish all shipped and user-confirmed in the packaged app. Tagged
+`v2.0-playlists-2026-08-26` before that batch. See "Just finished" below._
 
 ## Working across two machines now (desktop + laptop)
 
@@ -122,7 +122,21 @@ project up in a fresh session, read both before changing anything.
     - `Tab` collapses the nav to a **50/50 split** between the track list and the
       artwork zone (`--np-width: 50vw`); nav content slides out via its own transform.
     - Grid hover is transform-only now (box-shadow / filter transitions were the jank).
-  - Shipped to `/Applications/Sona.app` (`a91dd7d`).
+  - Round 3 (2026-08-27) — all **user-confirmed working in the packaged app**:
+    - Context-menu submenu no longer stays stuck/highlighted (plain rows now reset
+      `openSub` on hover).
+    - Track-row `×` is context-aware: removes from the playlist you're viewing (no
+      confirm, stays in library); only deletes from the library in the Imported view.
+    - Window opens at ~Raycast "Almost Maximize" (work-area inset ~3%, centered).
+    - General + focus views scale with window size: `npWidth` defaults to `null`
+      (responsive auto width from a `viewportW` state); artwork/waveform sized off
+      vh/vw; window-resize re-clamps pinned widths. Mini mode untouched.
+    - Playlists drag-reorderable in the nav (`sortIndex`; within pinned/unpinned group).
+    - Collapsed Tab view bumps the artwork cap way up.
+    - `:active` press-down feedback on rows + buttons (pure CSS).
+    - `--nav-width` / `--np-width` registered via `@property` so the Tab collapse
+      *slides* (fed clean px only — see CLAUDE.md).
+  - Shipped to `/Applications/Sona.app` (`4ad09f4`).
 
 
 - **Play history / recently-played** (browser-style back/forward): new `history` +
