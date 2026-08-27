@@ -20,10 +20,10 @@ export default function ImportToast({ toast, onDismiss }) {
     };
   }, [toast.id, onDismiss]);
 
-  const { count, error } = toast;
+  const { count, error, failed } = toast;
   const text = error
     ? 'Import failed'
-    : `${count} ${count === 1 ? 'sample' : 'samples'} imported`;
+    : `${count} ${count === 1 ? 'sample' : 'samples'} imported${failed ? ` (${failed} skipped)` : ''}`;
 
   return (
     <div className={`import-toast${exiting ? ' exiting' : ''}${error ? ' error' : ''}`}>

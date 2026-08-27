@@ -32,20 +32,12 @@ export default function UploadButton({ onFilesSelected }) {
       return;
     }
     const entries = await window.electronAPI.selectAudioImport();
-    if (!entries.length) return;
-    // read one file at a time (not Promise.all) — sending every file's
-    // full bytes through IPC in one go crashed the app on a real folder
-    // of WAVs, since that one giant message overwhelmed V8's serializer
-    const files = [];
-    for (const entry of entries) {
-      try {
-        const data = await window.electronAPI.readAudioFile(entry.path);
-        files.push(new File([data], entry.name));
-      } catch (err) {
-        console.error('[import] failed to read', entry.path, err);
-      }
-    }
-    if (files.length) onFilesSelected(files);
+    // hands the {name, path} descriptors straight to onFilesSelected —
+    // reading each file's actual bytes happens in App.jsx's
+    // handleFilesSelected now, inside the same loop that reports import
+    // progress, so the progress bar shows up immediately instead of after
+    // everything's already been read
+    if (entries.length) onFilesSelected(entries);
   }
 
   return (

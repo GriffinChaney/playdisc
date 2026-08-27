@@ -298,26 +298,44 @@ export default function App() {
 
   const dismissImportToast = useCallback(() => setImportToast(null), []);
 
+  // `files` is either real File objects (the plain <input type="file">
+  // fallback already hands those over with data attached) or lightweight
+  // {name, path} descriptors from the native folder/file dialog — reading
+  // those the rest of the way happens right here, inside the same loop
+  // that reports progress, so the progress bar appears immediately instead
+  // of after a silent pause while everything gets read up front elsewhere.
   const handleFilesSelected = useCallback(async (files) => {
     setImportProgress({ done: 0, total: files.length });
     let done = 0;
+    let failed = 0;
     try {
-      const parsed = await Promise.all(
-        files.map(async (file) => {
-          const track = await parseTrack(file);
-          await addTrack(track);
-          done += 1;
-          setImportProgress({ done, total: files.length });
-          return track;
+      const results = await Promise.all(
+        files.map(async (item) => {
+          try {
+            const file =
+              item instanceof File ? item : new File([await window.electronAPI.readAudioFile(item.path)], item.name);
+            const track = await parseTrack(file);
+            await addTrack(track);
+            return track;
+          } catch (err) {
+            // one bad/unreadable file shouldn't abort the whole batch
+            console.error('[import] failed on', item.name ?? item, err);
+            failed += 1;
+            return null;
+          } finally {
+            done += 1;
+            setImportProgress({ done, total: files.length });
+          }
         })
       );
+      const parsed = results.filter(Boolean);
       setTracks((prev) => [...prev, ...parsed]);
       // nothing loaded yet — safe to both show and load the first upload
       if (!currentTrackId && parsed.length) {
         setCurrentTrackId(parsed[0].id);
         setPlayingTrackId(parsed[0].id);
       }
-      setImportToast({ id: Date.now(), count: parsed.length });
+      setImportToast({ id: Date.now(), count: parsed.length, failed });
     } catch (err) {
       console.error('[import] failed:', err);
       setImportToast({ id: Date.now(), error: true });
