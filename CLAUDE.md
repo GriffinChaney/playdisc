@@ -221,11 +221,16 @@ persisted to `localStorage.navWidth`) / `1fr` / `var(--np-width)` (fixed 278px).
   Every mutation writes the whole record through via `persistPlaylist` /
   `putPlaylist`. `handleDeleteTrack` also prunes the id from every playlist.
 - `libraryViewMode`: `'list' | 'grid'`, persisted to `localStorage.libraryViewMode`.
-- `npWidth`: right now-playing column width. **`null` = responsive** (auto width from
-  `viewportW`, ~26vw clamped 320–480, grows with the window); becomes a number once the
-  user drags the left-edge handle (`.np-resize-handle`), persisted to
+  Toggled by the `toggleLibraryView` keybinding (default `v`) as well as the header
+  buttons.
+- `npWidth`: right now-playing column width. **`null` = responsive** — auto width
+  `max(320, min(1400, round((viewportW - navWidth) * 0.483), avail - 340))`, i.e. the
+  right/artwork column and the middle track list split the post-nav space roughly
+  evenly (measured to match a screenshot the user signed off on). Becomes a number
+  once the user drags the left-edge handle (`.np-resize-handle`), persisted to
   `localStorage.npWidth`. A window-`resize` listener updates `viewportW` and re-clamps
-  the pinned widths so the middle track list always keeps ≥300px. The now-playing +
+  the pinned widths so the middle track list always keeps ≥300px. `navWidth` default
+  is 236. The now-playing +
   focus artwork/waveform are sized off viewport units so both views scale with the
   window; the collapsed Tab view bumps the artwork cap up. **Mini mode is fixed-size
   and unaffected**. Window opens at ~Raycast "Almost Maximize" (work area inset ~3%,
@@ -311,7 +316,15 @@ persisted to `localStorage.navWidth`) / `1fr` / `var(--np-width)` (fixed 278px).
   an inconsistency worth knowing about if the keybinding system is reworked.
 - `theme`: `'dark' | 'light'`, persisted to `localStorage`, applied as
   `document.documentElement.dataset.theme`.
-- `expandedTrackId`: which sidebar row is "zoomed" (Z key), Cubase-track-height style.
+- `expandedTrackId`: which track row is "zoomed" (Z key / `expandTrack`),
+  Cubase-track-height style. Z is a **follow-mode toggle**, not a per-row toggle: once
+  on, an effect keyed on `currentTrackId` keeps the zoom on whatever track you skip /
+  browse / finish onto; press Z again to turn it off. The zoomed row shows an info
+  strip (date added, file type/size, duration, tag count — `.track-expanded-info` in
+  `TrackItem.jsx`) and auto-scrolls into view. **That scroll must stay instant**
+  (`scrollIntoView({ block: 'nearest' })`, no `behavior: 'smooth'`) — a smooth scroll
+  re-targets against the row's own growing height and hard-froze the renderer on
+  rapid track changes.
 
 ### Track record shape (see `src/lib/db.js`)
 

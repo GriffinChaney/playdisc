@@ -6,8 +6,10 @@ move finished items out of "unfinished," log new bugs as they're found, and keep
 "just finished" trimmed to roughly the last session or two, not the full history.
 
 _Last updated: 2026-08-27 — playlist system, 3-column library view, play history, and
-a batch of view/UX polish all shipped and user-confirmed in the packaged app. Tagged
-`v2.0-playlists-2026-08-26` before that batch. See "Just finished" below._
+several batches of view/UX polish all shipped and user-confirmed in the packaged app.
+Latest: middle/artwork zones rebalanced to ~50/50, `v` grid-list toggle, Z zoom
+follow-mode + info strip. Tagged `v2.0-playlists-2026-08-26` before the playlists
+batch; `v2.2-selection-polish-2026-08-27` before this round. See "Just finished" below._
 
 ## Working across two machines now (desktop + laptop)
 
@@ -78,7 +80,33 @@ project up in a fresh session, read both before changing anything.
   the above. Only works when both machines are on the same LAN. Not removed — ask
   Griffin if it should be revoked once no longer useful.
 
-## Just finished (2nd laptop session, 2026-08-26)
+## Just finished (2026-08-27 — zone sizing + Z / view-toggle round)
+
+All user-confirmed in the packaged app.
+
+- **Middle / right zone rebalance.** The responsive `--np-width` (right/artwork
+  column) went from `~26vw` clamped 320–480 to **~48.3% of the space left after the
+  nav** — computed as `max(320, min(1400, round((viewportW - navWidth) * 0.483),
+  avail - 340))`. Numbers were measured off a screenshot the user marked as the
+  target: at ~1899px wide it lands `236 / 860 / 803` (nav / list / artwork). Left-nav
+  default 200→**236**. Artwork/waveform CSS caps `min(46vh,460px)` → `min(58vh,860px)`
+  so the art actually fills the wider column. Drag ceiling on the np handle 640→1400.
+  Only applies when the handles haven't been dragged (a dragged width is persisted and
+  wins).
+- **`v` = grid ⇄ list toggle.** New rebindable keybinding `toggleLibraryView`
+  (default `v`), added to `DEFAULT_KEYBINDINGS` so it shows in Settings. Switches to
+  the library view first if you're in focus/mini.
+- **Z zoom is now a follow-mode.** `expandTrack` (Z) toggles "keep the current track
+  zoomed"; while on, an effect in `App.jsx` keyed on `currentTrackId` moves
+  `expandedTrackId` to whatever you skip / browse / finish onto. The zoomed row
+  auto-scrolls into view (`TrackItem` effect: `requestAnimationFrame` +
+  `scrollIntoView({ block: 'nearest' })` — **instant, not `behavior: 'smooth'`**; the
+  smooth version churned against the row's own growing height and hard-froze the
+  renderer on rapid clicks).
+- **Zoomed row shows an info strip** (`.track-expanded-info` in `TrackItem.jsx`):
+  date added, file type (from `audioBlob.type`), file size, duration, tag count.
+
+
 
 - **Playlist system + 3-column library view** (big one — backup tag
   `pre-playlists-2026-08-26`, zip `~/Downloads/sona-backup-20260826-2204.zip`):

@@ -28,15 +28,18 @@ account, no sync, no catalog.
   reorder; pin one to the top; rename; ⌘/shift-select several and delete them at
   once. Deleting a playlist never touches the songs.
 - **Middle** — the track list for whatever's selected, as a list or an album-art
-  grid; drag to reorder within a playlist. The row `×` removes from the current
-  playlist (only deletes from the library in the "Imported" view).
+  grid (`v` toggles); drag to reorder within a playlist. The row `×` removes from the
+  current playlist (only deletes from the library in the "Imported" view). Press `z`
+  to keep the current track zoomed (with date added / format / size); the zoom
+  follows as you skip.
 - **Right** — now playing: artwork (click for fullscreen), color-reactive
   waveform, pixel-art EQ, transport
 - Add to a playlist by right-clicking a track (or a multi-selection), or the
   `+ playlist` button on the selection bar
-- Both side columns are drag-resizable and the layout scales with the window;
-  **Tab** hides the playlist nav and splits the window evenly between the track
-  list and the artwork zone. Opens near-maximized.
+- Both side columns are drag-resizable and the layout scales with the window — by
+  default the track list and the artwork zone split the space after the nav roughly
+  evenly. **Tab** hides the playlist nav and splits the window evenly between the
+  track list and the artwork zone. Opens near-maximized.
 
 **Playback**
 - Browsing a track (single click) never interrupts what's playing — a floating

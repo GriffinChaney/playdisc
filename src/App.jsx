@@ -95,7 +95,7 @@ export default function App() {
   const [navWidth, setNavWidth] = useState(() => {
     const saved = parseInt(localStorage.getItem('navWidth'), 10);
     const cap = Math.max(170, window.innerWidth - 460);
-    return Number.isFinite(saved) ? Math.min(340, cap, Math.max(170, saved)) : 200;
+    return Number.isFinite(saved) ? Math.min(340, cap, Math.max(170, saved)) : 236;
   });
   // null = responsive (grows with the window via a CSS clamp); a number once
   // the user has dragged the handle to pin a specific width
@@ -103,7 +103,7 @@ export default function App() {
     const saved = parseInt(localStorage.getItem('npWidth'), 10);
     if (!Number.isFinite(saved)) return null;
     const cap = Math.max(300, window.innerWidth - 200 - 300);
-    return Math.min(640, cap, Math.max(300, saved));
+    return Math.min(1400, cap, Math.max(300, saved));
   });
   // tracked so the responsive now-playing width (and the collapsed 50/50
   // split) can be fed to the grid as clean px — needed for the width vars
@@ -137,7 +137,7 @@ export default function App() {
         appRef.current?.style.setProperty('--nav-width', `${w}px`);
       } else if (isResizingNpRef.current) {
         const maxNp = Math.max(300, window.innerWidth - navWidthRef.current - 300);
-        const w = Math.min(640, maxNp, Math.max(300, window.innerWidth - e.clientX));
+        const w = Math.min(1400, maxNp, Math.max(300, window.innerWidth - e.clientX));
         pendingNpRef.current = w;
         appRef.current?.style.setProperty('--np-width', `${w}px`);
       }
@@ -219,6 +219,12 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('libraryViewMode', libraryViewMode);
   }, [libraryViewMode]);
+
+  // while a row is zoomed (Z), keep the zoom on whatever track is now current
+  // — skip / prev / natural finish / clicking another row all move it along
+  useEffect(() => {
+    setExpandedTrackId((id) => (id == null ? null : currentTrackId));
+  }, [currentTrackId]);
 
   // if the active playlist is deleted elsewhere, fall back to Imported
   useEffect(() => {
@@ -890,7 +896,13 @@ export default function App() {
         setView((v) => (v === 'mini' ? 'sidebar' : 'mini'));
       } else if (keyStr === keybindings.expandTrack.key) {
         e.preventDefault();
-        setExpandedTrackId((id) => (id === currentTrackId ? null : currentTrackId));
+        // toggles "keep the current track zoomed" — while on, the zoom
+        // follows currentTrackId as you skip / browse (see effect below)
+        setExpandedTrackId((id) => (id == null ? currentTrackId : null));
+      } else if (keyStr === keybindings.toggleLibraryView.key) {
+        e.preventDefault();
+        setView('sidebar');
+        setLibraryViewMode((m) => (m === 'grid' ? 'list' : 'grid'));
       } else if (keyStr === keybindings.seekBack.key) {
         e.preventDefault();
         waveformRef.current?.skip(-5);
@@ -934,7 +946,17 @@ export default function App() {
         '--np-width': `${
           navCollapsed && view === 'sidebar'
             ? Math.round(viewportW / 2)
-            : npWidth ?? Math.max(320, Math.min(480, Math.round(viewportW * 0.26)))
+            : npWidth ??
+              (() => {
+                // right (artwork) zone and the middle track list split the
+                // room left after the nav roughly evenly — middle keeps a
+                // slight edge, and never drops below 340px
+                const avail = viewportW - navWidth;
+                return Math.max(
+                  320,
+                  Math.min(1400, Math.round(avail * 0.483), avail - 340)
+                );
+              })()
         }px`
       }}
     >

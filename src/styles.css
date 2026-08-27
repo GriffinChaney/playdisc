@@ -294,6 +294,20 @@ body {
 .track-item.expanded {
   padding: 26px 12px;
 }
+.track-expanded-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 2px;
+}
+.track-info-chip {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border-radius: 5px;
+  padding: 2px 7px;
+  white-space: nowrap;
+}
 .track-item.selected {
   background: var(--selection-bg);
   border-color: var(--selection);
@@ -675,7 +689,7 @@ body {
   /* fills the now-playing column (which itself grows with the window),
      capped so it never gets taller than the panel */
   width: 100%;
-  max-width: min(46vh, 460px);
+  max-width: min(58vh, 860px);
   aspect-ratio: 1;
 }
 .focus-artwork {
@@ -716,7 +730,7 @@ body {
 .waveform-wrap,
 .focus-waveform-wrap {
   width: 100%;
-  max-width: min(46vh, 460px);
+  max-width: min(58vh, 860px);
 }
 .focus-waveform-wrap {
   max-width: min(64vh, 60vw, 820px);

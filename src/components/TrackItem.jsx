@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useObjectUrl } from '../lib/useObjectUrl';
 
 function formatDuration(seconds = 0) {
@@ -7,6 +7,40 @@ function formatDuration(seconds = 0) {
     .toString()
     .padStart(2, '0');
   return `${m}:${s}`;
+}
+
+function formatDate(ms) {
+  if (!ms) return null;
+  return new Date(ms).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  });
+}
+
+function formatSize(bytes = 0) {
+  if (!bytes) return null;
+  const mb = bytes / (1024 * 1024);
+  return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`;
+}
+
+const MIME_LABEL = {
+  'audio/mpeg': 'MP3',
+  'audio/mp3': 'MP3',
+  'audio/wav': 'WAV',
+  'audio/x-wav': 'WAV',
+  'audio/wave': 'WAV',
+  'audio/flac': 'FLAC',
+  'audio/x-flac': 'FLAC',
+  'audio/mp4': 'M4A',
+  'audio/x-m4a': 'M4A',
+  'audio/aac': 'AAC',
+  'audio/ogg': 'OGG'
+};
+
+function formatType(blob) {
+  if (!blob?.type) return null;
+  return MIME_LABEL[blob.type] || blob.type.replace(/^audio\//, '').toUpperCase();
 }
 
 export default function TrackItem({
@@ -27,8 +61,22 @@ export default function TrackItem({
   onAddToQueue
 }) {
   const artworkUrl = useObjectUrl(track.artworkBlob);
+  const rowRef = useRef(null);
   const [addingTag, setAddingTag] = useState(false);
   const [tagInput, setTagInput] = useState('');
+
+  // when the zoom lands on this row (via Z, or following next/prev), keep it
+  // on screen
+  useEffect(() => {
+    if (!isExpanded) return;
+    // instant + 'nearest' — no-op when the row is already visible. A smooth
+    // scroll here would re-fire against a container whose height is changing
+    // (the row is growing) and could churn hard enough to lock the window.
+    const id = requestAnimationFrame(() => {
+      rowRef.current?.scrollIntoView({ block: 'nearest' });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [isExpanded]);
 
   function submitTag(e) {
     e.preventDefault();
@@ -53,6 +101,7 @@ export default function TrackItem({
 
   return (
     <div
+      ref={rowRef}
       className={`track-item${isActive ? ' active' : ''}${isExpanded ? ' expanded' : ''}${isSelected ? ' selected' : ''}`}
       onClick={(e) => onSelect(track.id, e)}
       onDoubleClick={() => onPlay(track.id)}
@@ -68,6 +117,25 @@ export default function TrackItem({
           {track.title}
         </p>
         <p className="track-artist">{track.artist}</p>
+        {isExpanded && (
+          <div className="track-expanded-info">
+            {[
+              formatDate(track.dateAdded) && `Added ${formatDate(track.dateAdded)}`,
+              formatType(track.audioBlob),
+              formatSize(track.audioBlob?.size),
+              formatDuration(track.duration),
+              track.tags.length
+                ? `${track.tags.length} tag${track.tags.length > 1 ? 's' : ''}`
+                : null
+            ]
+              .filter(Boolean)
+              .map((line, i) => (
+                <span key={i} className="track-info-chip">
+                  {line}
+                </span>
+              ))}
+          </div>
+        )}
         <div className="track-tags" onClick={(e) => e.stopPropagation()}>
           {track.tags.map((tag) => (
             <span className="tag-chip" key={tag}>
