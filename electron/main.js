@@ -128,9 +128,14 @@ async function collectAudioFiles(paths) {
 // One native dialog where BOTH files and folders are selectable at once
 // (macOS only allows this combination from a real Cocoa open panel — an
 // HTML <input type="file"> can only ever be file-only or folder-only).
-// Whatever's picked gets scanned for audio recursively, read into memory
-// here (the renderer can't read the filesystem), and handed back as plain
-// {name, data} pairs the renderer wraps into File objects.
+// Whatever's picked gets scanned for audio recursively and handed back as
+// just {name, path} pairs — NOT file contents. Reading every selected
+// file's full bytes into memory here and returning them all in one IPC
+// response crashed the app on a real folder of WAV files: V8's structured-
+// clone serializer chokes on one huge message (a folder of uncompressed
+// audio easily totals hundreds of MB), and that's a hard, unrecoverable
+// process crash, not a catchable error. The renderer instead calls
+// read-audio-file below once per file, so each IPC transfer stays small.
 ipcMain.handle('select-audio-import', async (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   const result = await dialog.showOpenDialog(win, {
@@ -138,12 +143,11 @@ ipcMain.handle('select-audio-import', async (event) => {
   });
   if (result.canceled || !result.filePaths.length) return [];
   const audioPaths = await collectAudioFiles(result.filePaths);
-  return Promise.all(
-    audioPaths.map(async (p) => ({
-      name: path.basename(p),
-      data: await fs.readFile(p)
-    }))
-  );
+  return audioPaths.map((p) => ({ name: path.basename(p), path: p }));
+});
+
+ipcMain.handle('read-audio-file', async (_event, filePath) => {
+  return fs.readFile(filePath);
 });
 
 app.whenReady().then(() => {

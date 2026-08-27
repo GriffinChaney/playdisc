@@ -7,6 +7,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   exitMiniMode: () => ipcRenderer.send('exit-mini-mode'),
   // opens a native dialog where files AND folders are both selectable at
   // once, recursively scans any selected folders for audio, and returns
-  // {name, data} pairs for every audio file found — see main.js
-  selectAudioImport: () => ipcRenderer.invoke('select-audio-import')
+  // {name, path} pairs (not file contents — see main.js for why) for every
+  // audio file found
+  selectAudioImport: () => ipcRenderer.invoke('select-audio-import'),
+  // reads one file's bytes at a time — called once per file so a big
+  // folder import never serializes everything through IPC in one message
+  readAudioFile: (filePath) => ipcRenderer.invoke('read-audio-file', filePath)
 });

@@ -31,10 +31,21 @@ export default function UploadButton({ onFilesSelected }) {
       fileInputRef.current?.click();
       return;
     }
-    const results = await window.electronAPI.selectAudioImport();
-    if (!results.length) return;
-    const files = results.map((r) => new File([r.data], r.name));
-    onFilesSelected(files);
+    const entries = await window.electronAPI.selectAudioImport();
+    if (!entries.length) return;
+    // read one file at a time (not Promise.all) — sending every file's
+    // full bytes through IPC in one go crashed the app on a real folder
+    // of WAVs, since that one giant message overwhelmed V8's serializer
+    const files = [];
+    for (const entry of entries) {
+      try {
+        const data = await window.electronAPI.readAudioFile(entry.path);
+        files.push(new File([data], entry.name));
+      } catch (err) {
+        console.error('[import] failed to read', entry.path, err);
+      }
+    }
+    if (files.length) onFilesSelected(files);
   }
 
   return (
