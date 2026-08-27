@@ -140,6 +140,27 @@ function LibraryList({
     return [trackId];
   }
 
+  // the row's "×" button — same "whole selection vs. just this row" logic
+  // as the right-click menu (menuTargets above), so deleting/removing via
+  // × while several tracks are highlighted acts on all of them, not just
+  // the one row you happened to click
+  function handleRowDelete(trackId) {
+    const ids = menuTargets(trackId);
+    const many = ids.length > 1;
+    if (isPlaylistView) {
+      // × just takes the song(s) out of THIS playlist — stays in the
+      // library, so no confirm (matches the single-track behavior before)
+      ids.forEach((id) => onRemoveTrackFromPlaylist(playlistId, id));
+      setSelectedIds(new Set());
+      return;
+    }
+    const label = many ? `${ids.length} tracks` : `"${visibleTracks.find((t) => t.id === trackId)?.title}"`;
+    if (confirm(`Delete ${label} from your library? This can't be undone.`)) {
+      ids.forEach((id) => onDeleteTrack(id));
+      setSelectedIds(new Set());
+    }
+  }
+
   function openTrackMenu(e, trackId) {
     e.preventDefault();
     const ids = menuTargets(trackId);
@@ -438,9 +459,8 @@ function LibraryList({
                 onContextMenuTrack={openTrackMenu}
                 onAddTag={onAddTag}
                 onRemoveTag={onRemoveTag}
-                onDelete={onDeleteTrack}
+                onRowAction={handleRowDelete}
                 inPlaylist={isPlaylistView}
-                onRemoveFromPlaylist={(id) => onRemoveTrackFromPlaylist(playlistId, id)}
                 onAddToQueue={onAddToQueue}
               />
               {reorderEnabled && index === visibleTracks.length - 1 && dropIndex === visibleTracks.length && (

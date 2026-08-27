@@ -56,8 +56,7 @@ export default function TrackItem({
   onContextMenuTrack,
   onAddTag,
   onRemoveTag,
-  onDelete,
-  onRemoveFromPlaylist,
+  onRowAction,
   inPlaylist,
   onAddToQueue
 }) {
@@ -87,17 +86,12 @@ export default function TrackItem({
     setAddingTag(false);
   }
 
+  // the parent (LibraryList) decides what "×" actually does — single track
+  // vs. the whole highlighted selection, confirm wording, library-delete
+  // vs. playlist-remove — since only it knows the current selection
   function handleRowAction(e) {
     e.stopPropagation();
-    if (inPlaylist) {
-      // in a playlist the × just takes the song out of THIS playlist —
-      // it stays in the library, so no confirm
-      onRemoveFromPlaylist(track.id);
-      return;
-    }
-    if (confirm(`Delete "${track.title}"? This can't be undone.`)) {
-      onDelete(track.id);
-    }
+    onRowAction(track.id);
   }
 
   return (
