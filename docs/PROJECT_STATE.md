@@ -5,7 +5,9 @@ architecture/conventions context this builds on. Update this file as work progre
 move finished items out of "unfinished," log new bugs as they're found, and keep
 "just finished" trimmed to roughly the last session or two, not the full history.
 
-_Last updated: end of the session that set up git + multi-machine sync (dated 2026-08-26)._
+_Last updated: 2026-08-26, 2nd laptop session — electron:dev block re-diagnosed (see
+below), electron bumped to 31.7.7 + lockfile synced, dead `allowScripts` block removed
+from package.json._
 
 ## Working across two machines now (desktop + laptop)
 
@@ -28,23 +30,35 @@ project up in a fresh session, read both before changing anything.
   `~/.zshrc`. If Electron ever silently fails to install again on a machine, check
   `node --version` first — anything not an LTS release (even-numbered major, e.g. 20,
   22, 24) is suspect.
-- **`npm run electron:dev` doesn't work on the laptop yet.** The raw
-  `node_modules/electron/dist/Electron.app` gets killed on launch (`SIGKILL`) by
-  macOS's XProtect malware scanner, showing "Electron will damage your computer."
-  Confirmed **not** version-specific (tried both 31.3.0 and 31.7.7, both blocked) and,
-  critically, **no "Open Anyway" override appears in System Settings** for it — unlike
-  the packaged `Sona.app`, which hit an ordinary (overridable) unnotarized-app Gatekeeper
-  block instead. Working theory: Apple's XProtect specifically distrusts generically-named
-  `Electron.app` bundles (a name real malware has impersonated), and that class of block
-  has no user override by design. **Workaround in place**: use the packaged-app flow
-  (`npm run electron:build`, then codesign/xattr/open — see CLAUDE.md's codesign section)
-  instead of live-reload dev mode on the laptop. **Not yet fixed**: the real fix is
-  likely renaming the extracted bundle away from the generic "Electron.app"/
-  `com.github.Electron` identity (rename the `.app`, update `Info.plist`'s
-  `CFBundleName`/`CFBundleExecutable`/`CFBundleIdentifier`, and update
-  `node_modules/electron/path.txt` to match) — attempt this next time dev-mode on the
-  laptop actually matters, ideally while both machines are on the same network so
-  Claude can iterate quickly via SSH rather than relaying every command through the user.
+- **`npm run electron:dev` still doesn't work on the laptop.** The raw
+  `node_modules/electron/dist/Electron.app` is `SIGKILL`ed on launch (exit 137) — even
+  `Electron --version` is killed. Confirmed **not** version-specific (tried both 31.3.0
+  and 31.7.7).
+  - **Diagnosed 2026-08-26 (2nd laptop session):** the kill is `AppleSystemPolicy`
+    (`syspolicyd`), not XProtect malware. Live log while launching:
+    `kernel (AppleSystemPolicy) ASP: Security policy would not allow process: .../Electron.app/Contents/MacOS/Electron`
+    and `syspolicyd [com.apple.syspolicy.exec] Evaluating blocked code: PST: ...
+    (team: (null)), (id: com.github.Electron), (bundle_id: (null))`. So the block keys
+    off the **ad-hoc signature + `com.github.Electron` signing identity + null team** —
+    a Gatekeeper *execution* policy block, and this class has no "Open Anyway" override
+    in System Settings.
+  - Odd data point: `spctl -a -vvv -t exec node_modules/electron/dist/Electron.app`
+    reports `accepted, source=SonaDev` — i.e. a `SonaDev` spctl label rule was added at
+    some point (`spctl --add --label SonaDev ...`), and `spctl` *says* accepted, yet the
+    kernel ASP layer still kills it. spctl labels don't override the ASP exec block here.
+  - No quarantine xattr is present (`xattr -l` empty), so `xattr -dr com.apple.quarantine`
+    won't help.
+  - **Workaround still in place**: packaged-app flow (`npm run electron:build`, then
+    codesign — see CLAUDE.md) instead of live-reload dev mode on the laptop.
+  - **Untried next angles** (deferred at user's request — low priority, packaged flow
+    works): (a) re-sign the dist bundle with a *fresh signing identifier*
+    `codesign --sign - --force --deep --identifier com.sona.electron-dev node_modules/electron/dist/Electron.app`
+    and retest — the ASP log pins the block to `id: com.github.Electron`, so a new id
+    may clear it without a full rename; (b) failing that, the full rename (rename the
+    `.app` + `Contents/MacOS/Electron` executable, update `Info.plist`
+    `CFBundleName`/`CFBundleExecutable`/`CFBundleIdentifier`, update
+    `node_modules/electron/path.txt`, re-sign); (c) either survives only until the next
+    `npm install`, so it'd need a `postinstall` script to be durable.
 - SSH access from desktop→laptop was set up temporarily (key added to laptop's
   `~/.ssh/authorized_keys`, labeled `griffin-desktop-to-laptop`) to speed up debugging
   the above. Only works when both machines are on the same LAN. Not removed — ask
