@@ -19,19 +19,24 @@ account, no sync, no catalog.
 - Automatic ID3 / atom metadata + embedded artwork extraction on import
 - Search, per-track tags (inline `+ tag`, plus bulk tag / delete on a selection),
   tag-group filtering
-- Multi-select (⌘-click, shift-click, ⌘-drag to paint a range)
+- Multi-select in both list and grid view — ⌘-click, shift-click, ⌘-drag to paint
+  a contiguous range — with a floating action bar (queue / add-to-playlist / tag /
+  delete)
 
 **Playlists** (three-column library view, Spotify-style)
-- **Left** — "Imported" (your whole library) + your playlists; pin a playlist to
-  the top, rename, or delete it (deleting a playlist never deletes the songs)
+- **Left** — "Imported" (your whole library) + your playlists. Drag playlists to
+  reorder; pin one to the top; rename; ⌘/shift-select several and delete them at
+  once. Deleting a playlist never touches the songs.
 - **Middle** — the track list for whatever's selected, as a list or an album-art
-  grid; drag to reorder within a playlist
+  grid; drag to reorder within a playlist. The row `×` removes from the current
+  playlist (only deletes from the library in the "Imported" view).
 - **Right** — now playing: artwork (click for fullscreen), color-reactive
   waveform, pixel-art EQ, transport
 - Add to a playlist by right-clicking a track (or a multi-selection), or the
   `+ playlist` button on the selection bar
-- Both side columns are drag-resizable; **Tab** hides the playlist nav and splits
-  the window evenly between the track list and the artwork zone
+- Both side columns are drag-resizable and the layout scales with the window;
+  **Tab** hides the playlist nav and splits the window evenly between the track
+  list and the artwork zone. Opens near-maximized.
 
 **Playback**
 - Browsing a track (single click) never interrupts what's playing — a floating
