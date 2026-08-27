@@ -1778,11 +1778,16 @@ body {
 
 /* ---------- 3-column resize / collapse ---------- */
 
-.app {
-  transition: grid-template-columns 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+.app.resizing {
+  cursor: col-resize;
+  user-select: none;
+  -webkit-user-select: none;
 }
+/* The nav column snaps width, but its CONTENT slides — the eye follows the
+   slide so the snap underneath reads as a smooth reveal. grid-template-columns
+   itself can't be transitioned (the middle track is 1fr, not interpolatable). */
 .playlist-nav {
-  transition: transform 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.26s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .app.nav-collapsed .playlist-nav {
   transform: translateX(-100%);
@@ -1792,6 +1797,11 @@ body {
    give its header room to clear the traffic lights */
 .app.nav-collapsed .library-list {
   padding-left: 82px;
+}
+/* collapsed = a fixed even split; the drag handles don't apply */
+.app.nav-collapsed .sidebar-resize-handle,
+.app.nav-collapsed .np-resize-handle {
+  display: none;
 }
 
 .np-resize-handle {
@@ -1809,17 +1819,12 @@ body {
 }
 
 /* ---------- Grid hover micro-interaction ---------- */
+/* transform-only (cheap to composite) — box-shadow / filter transitions were
+   what made this feel janky */
 
 .grid-item {
-  transition: background 0.14s ease, transform 0.14s ease, box-shadow 0.14s ease;
+  transition: transform 0.13s ease, background 0.13s ease;
 }
 .grid-item:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
-}
-.grid-item .grid-cover {
-  transition: filter 0.14s ease;
-}
-.grid-item:hover .grid-cover {
-  filter: brightness(1.06);
+  transform: translateY(-2px) scale(1.015);
 }

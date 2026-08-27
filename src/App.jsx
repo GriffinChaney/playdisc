@@ -104,31 +104,53 @@ export default function App() {
   const isResizingNpRef = useRef(false);
   const navWidthRef = useRef(navWidth);
   navWidthRef.current = navWidth;
+  const appRef = useRef(null);
+  // last width computed mid-drag; committed to React state + localStorage on
+  // mouseup only. During the drag we write the CSS var straight to the DOM so
+  // there's no per-frame re-render (that was the "resize feels laggy").
+  const pendingNavRef = useRef(null);
+  const pendingNpRef = useRef(null);
+
+  const startResizeNav = useCallback(() => {
+    isResizingSidebarRef.current = true;
+    appRef.current?.classList.add('resizing');
+  }, []);
+  const startResizeNp = useCallback(() => {
+    isResizingNpRef.current = true;
+    appRef.current?.classList.add('resizing');
+  }, []);
 
   useEffect(() => {
     function handleMouseMove(e) {
       if (isResizingSidebarRef.current) {
-        setNavWidth(Math.min(340, Math.max(170, e.clientX)));
+        const w = Math.min(340, Math.max(170, e.clientX));
+        pendingNavRef.current = w;
+        appRef.current?.style.setProperty('--nav-width', `${w}px`);
       } else if (isResizingNpRef.current) {
-        // never let the now-playing column starve the middle track list
         const maxNp = Math.max(300, window.innerWidth - navWidthRef.current - 300);
-        setNpWidth(Math.min(640, maxNp, Math.max(300, window.innerWidth - e.clientX)));
+        const w = Math.min(640, maxNp, Math.max(300, window.innerWidth - e.clientX));
+        pendingNpRef.current = w;
+        appRef.current?.style.setProperty('--np-width', `${w}px`);
       }
     }
     function handleMouseUp() {
       if (isResizingSidebarRef.current) {
         isResizingSidebarRef.current = false;
-        setNavWidth((w) => {
-          localStorage.setItem('navWidth', String(w));
-          return w;
-        });
+        appRef.current?.classList.remove('resizing');
+        if (pendingNavRef.current != null) {
+          setNavWidth(pendingNavRef.current);
+          localStorage.setItem('navWidth', String(pendingNavRef.current));
+          pendingNavRef.current = null;
+        }
       }
       if (isResizingNpRef.current) {
         isResizingNpRef.current = false;
-        setNpWidth((w) => {
-          localStorage.setItem('npWidth', String(w));
-          return w;
-        });
+        appRef.current?.classList.remove('resizing');
+        if (pendingNpRef.current != null) {
+          setNpWidth(pendingNpRef.current);
+          localStorage.setItem('npWidth', String(pendingNpRef.current));
+          pendingNpRef.current = null;
+        }
       }
     }
     document.addEventListener('mousemove', handleMouseMove);
@@ -832,10 +854,12 @@ export default function App() {
 
   return (
     <div
+      ref={appRef}
       className={`app${navCollapsed && view === 'sidebar' ? ' nav-collapsed' : ''}`}
       style={{
-        '--nav-width': `${navCollapsed && view === 'sidebar' ? 0 : navWidth}px`,
-        '--np-width': `${npWidth}px`
+        '--nav-width': navCollapsed && view === 'sidebar' ? '0px' : `${navWidth}px`,
+        // collapsed = an even split between the track list and the artwork zone
+        '--np-width': navCollapsed && view === 'sidebar' ? '50vw' : `${npWidth}px`
       }}
     >
       {createPortal(
@@ -882,9 +906,7 @@ export default function App() {
             historyIndex={historyIndex}
             onJumpToHistory={handleJumpToHistory}
             onClearHistory={handleClearHistory}
-            onResizeStart={() => {
-              isResizingSidebarRef.current = true;
-            }}
+            onResizeStart={startResizeNav}
           />
           <LibraryList
             tracks={shownTracks}
@@ -913,9 +935,7 @@ export default function App() {
             searchInputRef={searchInputRef}
           />
           <NowPlaying
-            onResizeStart={() => {
-              isResizingNpRef.current = true;
-            }}
+            onResizeStart={startResizeNp}
             track={currentTrack}
             waveformHost={waveformHostRef.current}
             isCurrentlyPlayingTrack={isViewingPlayingTrack}
