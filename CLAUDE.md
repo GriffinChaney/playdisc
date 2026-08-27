@@ -210,21 +210,33 @@ persisted to `localStorage.navWidth`) / `1fr` / `var(--np-width)` (fixed 278px).
   item the middle column shows. "Imported" = the **entire library** (newest-first),
   not "songs not in a playlist". Purely a view; never changes `currentTrackId`/
   `playingTrackId`.
-- `playlists`: array of `{ id, name, trackIds: string[], pinned, createdAt, updatedAt }`.
+- `playlists`: array of `{ id, name, trackIds: string[], pinned, sortIndex, createdAt, updatedAt }`.
+  Left-nav order = `pinned desc, sortIndex asc` (`sortIndex` backfills to `createdAt`
+  for old records). Drag-reorder in `PlaylistNav` (`handleReorderPlaylists`) renumbers
+  the dragged item's group (pinned vs unpinned) by 1000s; you can't drag across that
+  boundary.
   A playlist is just an **ordered list of track ids** — deleting one never touches the
   tracks. Stored in a new IndexedDB store `playlists` (**DB_VERSION bumped 1→2**; the
   `upgrade` callback is now `oldVersion`-guarded so existing v1 dbs migrate cleanly).
   Every mutation writes the whole record through via `persistPlaylist` /
   `putPlaylist`. `handleDeleteTrack` also prunes the id from every playlist.
 - `libraryViewMode`: `'list' | 'grid'`, persisted to `localStorage.libraryViewMode`.
-- `npWidth`: right now-playing column width. **`null` = responsive** (CSS
-  `clamp(320px, 26vw, 480px)` — grows with the window); becomes a number once the
+- `npWidth`: right now-playing column width. **`null` = responsive** (auto width from
+  `viewportW`, ~26vw clamped 320–480, grows with the window); becomes a number once the
   user drags the left-edge handle (`.np-resize-handle`), persisted to
-  `localStorage.npWidth`. A window-`resize` listener re-clamps both column widths so
-  the middle track list always keeps ≥300px. The now-playing + focus artwork/waveform
-  are sized off viewport units so both views scale with the window; **mini mode is
-  fixed-size and unaffected**. Window opens at ~Raycast "Almost Maximize" (work area
-  inset ~3%, centered — see `electron/main.js`).
+  `localStorage.npWidth`. A window-`resize` listener updates `viewportW` and re-clamps
+  the pinned widths so the middle track list always keeps ≥300px. The now-playing +
+  focus artwork/waveform are sized off viewport units so both views scale with the
+  window; the collapsed Tab view bumps the artwork cap up. **Mini mode is fixed-size
+  and unaffected**. Window opens at ~Raycast "Almost Maximize" (work area inset ~3%,
+  centered — see `electron/main.js`).
+  - `--nav-width` / `--np-width` are **registered via `@property`** (`<length>`) so the
+    grid can transition — that's what makes the Tab collapse *slide*. App.jsx feeds
+    them **clean px only**; a `vw`/`clamp()` value silently fails registered-property
+    validation and the var freezes at `initial-value`. `.app.resizing` kills the
+    transition so a drag-resize still tracks 1:1. NOTE: CSS transitions are frozen
+    while `document.hidden` — the in-app browser pane is always hidden, so verify
+    Tab-slide smoothness in the packaged app, not the dev preview.
 - `navCollapsed`: `Tab` (the `toggleNav` keybinding) slides `PlaylistNav` out of view
   in the `'sidebar'` view — grid's `--nav-width` animates to 0 + `.playlist-nav`
   `translateX(-100%)`. `.app.nav-collapsed .library-list` gets extra left padding to

@@ -1,4 +1,4 @@
-import { memo, useState } from 'react';
+import { memo, useRef, useState } from 'react';
 import UploadButton from './UploadButton';
 import QueuePanel from './QueuePanel';
 import HistoryPanel from './HistoryPanel';
@@ -14,6 +14,7 @@ function PlaylistNav({
   onCreatePlaylist,
   onOpenMenu,
   onTogglePin,
+  onReorderPlaylists,
   onRenamePlaylist,
   onDeletePlaylist,
   onPlayPlaylist,
@@ -33,11 +34,23 @@ function PlaylistNav({
   const [newName, setNewName] = useState('');
   const [renamingId, setRenamingId] = useState(null);
   const [renameValue, setRenameValue] = useState('');
+  const [dropTarget, setDropTarget] = useState(null); // { id, before }
+  const dragIdRef = useRef(null);
 
   const sorted = [...playlists].sort((a, b) => {
     if (!!b.pinned !== !!a.pinned) return b.pinned ? 1 : -1;
-    return a.createdAt - b.createdAt;
+    return (a.sortIndex ?? a.createdAt) - (b.sortIndex ?? b.createdAt);
   });
+
+  function finalizeDrop() {
+    const draggedId = dragIdRef.current;
+    const dt = dropTarget;
+    dragIdRef.current = null;
+    setDropTarget(null);
+    if (draggedId && dt && dt.id !== draggedId) {
+      onReorderPlaylists(draggedId, dt.id, dt.before);
+    }
+  }
 
   function submitNew(e) {
     e.preventDefault();
@@ -115,7 +128,32 @@ function PlaylistNav({
               className={`playlist-item-row${pl.pinned ? ' pinned' : ''}${
                 activeView.type === 'playlist' && activeView.id === pl.id ? ' active' : ''
               }`}
+              draggable
+              onDragStart={(e) => {
+                dragIdRef.current = pl.id;
+                e.dataTransfer.effectAllowed = 'move';
+              }}
+              onDragOver={(e) => {
+                const dragged = playlists.find((p) => p.id === dragIdRef.current);
+                // only reorder within the same pinned / unpinned group
+                if (!dragged || dragged.id === pl.id || !!dragged.pinned !== !!pl.pinned) return;
+                e.preventDefault();
+                const rect = e.currentTarget.getBoundingClientRect();
+                const before = e.clientY < rect.top + rect.height / 2;
+                setDropTarget({ id: pl.id, before });
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                finalizeDrop();
+              }}
+              onDragEnd={() => {
+                dragIdRef.current = null;
+                setDropTarget(null);
+              }}
             >
+              {dropTarget && dropTarget.id === pl.id && (
+                <div className={`playlist-drop-line ${dropTarget.before ? 'top' : 'bottom'}`} />
+              )}
               <button
                 className="playlist-item"
                 onClick={() => onSelectView({ type: 'playlist', id: pl.id })}

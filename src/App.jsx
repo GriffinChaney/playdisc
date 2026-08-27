@@ -105,6 +105,10 @@ export default function App() {
     const cap = Math.max(300, window.innerWidth - 200 - 300);
     return Math.min(640, cap, Math.max(300, saved));
   });
+  // tracked so the responsive now-playing width (and the collapsed 50/50
+  // split) can be fed to the grid as clean px — needed for the width vars
+  // to animate on Tab (see @property in styles.css)
+  const [viewportW, setViewportW] = useState(() => window.innerWidth);
   const isResizingSidebarRef = useRef(false);
   const isResizingNpRef = useRef(false);
   const navWidthRef = useRef(navWidth);
@@ -166,24 +170,32 @@ export default function App() {
     };
   }, []);
 
-  // if the window shrinks, pull the (pinned) column widths back into a range
-  // that still leaves the middle track list room
+  // track the viewport, and if the window shrinks pull the (pinned) column
+  // widths back into a range that still leaves the middle track list room
   useEffect(() => {
+    let raf = 0;
     function onResize() {
-      setNavWidth((w) => {
-        const next = Math.min(w, Math.max(170, window.innerWidth - 460));
-        if (next !== w) localStorage.setItem('navWidth', String(next));
-        return next;
-      });
-      setNpWidth((w) => {
-        if (w == null) return w;
-        const next = Math.min(w, Math.max(300, window.innerWidth - navWidthRef.current - 300));
-        if (next !== w) localStorage.setItem('npWidth', String(next));
-        return next;
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        setViewportW(window.innerWidth);
+        setNavWidth((w) => {
+          const next = Math.min(w, Math.max(170, window.innerWidth - 460));
+          if (next !== w) localStorage.setItem('navWidth', String(next));
+          return next;
+        });
+        setNpWidth((w) => {
+          if (w == null) return w;
+          const next = Math.min(w, Math.max(300, window.innerWidth - navWidthRef.current - 300));
+          if (next !== w) localStorage.setItem('npWidth', String(next));
+          return next;
+        });
       });
     }
     window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', onResize);
+    };
   }, []);
 
   // A single WaveSurfer instance lives here for the whole app lifetime,
@@ -199,7 +211,9 @@ export default function App() {
 
   useEffect(() => {
     getAllTracks().then(setTracks);
-    getAllPlaylists().then((pls) => setPlaylists(pls.map((p) => ({ pinned: false, ...p }))));
+    getAllPlaylists().then((pls) =>
+      setPlaylists(pls.map((p) => ({ pinned: false, sortIndex: p.createdAt, ...p })))
+    );
   }, []);
 
   useEffect(() => {
@@ -423,13 +437,15 @@ export default function App() {
 
   const handleCreatePlaylist = useCallback(
     (name, trackIds = []) => {
+      const now = Date.now();
       const pl = {
         id: crypto.randomUUID(),
         name,
         trackIds: [...new Set(trackIds)],
         pinned: false,
-        createdAt: Date.now(),
-        updatedAt: Date.now()
+        sortIndex: now, // sorts to the end of the unpinned list
+        createdAt: now,
+        updatedAt: now
       };
       setPlaylists((prev) => [...prev, pl]);
       putPlaylist(pl);
@@ -494,6 +510,35 @@ export default function App() {
     },
     [persistPlaylist]
   );
+
+  // drag a playlist up/down in the nav. Reordering stays within the dragged
+  // playlist's group (pinned vs unpinned); the group is renumbered by 1000s.
+  const handleReorderPlaylists = useCallback((draggedId, targetId, before) => {
+    setPlaylists((prev) => {
+      const dragged = prev.find((p) => p.id === draggedId);
+      const target = prev.find((p) => p.id === targetId);
+      if (!dragged || !target || !!dragged.pinned !== !!target.pinned) return prev;
+      const group = prev
+        .filter((p) => !!p.pinned === !!dragged.pinned)
+        .sort((a, b) => (a.sortIndex ?? a.createdAt) - (b.sortIndex ?? b.createdAt));
+      const rest = group.filter((p) => p.id !== draggedId);
+      let at = rest.findIndex((p) => p.id === targetId);
+      if (at === -1) return prev;
+      if (!before) at += 1;
+      const ordered = [...rest.slice(0, at), dragged, ...rest.slice(at)];
+      const now = Date.now();
+      const nextSi = new Map(ordered.map((p, i) => [p.id, i * 1000]));
+      let touched = false;
+      const next = prev.map((p) => {
+        if (!nextSi.has(p.id) || p.sortIndex === nextSi.get(p.id)) return p;
+        touched = true;
+        const updated = { ...p, sortIndex: nextSi.get(p.id), updatedAt: now };
+        putPlaylist(updated);
+        return updated;
+      });
+      return touched ? next : prev;
+    });
+  }, []);
 
   // ---- play history: browser-style back/forward through what actually played ----
   // Every genuinely-new track that starts playing is appended. Back/Forward
@@ -882,15 +927,15 @@ export default function App() {
       ref={appRef}
       className={`app${navCollapsed && view === 'sidebar' ? ' nav-collapsed' : ''}`}
       style={{
-        '--nav-width': navCollapsed && view === 'sidebar' ? '0px' : `${navWidth}px`,
-        // collapsed = an even split between the track list and the artwork zone;
-        // otherwise a pinned px width, or a window-relative clamp when unset
-        '--np-width':
+        // clean px only, so both vars can animate on Tab (see @property)
+        '--nav-width': `${navCollapsed && view === 'sidebar' ? 0 : navWidth}px`,
+        // collapsed = an even split with the artwork zone; otherwise a pinned
+        // px width, or a window-relative auto width when unset
+        '--np-width': `${
           navCollapsed && view === 'sidebar'
-            ? '50vw'
-            : npWidth == null
-            ? 'clamp(320px, 26vw, 480px)'
-            : `${npWidth}px`
+            ? Math.round(viewportW / 2)
+            : npWidth ?? Math.max(320, Math.min(480, Math.round(viewportW * 0.26)))
+        }px`
       }}
     >
       {createPortal(
@@ -925,6 +970,7 @@ export default function App() {
             onCreatePlaylist={handleCreatePlaylist}
             onOpenMenu={setContextMenu}
             onTogglePin={handleTogglePinPlaylist}
+            onReorderPlaylists={handleReorderPlaylists}
             onRenamePlaylist={handleRenamePlaylist}
             onDeletePlaylist={handleDeletePlaylist}
             onPlayPlaylist={handlePlayPlaylist}
