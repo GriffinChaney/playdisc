@@ -217,9 +217,14 @@ persisted to `localStorage.navWidth`) / `1fr` / `var(--np-width)` (fixed 278px).
   Every mutation writes the whole record through via `persistPlaylist` /
   `putPlaylist`. `handleDeleteTrack` also prunes the id from every playlist.
 - `libraryViewMode`: `'list' | 'grid'`, persisted to `localStorage.libraryViewMode`.
-- `npWidth`: right now-playing column width, drag-handle on its LEFT edge
-  (`.np-resize-handle`), persisted to `localStorage.npWidth`, clamped so the middle
-  column keeps ≥300px.
+- `npWidth`: right now-playing column width. **`null` = responsive** (CSS
+  `clamp(320px, 26vw, 480px)` — grows with the window); becomes a number once the
+  user drags the left-edge handle (`.np-resize-handle`), persisted to
+  `localStorage.npWidth`. A window-`resize` listener re-clamps both column widths so
+  the middle track list always keeps ≥300px. The now-playing + focus artwork/waveform
+  are sized off viewport units so both views scale with the window; **mini mode is
+  fixed-size and unaffected**. Window opens at ~Raycast "Almost Maximize" (work area
+  inset ~3%, centered — see `electron/main.js`).
 - `navCollapsed`: `Tab` (the `toggleNav` keybinding) slides `PlaylistNav` out of view
   in the `'sidebar'` view — grid's `--nav-width` animates to 0 + `.playlist-nav`
   `translateX(-100%)`. `.app.nav-collapsed .library-list` gets extra left padding to

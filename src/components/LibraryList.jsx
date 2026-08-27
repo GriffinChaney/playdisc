@@ -458,6 +458,8 @@ function LibraryList({
                 onAddTag={onAddTag}
                 onRemoveTag={onRemoveTag}
                 onDelete={onDeleteTrack}
+                inPlaylist={isPlaylistView}
+                onRemoveFromPlaylist={(id) => onRemoveTrackFromPlaylist(playlistId, id)}
                 onAddToQueue={onAddToQueue}
               />
               {reorderEnabled && index === visibleTracks.length - 1 && dropIndex === visibleTracks.length && (

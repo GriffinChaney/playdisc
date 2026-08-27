@@ -55,6 +55,8 @@ export default function ContextMenu({ menu, onClose }) {
           <div
             key={i}
             className={`ctx-item has-sub${openSub === i && !isSub ? ' sub-open' : ''}`}
+            // hovering this row (in the top-level menu) opens its submenu;
+            // hovering any other row closes whatever was open
             onMouseEnter={() => !isSub && setOpenSub(i)}
           >
             <span>{item.label}</span>
@@ -70,6 +72,9 @@ export default function ContextMenu({ menu, onClose }) {
           key={i}
           className={`ctx-item${item.danger ? ' danger' : ''}`}
           disabled={item.disabled}
+          // moving onto a plain row closes any open submenu so the parent
+          // item stops looking highlighted
+          onMouseEnter={() => !isSub && setOpenSub(null)}
           onClick={() => {
             item.onClick?.();
             onClose();

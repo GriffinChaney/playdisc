@@ -23,6 +23,8 @@ export default function TrackItem({
   onAddTag,
   onRemoveTag,
   onDelete,
+  onRemoveFromPlaylist,
+  inPlaylist,
   onAddToQueue
 }) {
   const artworkUrl = useObjectUrl(track.artworkBlob);
@@ -37,8 +39,14 @@ export default function TrackItem({
     setAddingTag(false);
   }
 
-  function handleDelete(e) {
+  function handleRowAction(e) {
     e.stopPropagation();
+    if (inPlaylist) {
+      // in a playlist the × just takes the song out of THIS playlist —
+      // it stays in the library, so no confirm
+      onRemoveFromPlaylist(track.id);
+      return;
+    }
     if (confirm(`Delete "${track.title}"? This can't be undone.`)) {
       onDelete(track.id);
     }
@@ -105,7 +113,14 @@ export default function TrackItem({
       >
         +
       </button>
-      <button className="track-delete-btn" onClick={handleDelete} aria-label={`delete ${track.title}`}>
+      <button
+        className="track-delete-btn"
+        onClick={handleRowAction}
+        aria-label={
+          inPlaylist ? `remove ${track.title} from playlist` : `delete ${track.title} from library`
+        }
+        title={inPlaylist ? 'remove from playlist' : 'delete from library'}
+      >
         ✕
       </button>
     </div>

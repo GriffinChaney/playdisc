@@ -641,13 +641,15 @@ body {
   transform-style: preserve-3d;
 }
 .artwork {
+  /* fills the now-playing column (which itself grows with the window),
+     capped so it never gets taller than the panel */
   width: 100%;
-  max-width: min(38vh, 248px);
+  max-width: min(46vh, 460px);
   aspect-ratio: 1;
 }
 .focus-artwork {
-  width: min(60vh, 640px);
-  height: min(60vh, 640px);
+  width: min(64vh, 60vw, 820px);
+  height: min(64vh, 60vw, 820px);
   border-radius: 16px;
 }
 .artwork-fallback {
@@ -679,13 +681,14 @@ body {
   margin: 4px 0 0;
 }
 
+/* the waveform tracks the width of the artwork above it in each view */
 .waveform-wrap,
 .focus-waveform-wrap {
   width: 100%;
-  max-width: 480px;
+  max-width: min(46vh, 460px);
 }
 .focus-waveform-wrap {
-  max-width: 560px;
+  max-width: min(64vh, 60vw, 820px);
 }
 
 .time-row {

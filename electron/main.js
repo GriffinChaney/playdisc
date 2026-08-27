@@ -17,10 +17,19 @@ let boundsBeforeMini = null;
 const APP_ICON_PATH = path.join(__dirname, '..', 'assets', 'icon-256.png');
 
 function createWindow() {
+  // open at roughly Raycast's "Almost Maximize": fill the display's work area
+  // (below the menu bar, beside the dock) inset by a small even margin
+  const { workArea } = screen.getPrimaryDisplay();
+  const margin = Math.round(Math.min(workArea.width, workArea.height) * 0.03);
+  const width = Math.max(DEFAULT_MIN_WIDTH, workArea.width - margin * 2);
+  const height = Math.max(DEFAULT_MIN_HEIGHT, workArea.height - margin * 2);
+
   const win = new BrowserWindow({
     title: 'Sona',
-    width: 1440,
-    height: 960,
+    width,
+    height,
+    x: workArea.x + Math.round((workArea.width - width) / 2),
+    y: workArea.y + Math.round((workArea.height - height) / 2),
     minWidth: DEFAULT_MIN_WIDTH,
     minHeight: DEFAULT_MIN_HEIGHT,
     backgroundColor: '#111111',

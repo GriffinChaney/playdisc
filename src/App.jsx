@@ -94,11 +94,16 @@ export default function App() {
   // right now-playing column (handle on its left edge)
   const [navWidth, setNavWidth] = useState(() => {
     const saved = parseInt(localStorage.getItem('navWidth'), 10);
-    return Number.isFinite(saved) ? Math.min(340, Math.max(170, saved)) : 200;
+    const cap = Math.max(170, window.innerWidth - 460);
+    return Number.isFinite(saved) ? Math.min(340, cap, Math.max(170, saved)) : 200;
   });
+  // null = responsive (grows with the window via a CSS clamp); a number once
+  // the user has dragged the handle to pin a specific width
   const [npWidth, setNpWidth] = useState(() => {
     const saved = parseInt(localStorage.getItem('npWidth'), 10);
-    return Number.isFinite(saved) ? Math.min(640, Math.max(300, saved)) : 340;
+    if (!Number.isFinite(saved)) return null;
+    const cap = Math.max(300, window.innerWidth - 200 - 300);
+    return Math.min(640, cap, Math.max(300, saved));
   });
   const isResizingSidebarRef = useRef(false);
   const isResizingNpRef = useRef(false);
@@ -159,6 +164,26 @@ export default function App() {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
+  }, []);
+
+  // if the window shrinks, pull the (pinned) column widths back into a range
+  // that still leaves the middle track list room
+  useEffect(() => {
+    function onResize() {
+      setNavWidth((w) => {
+        const next = Math.min(w, Math.max(170, window.innerWidth - 460));
+        if (next !== w) localStorage.setItem('navWidth', String(next));
+        return next;
+      });
+      setNpWidth((w) => {
+        if (w == null) return w;
+        const next = Math.min(w, Math.max(300, window.innerWidth - navWidthRef.current - 300));
+        if (next !== w) localStorage.setItem('npWidth', String(next));
+        return next;
+      });
+    }
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
   }, []);
 
   // A single WaveSurfer instance lives here for the whole app lifetime,
@@ -858,8 +883,14 @@ export default function App() {
       className={`app${navCollapsed && view === 'sidebar' ? ' nav-collapsed' : ''}`}
       style={{
         '--nav-width': navCollapsed && view === 'sidebar' ? '0px' : `${navWidth}px`,
-        // collapsed = an even split between the track list and the artwork zone
-        '--np-width': navCollapsed && view === 'sidebar' ? '50vw' : `${npWidth}px`
+        // collapsed = an even split between the track list and the artwork zone;
+        // otherwise a pinned px width, or a window-relative clamp when unset
+        '--np-width':
+          navCollapsed && view === 'sidebar'
+            ? '50vw'
+            : npWidth == null
+            ? 'clamp(320px, 26vw, 480px)'
+            : `${npWidth}px`
       }}
     >
       {createPortal(
