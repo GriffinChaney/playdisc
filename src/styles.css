@@ -1949,13 +1949,10 @@ body {
     transform: none;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .track-list.view-swap,
-  .track-grid.view-swap,
-  .track-grid.view-swap .grid-item {
-    animation: none;
-  }
-}
+/* Deliberately NOT wrapped in @media (prefers-reduced-motion: reduce) — the
+   user explicitly wants the grid/list populate animation to play regardless
+   of the OS "Reduce Motion" setting, unlike other motion in this app which
+   still respects it. Keep this one exception scoped to just view-swap. */
 
 /* ---------- Press feedback ("click-down") ---------- */
 /* :active only, pure CSS. ROWS use a brightness dip, NOT a scale — a scale
