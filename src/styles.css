@@ -1051,14 +1051,14 @@ body {
   background: var(--surface);
   /* top stays roomier — it's the obvious spot to grab and drag the window
      by (see the whole-card -webkit-app-region: drag below); sides/bottom
-     pared to almost nothing (Apple Music mini-player style — the art
-     should nearly fill the card, not sit inside a visible frame) */
-  padding: 10px 3px 3px;
+     trimmed way down (Apple-minimal, not a framed card) so the artwork
+     gets almost the whole card */
+  padding: 14px 6px 6px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
+  gap: 4px;
   z-index: 60;
   animation: view-enter 260ms cubic-bezier(0.16, 1, 0.3, 1);
   /* traffic lights are hidden in mini mode (see enterMiniMode), so the
@@ -1071,8 +1071,8 @@ body {
   /* fixed (not 100%-width) so the whole window can be square — filling the
      width would make the artwork alone taller than the window is wide once
      the title/transport rows are added below it */
-  width: 180px;
-  height: 180px;
+  width: 168px;
+  height: 168px;
   flex-shrink: 0;
   border-radius: 12px;
   background-color: var(--placeholder-bg);
