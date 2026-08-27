@@ -1051,8 +1051,9 @@ body {
   background: var(--surface);
   /* top stays roomier — it's the obvious spot to grab and drag the window
      by (see the whole-card -webkit-app-region: drag below); sides/bottom
-     trimmed down so the artwork gets more of the card */
-  padding: 18px 8px 8px;
+     trimmed way down (Apple-minimal, not a framed card) so the artwork
+     gets almost the whole card */
+  padding: 14px 6px 6px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1070,8 +1071,8 @@ body {
   /* fixed (not 100%-width) so the whole window can be square — filling the
      width would make the artwork alone taller than the window is wide once
      the title/transport rows are added below it */
-  width: 164px;
-  height: 164px;
+  width: 168px;
+  height: 168px;
   flex-shrink: 0;
   border-radius: 12px;
   background-color: var(--placeholder-bg);
