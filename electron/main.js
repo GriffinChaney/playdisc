@@ -25,6 +25,11 @@ function createWindow() {
     minHeight: DEFAULT_MIN_HEIGHT,
     backgroundColor: '#111111',
     icon: APP_ICON_PATH,
+    // pass the click through when the window is activated by that click,
+    // instead of macOS's default of swallowing the first click just to
+    // focus the window — that was why the first track-select after launch
+    // (or after switching back from another app) never registered
+    acceptFirstMouse: true,
     // hides the native title-bar strip (keeping just the traffic-light
     // buttons, inset into the content) for a cleaner, more app-like window
     titleBarStyle: 'hiddenInset',
