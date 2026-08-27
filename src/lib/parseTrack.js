@@ -8,12 +8,25 @@ export async function parseTrack(file) {
   let artist = 'unknown artist';
   let duration = 0;
   let artworkBlob = null;
+  // audio fidelity info, surfaced in the UI so it's obvious Sona plays the
+  // original file untouched (no re-encode) — quality is whatever you import
+  let audio = null;
 
   try {
     const metadata = await parseBlob(file);
     if (metadata.common.title) title = metadata.common.title;
     if (metadata.common.artist) artist = metadata.common.artist;
     if (metadata.format.duration) duration = metadata.format.duration;
+
+    const f = metadata.format || {};
+    audio = {
+      codec: f.codec || f.container || null,
+      sampleRate: f.sampleRate || null, // Hz
+      bitrate: f.bitrate || null, // bits/sec
+      bitsPerSample: f.bitsPerSample || null,
+      channels: f.numberOfChannels || null,
+      lossless: typeof f.lossless === 'boolean' ? f.lossless : null
+    };
 
     const picture = metadata.common.picture?.[0];
     if (picture) {
@@ -33,6 +46,7 @@ export async function parseTrack(file) {
     duration,
     audioBlob: file,
     artworkBlob,
+    audio,
     tags: [],
     dateAdded: Date.now()
   };

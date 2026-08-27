@@ -26,6 +26,20 @@ import { parseTrack } from './lib/parseTrack';
 import { useObjectUrl } from './lib/useObjectUrl';
 import { loadKeybindings, saveKeybindings, eventToKeyString, DEFAULT_KEYBINDINGS } from './lib/keybindings';
 
+// One-time: earlier builds could persist a hand-dragged column width (often
+// from an accidental grab of a resize handle) that no longer matches the
+// re-tuned default proportions. Clear those once so the measured default
+// applies; the user can still drag to a new width afterwards and that sticks.
+try {
+  if (localStorage.getItem('layoutDefaults') !== 'v2.4') {
+    localStorage.removeItem('npWidth');
+    localStorage.removeItem('navWidth');
+    localStorage.setItem('layoutDefaults', 'v2.4');
+  }
+} catch {
+  /* localStorage unavailable — nothing to reset */
+}
+
 export default function App() {
   const [tracks, setTracks] = useState([]);
   // currentTrackId: the track shown in the main panel (what you're browsing).
@@ -939,23 +953,20 @@ export default function App() {
       ref={appRef}
       className={`app${navCollapsed && view === 'sidebar' ? ' nav-collapsed' : ''}`}
       style={{
-        // clean px only, so both vars can animate on Tab (see @property)
+        // clean px only, so both vars can animate on Tab (see @property).
         '--nav-width': `${navCollapsed && view === 'sidebar' ? 0 : navWidth}px`,
-        // collapsed = an even split with the artwork zone; otherwise a pinned
-        // px width, or a window-relative auto width when unset
+        // Tab collapse: nav goes to 0 and the track list + artwork split the
+        // whole window evenly. Normal view: the artwork column takes ~48% of
+        // the room left after the nav (middle keeps a slight edge, min 340px).
+        // Toggling Tab off returns cleanly to this because nothing mutates
+        // npWidth in between (the np handle is hidden while collapsed).
         '--np-width': `${
           navCollapsed && view === 'sidebar'
             ? Math.round(viewportW / 2)
             : npWidth ??
               (() => {
-                // right (artwork) zone and the middle track list split the
-                // room left after the nav roughly evenly — middle keeps a
-                // slight edge, and never drops below 340px
                 const avail = viewportW - navWidth;
-                return Math.max(
-                  320,
-                  Math.min(1400, Math.round(avail * 0.483), avail - 340)
-                );
+                return Math.max(320, Math.min(1400, Math.round(avail * 0.483), avail - 340));
               })()
         }px`
       }}

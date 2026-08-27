@@ -230,10 +230,17 @@ persisted to `localStorage.navWidth`) / `1fr` / `var(--np-width)` (fixed 278px).
   once the user drags the left-edge handle (`.np-resize-handle`), persisted to
   `localStorage.npWidth`. A window-`resize` listener updates `viewportW` and re-clamps
   the pinned widths so the middle track list always keeps ≥300px. `navWidth` default
-  is 236. The now-playing +
-  focus artwork/waveform are sized off viewport units so both views scale with the
-  window; the collapsed Tab view bumps the artwork cap up. **Mini mode is fixed-size
-  and unaffected**. Window opens at ~Raycast "Almost Maximize" (work area inset ~3%,
+  is 236. When `navCollapsed` (Tab), `--np-width` is `viewportW / 2` — the track list
+  and artwork split the whole window evenly, and `--nav-width` is 0; toggling Tab off
+  returns to the responsive value because nothing mutates `npWidth` while collapsed
+  (both resize handles are `display:none` then — a live np handle sits mid-window and
+  is trivially grabbed by accident, which is exactly how a bad width once got saved).
+  There is a **one-time layout reset** at the top of `App.jsx` keyed on
+  `localStorage.layoutDefaults` (currently `'v2.4'`): on first run of a new value it
+  clears saved `npWidth`/`navWidth` so a stale hand-dragged width can't override a
+  re-tuned default. Bump that string whenever the defaults are re-tuned. The
+  now-playing + focus artwork/waveform are sized off viewport units so both views
+  scale with the window. **Mini mode is fixed-size and unaffected**. Window opens at ~Raycast "Almost Maximize" (work area inset ~3%,
   centered — see `electron/main.js`).
   - `--nav-width` / `--np-width` are **registered via `@property`** (`<length>`) so the
     grid can transition — that's what makes the Tab collapse *slide*. App.jsx feeds
@@ -320,8 +327,11 @@ persisted to `localStorage.navWidth`) / `1fr` / `var(--np-width)` (fixed 278px).
   Cubase-track-height style. Z is a **follow-mode toggle**, not a per-row toggle: once
   on, an effect keyed on `currentTrackId` keeps the zoom on whatever track you skip /
   browse / finish onto; press Z again to turn it off. The zoomed row shows an info
-  strip (date added, file type/size, duration, tag count — `.track-expanded-info` in
-  `TrackItem.jsx`) and auto-scrolls into view. **That scroll must stay instant**
+  strip (a quality badge + chips from `src/lib/audioQuality.js` — codec / sample rate
+  / bit depth or bitrate — then size, date added, duration, tag count;
+  `.track-expanded-info` in `TrackItem.jsx`) and auto-scrolls into view. This depth
+  is **only** in the zoom — the user explicitly wanted the right-hand NowPlaying
+  column kept to just title + artist. **That scroll must stay instant**
   (`scrollIntoView({ block: 'nearest' })`, no `behavior: 'smooth'`) — a smooth scroll
   re-targets against the row's own growing height and hard-froze the renderer on
   rapid track changes.
@@ -334,8 +344,12 @@ persisted to `localStorage.navWidth`) / `1fr` / `var(--np-width)` (fixed 278px).
   title: string,
   artist: string,
   duration: number,      // seconds
-  audioBlob: Blob,       // the original file
+  audioBlob: Blob,       // the original file — played as-is, never re-encoded
   artworkBlob: Blob|null,// extracted embedded cover art, if any
+  audio: {              // fidelity info from music-metadata (null on parse fail,
+    codec, sampleRate,  //   and absent on records imported before 2026-08-27)
+    bitrate, bitsPerSample, channels, lossless
+  } | null,
   tags: string[],
   dateAdded: number      // epoch ms; sort key for library order
 }
@@ -355,6 +369,12 @@ All of this lives in `src/components/Waveform.jsx`.
 - **Backend**: WaveSurfer's default `MediaElement` backend (uses a real `<audio>` tag
   internally) — not `WebAudio`. This is *why* the DOM-detachment-pauses-playback issue
   above is real and must be respected.
+- **Playback fidelity**: the `<audio>` element plays the imported file's original
+  bytes — Sona never transcodes (`parseTrack` stores `audioBlob: file` untouched). So
+  playback quality == whatever was imported; a lossless import (FLAC/ALAC/WAV) really
+  is lossless out, which is the answer to "better than Spotify" (Spotify tops out at
+  320 kbps lossy). The decoded data grabbed on `ready` is only for the visualizer, not
+  playback. Don't add a normalize / gain / resample stage without a very good reason.
 - **Custom `renderFunction`** (`renderHeatmapBars`): draws every waveform bar's color
   from its *own* amplitude — quiet bars run cool (teal/green), loud bars run hot
   (red/orange), via `amplitudeColor(amplitude)` (HSL hue 150→0 as amplitude rises).
@@ -429,7 +449,14 @@ All of this lives in `src/components/Waveform.jsx`.
   animation applied to `.sidebar`, `.now-playing`, and `.focus-view` on mount (used for
   the fullscreen-toggle and mini-toggle transitions, since those are full
   conditional-unmount swaps rather than the persistent-node pattern used for the
-  waveform).
+  waveform). The list⇄grid swap reuses `view-enter` on `.track-list`/`.track-grid`
+  (`.view-swap`) — they already conditionally unmount on toggle, so no key/reflow
+  trick is needed. Grid additionally staggers its tiles in top-left→bottom-right via
+  a per-tile `--stagger` delay (`grid-tile-in`, `backwards` fill so the held
+  transform doesn't fight `:hover`; capped ~26 tiles so a big library still lands
+  fast). Both respect `prefers-reduced-motion`.
+- **Escape in the search field** (`LibraryList` `onKeyDown`): first press clears a
+  non-empty query, a second press (or Escape on an empty field) blurs it.
 - **Everything reactive to music should feel "reactive," not decorative-on-a-timer.**
   Both visualizers (main EQ strip, background-bar mini meter) sample real decoded
   audio amplitude at the current playhead — never a canned/fake animation loop. This

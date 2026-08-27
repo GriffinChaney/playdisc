@@ -308,6 +308,16 @@ body {
   padding: 2px 7px;
   white-space: nowrap;
 }
+/* quality badge stays on-theme — just a hair more prominent than the plain
+   chips via the primary text color, no accent color */
+.track-info-chip.quality-hi-res,
+.track-info-chip.quality-lossless,
+.track-info-chip.quality-high {
+  color: var(--text-primary);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
 .track-item.selected {
   background: var(--selection-bg);
   border-color: var(--selection);
@@ -1878,17 +1888,13 @@ body {
   transform: translateX(-100%);
   pointer-events: none;
 }
-/* the tab view leans on the artwork — let it grow well past the normal cap */
-.app.nav-collapsed .artwork,
-.app.nav-collapsed .waveform-wrap {
-  max-width: min(56vh, 640px);
-}
 /* when the nav is hidden the middle column butts against the window edge —
    give its header room to clear the traffic lights */
 .app.nav-collapsed .library-list {
   padding-left: 82px;
 }
-/* collapsed = a fixed even split; the drag handles don't apply */
+/* collapsed = a fixed even split; neither drag handle applies (and a live np
+   handle here sits mid-window and is easy to grab by accident) */
 .app.nav-collapsed .sidebar-resize-handle,
 .app.nav-collapsed .np-resize-handle {
   display: none;
@@ -1917,6 +1923,38 @@ body {
 }
 .grid-item:hover {
   transform: translateY(-2px) scale(1.015);
+}
+
+/* ---------- List <-> grid swap animation ---------- */
+/* the container does a quick fade/scale (same easing as the fullscreen swap);
+   grid tiles additionally pop in staggered, top-left to bottom-right, via a
+   per-tile --stagger delay set in LibraryList. `backwards` fill so the tile
+   sits at the "from" state during its delay but reverts to normal styles once
+   done — otherwise the held transform would fight the :hover lift. */
+.track-list.view-swap,
+.track-grid.view-swap {
+  animation: view-enter 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.track-grid.view-swap .grid-item {
+  animation: grid-tile-in 300ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  animation-delay: var(--stagger, 0ms);
+}
+@keyframes grid-tile-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .track-list.view-swap,
+  .track-grid.view-swap,
+  .track-grid.view-swap .grid-item {
+    animation: none;
+  }
 }
 
 /* ---------- Press feedback ("click-down") ---------- */

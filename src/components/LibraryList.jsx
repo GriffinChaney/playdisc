@@ -13,6 +13,7 @@ function formatTotal(seconds) {
 
 function GridItem({
   track,
+  index = 0,
   isActive,
   isPlayingTrack,
   isSelected,
@@ -26,6 +27,8 @@ function GridItem({
   return (
     <div
       className={`grid-item${isActive ? ' active' : ''}${isSelected ? ' selected' : ''}`}
+      // staggered entry delay — capped so a big library still finishes fast
+      style={{ '--stagger': `${Math.min(index, 26) * 13}ms` }}
       data-sel-id={track.id}
       onMouseDown={(e) => onMouseDownItem(track.id, e)}
       onMouseOver={() => onMouseOverItem(track.id)}
@@ -267,6 +270,15 @@ function LibraryList({
         placeholder="search"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            // first Escape clears a query, a second (or Escape on an empty
+            // field) drops focus back to the app
+            e.stopPropagation();
+            if (query) setQuery('');
+            else e.currentTarget.blur();
+          }
+        }}
       />
 
       {allTags.length > 0 && (
@@ -364,10 +376,11 @@ function LibraryList({
       )}
 
       {viewMode === 'grid' ? (
-        <div className="track-grid">
-          {visibleTracks.map((track) => (
+        <div className="track-grid view-swap">
+          {visibleTracks.map((track, index) => (
             <GridItem
               key={track.id}
+              index={index}
               track={track}
               isActive={track.id === currentTrackId}
               isPlayingTrack={track.id === playingTrackId}
@@ -382,7 +395,7 @@ function LibraryList({
           {visibleTracks.length === 0 && <p className="empty-state">nothing here yet.</p>}
         </div>
       ) : (
-        <div className="track-list">
+        <div className="track-list view-swap">
           {visibleTracks.map((track, index) => (
             <div
               key={track.id}

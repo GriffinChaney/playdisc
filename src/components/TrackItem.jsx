@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useObjectUrl } from '../lib/useObjectUrl';
+import { qualityChips, qualityTier } from '../lib/audioQuality';
 
 function formatDuration(seconds = 0) {
   const m = Math.floor(seconds / 60);
@@ -119,10 +120,16 @@ export default function TrackItem({
         <p className="track-artist">{track.artist}</p>
         {isExpanded && (
           <div className="track-expanded-info">
+            {qualityTier(track.audio) && (
+              <span className={`track-info-chip quality-${qualityTier(track.audio)}`}>
+                {qualityTier(track.audio)}
+              </span>
+            )}
             {[
-              formatDate(track.dateAdded) && `Added ${formatDate(track.dateAdded)}`,
-              formatType(track.audioBlob),
+              ...qualityChips(track.audio),
+              qualityChips(track.audio).length ? null : formatType(track.audioBlob),
               formatSize(track.audioBlob?.size),
+              formatDate(track.dateAdded) && `added ${formatDate(track.dateAdded)}`,
               formatDuration(track.duration),
               track.tags.length
                 ? `${track.tags.length} tag${track.tags.length > 1 ? 's' : ''}`

@@ -7,9 +7,11 @@ move finished items out of "unfinished," log new bugs as they're found, and keep
 
 _Last updated: 2026-08-27 — playlist system, 3-column library view, play history, and
 several batches of view/UX polish all shipped and user-confirmed in the packaged app.
-Latest: middle/artwork zones rebalanced to ~50/50, `v` grid-list toggle, Z zoom
-follow-mode + info strip. Tagged `v2.0-playlists-2026-08-26` before the playlists
-batch; `v2.2-selection-polish-2026-08-27` before this round. See "Just finished" below._
+Latest round: zone proportions locked to a user-approved screenshot (one-time layout
+reset baked in), `v` grid⇄list toggle with a staggered swap animation, Z zoom is now
+a follow-mode showing per-track audio-fidelity info, Escape clears/blurs search, Tab
+collapse restored to an even list/artwork split. Tag `v2.3-zone-sizing-2026-08-27`
+was cut mid-round; a fresh tag should follow this commit. See "Just finished"._
 
 ## Working across two machines now (desktop + laptop)
 
@@ -84,6 +86,21 @@ project up in a fresh session, read both before changing anything.
 
 All user-confirmed in the packaged app.
 
+**Follow-up pass, same day (after packaged testing):**
+- **Tab reverted to the even split.** `--np-width` when collapsed is `viewportW / 2`
+  again (list + artwork split the whole window); the user liked that and only wanted
+  the *return* trip fixed. Toggling Tab off now lands exactly back on the default
+  because both resize handles are `display:none` while collapsed — a live np handle
+  sat mid-window and an accidental grab was saving a tiny width that then stuck.
+- **One-time layout reset** in `App.jsx` (localStorage `layoutDefaults`, now `'v2.4'`)
+  wipes stale `npWidth`/`navWidth` once so the measured default (`236 / ~860 / ~803`
+  at 1899px) actually applies. Bump the string on any future default re-tune.
+- **Audio-fidelity info moved out of NowPlaying.** The user wanted the right column
+  kept to title + artist only. Format/quality now shows **only** in the Z-zoom strip.
+- **Quality badge de-colored** — was a teal→blue gradient, now plain on-theme text.
+
+
+
 - **Middle / right zone rebalance.** The responsive `--np-width` (right/artwork
   column) went from `~26vw` clamped 320–480 to **~48.3% of the space left after the
   nav** — computed as `max(320, min(1400, round((viewportW - navWidth) * 0.483),
@@ -104,7 +121,13 @@ All user-confirmed in the packaged app.
   smooth version churned against the row's own growing height and hard-froze the
   renderer on rapid clicks).
 - **Zoomed row shows an info strip** (`.track-expanded-info` in `TrackItem.jsx`):
-  date added, file type (from `audioBlob.type`), file size, duration, tag count.
+  quality badge + codec / sample-rate / bit-depth-or-bitrate chips (from new
+  `src/lib/audioQuality.js`), then size, date added, duration, tag count. `parseTrack`
+  now captures `metadata.format` into a new `track.audio` field.
+- **Grid/list swap animation.** `.track-list` / `.track-grid` get `.view-swap`
+  (`view-enter` keyframe, ~240ms). Grid tiles pop in staggered top-left→bottom-right
+  via a per-tile `--stagger` delay (`grid-tile-in`). Respects reduced-motion.
+- **Escape in search** clears a non-empty query, then blurs.
 
 
 
