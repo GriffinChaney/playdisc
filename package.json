@@ -9,7 +9,8 @@
     "dev": "vite",
     "build": "vite build",
     "electron:dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron .\"",
-    "electron:build": "vite build && electron-builder"
+    "electron:build": "vite build && electron-builder",
+    "backup": "bash scripts/backup.sh"
   },
   "dependencies": {
     "buffer": "^5.7.1",

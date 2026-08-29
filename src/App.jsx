@@ -4,6 +4,7 @@ import PlaylistNav from './components/PlaylistNav';
 import LibraryList from './components/LibraryList';
 import ContextMenu from './components/ContextMenu';
 import PromptModal from './components/PromptModal';
+import PlaylistEditModal from './components/PlaylistEditModal';
 import NowPlaying from './components/NowPlaying';
 import FocusView from './components/FocusView';
 import MiniPlayer from './components/MiniPlayer';
@@ -61,6 +62,7 @@ export default function App() {
   );
   const [contextMenu, setContextMenu] = useState(null);
   const [promptConfig, setPromptConfig] = useState(null);
+  const [editingPlaylistId, setEditingPlaylistId] = useState(null);
   const [navCollapsed, setNavCollapsed] = useState(false);
   // ordering context for skip/auto-advance: follows whichever list a new
   // playing track was chosen from ('library' order, or a specific playlist)
@@ -501,6 +503,15 @@ export default function App() {
     (id, name) => {
       const pl = playlistsRef.current.find((p) => p.id === id);
       if (pl) persistPlaylist({ ...pl, name });
+    },
+    [persistPlaylist]
+  );
+
+  // full edit (name + optional description + optional cover image)
+  const handleUpdatePlaylist = useCallback(
+    (id, { name, description, imageBlob }) => {
+      const pl = playlistsRef.current.find((p) => p.id === id);
+      if (pl) persistPlaylist({ ...pl, name, description, imageBlob });
     },
     [persistPlaylist]
   );
@@ -1027,6 +1038,7 @@ export default function App() {
             onTogglePin={handleTogglePinPlaylist}
             onReorderPlaylists={handleReorderPlaylists}
             onRenamePlaylist={handleRenamePlaylist}
+            onEditPlaylist={setEditingPlaylistId}
             onDeletePlaylist={handleDeletePlaylist}
             onPlayPlaylist={handlePlayPlaylist}
             queue={queue}
@@ -1045,6 +1057,9 @@ export default function App() {
             viewTitle={activePlaylist ? activePlaylist.name : 'Imported'}
             isPlaylistView={!!activePlaylist}
             playlistId={activePlaylist?.id}
+            playlistDescription={activePlaylist?.description || ''}
+            playlistImageBlob={activePlaylist?.imageBlob || null}
+            onEditPlaylist={activePlaylist ? () => setEditingPlaylistId(activePlaylist.id) : undefined}
             playlists={playlists}
             currentTrackId={currentTrackId}
             playingTrackId={playingTrackId}
@@ -1154,6 +1169,11 @@ export default function App() {
       )}
       <ContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} />
       <PromptModal config={promptConfig} onClose={() => setPromptConfig(null)} />
+      <PlaylistEditModal
+        playlist={playlists.find((p) => p.id === editingPlaylistId) || null}
+        onClose={() => setEditingPlaylistId(null)}
+        onSave={handleUpdatePlaylist}
+      />
     </div>
   );
 }

@@ -965,6 +965,11 @@ body {
   justify-content: center;
   z-index: 100;
 }
+.modal-overlay-blur {
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px) saturate(1.1);
+  -webkit-backdrop-filter: blur(3px) saturate(1.1);
+}
 
 .modal {
   width: 380px;
@@ -1756,6 +1761,166 @@ body {
   background: var(--surface-2);
 }
 
+/* ---------- Playlist hero (image + description atop the middle column) ---------- */
+.playlist-hero {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+}
+.playlist-hero-cover {
+  width: 96px;
+  height: 96px;
+  border-radius: 6px;
+  background: var(--placeholder-bg) center / cover no-repeat;
+  flex-shrink: 0;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.32);
+  cursor: pointer;
+}
+.playlist-hero-text {
+  flex: 1;
+  min-width: 0;
+}
+.playlist-hero-desc {
+  margin: 5px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.playlist-hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  align-self: flex-start;
+}
+.playlist-hero-edit {
+  background: none;
+  border: 0.5px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.playlist-hero-edit:hover {
+  background: var(--surface-2);
+  color: var(--text-primary);
+}
+
+/* ---------- Playlist edit modal ---------- */
+.pl-edit-modal {
+  width: 460px;
+  max-width: calc(100vw - 48px);
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  animation: import-card-in 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.pl-edit-body {
+  display: flex;
+  gap: 16px;
+  padding: 18px;
+}
+.pl-edit-cover {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.pl-edit-cover-box {
+  width: 120px;
+  height: 120px;
+  border-radius: 8px;
+  border: 1px dashed var(--border);
+  background: var(--surface-2) center / cover no-repeat;
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: pre-line;
+  line-height: 1.3;
+  text-align: center;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.12s ease;
+}
+.pl-edit-cover-box:hover,
+.pl-edit-cover-box.dragging {
+  border-color: var(--text-secondary);
+}
+.pl-edit-cover-box.dragging {
+  background-color: var(--surface);
+}
+.pl-edit-cover-remove {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.pl-edit-cover-remove:hover {
+  color: var(--text-secondary);
+}
+.pl-edit-fields {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pl-edit-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.pl-edit-input,
+.pl-edit-textarea {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 0.5px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-primary);
+  font-size: 13px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.pl-edit-textarea {
+  resize: vertical;
+  min-height: 62px;
+  font-family: inherit;
+}
+.pl-edit-input:focus,
+.pl-edit-textarea:focus {
+  outline: none;
+  border-color: var(--text-muted);
+}
+.pl-edit-count {
+  align-self: flex-end;
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: normal;
+}
+.pl-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 18px;
+  border-top: 0.5px solid var(--border);
+}
+
 .library-list .track-list {
   margin-top: 2px;
 }
@@ -1780,10 +1945,12 @@ body {
 
 .track-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 190px));
-  justify-content: start;
+  /* exactly 4 across, stretched to fill the middle column — independent of
+     window width or whether the vertical scrollbar is showing */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 18px;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   padding: 4px 2px 2px;
   align-content: start;
 }

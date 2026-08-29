@@ -28,6 +28,14 @@ the laptop does NOT share this conversation's history**; it relies on this file 
 `../CLAUDE.md` for context, which is exactly why they exist. If you're picking this
 project up in a fresh session, read both before changing anything.
 
+### Backups
+
+`npm run backup` (`scripts/backup.sh`) writes a timestamped `git archive` zip of
+HEAD to **`~/Developer/sona-backups/`** and auto-prunes to the newest 15. Run it
+after committing, alongside cutting a checkpoint tag. (Older ad-hoc zips lived in
+`~/Downloads/` — those are historical; the folder is the system now.) Git tags are
+the primary revert mechanism regardless; the zips are just belt-and-suspenders.
+
 ### Laptop-specific setup notes (don't repeat this diagnosis if it comes up again)
 
 - Laptop's Homebrew installed **Node 26.7.0** (bleeding-edge, not LTS) as the default
@@ -85,9 +93,22 @@ project up in a fresh session, read both before changing anything.
   the above. Only works when both machines are on the same LAN. Not removed — ask
   Griffin if it should be revoked once no longer useful.
 
-## Just finished (2026-08-28 — tag combobox + fullscreen mesh backdrop)
+## Just finished (2026-08-28 — playlist edit + grid fill)
 
 All user-confirmed in the packaged app.
+
+- **Playlist edit modal** (`PlaylistEditModal.jsx`). Right-click playlist → "Edit…"
+  (Rename kept). Name + optional description + optional cover image. New playlist
+  fields `description` / `imageBlob` (no DB migration). `src/lib/imageResize.js`
+  downscales the image to ≤600px. Cover box accepts a file picker *or* drag-drop.
+  Backdrop = `.modal-overlay-blur` (~3px blur). When a playlist has an image and/or
+  description, `LibraryList` shows a `.playlist-hero` band above the list instead of
+  the plain header; with neither it's unchanged.
+- **Grid = exactly 4 columns**, `repeat(4, minmax(0,1fr))` + `scrollbar-gutter:
+  stable`. The old `auto-fill, minmax(190px,1fr)` dropped to 3 once the vertical
+  scrollbar appeared and shaved the width.
+
+
 
 - **Fullscreen backdrop → multi-color mesh gradient** (tag `v2.5-mesh-backdrop`).
   `dominantColor.js` `getArtworkPalette()` + `useArtworkPalette` hook; `FocusView`

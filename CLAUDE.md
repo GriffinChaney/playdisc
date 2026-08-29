@@ -40,7 +40,8 @@ music-player-app/
 │   ├── main.jsx          # React entry point; Buffer polyfill lives here (critical, see below)
 │   ├── styles.css        # single global stylesheet, CSS variables for theming
 │   ├── components/
-│   │   ├── PlaylistNav.jsx    # LEFT column of the library view: Imported item, playlist list (pin/rename/delete via right-click), + new playlist, then QueuePanel + HistoryPanel, resize handle
+│   │   ├── PlaylistNav.jsx    # LEFT column of the library view: Imported item, playlist list (edit / pin / rename / delete via right-click), + new playlist, then QueuePanel + HistoryPanel, resize handle
+│   │   ├── PlaylistEditModal.jsx  # centered modal: playlist name + optional description + optional cover image (picker or drag-drop)
 │   │   ├── LibraryList.jsx    # MIDDLE column: header (title/count/time), list⇄grid toggle, search, tag filter, multi-select + bulk bar, track list or grid, drag-reorder (playlist views), track right-click menu
 │   │   ├── QueuePanel.jsx     # "up next" panel w/ drag-reorder (was inline in old Sidebar)
 │   │   ├── HistoryPanel.jsx   # "recently played" collapsible panel (was inline in old Sidebar)
@@ -258,6 +259,17 @@ persisted to `localStorage.navWidth`) / `1fr` / `var(--np-width)` (fixed 278px).
   needing a typed string (naming a new playlist) uses `<PromptModal>`, controlled by
   App's `promptConfig` state. `window.confirm()` *is* fine and is still used for
   destructive confirms.
+- **Playlist edit** (`PlaylistEditModal.jsx`, App `editingPlaylistId` state): right-
+  click a playlist → "Edit…" (Rename stays too). Modal edits name + optional
+  `description` + optional `imageBlob` (both new playlist-record fields, no DB
+  migration — records are schemaless). Image is downscaled to ≤600px by
+  `src/lib/imageResize.js` on pick/drop, stored as a Blob. When the active playlist
+  has an image and/or description, `LibraryList` swaps its plain `.lib-header` for a
+  `.playlist-hero` band (96px cover + name + 2-line-clamped description + count +
+  quick "edit" button); with neither, the header is unchanged. Modal backdrop uses
+  `.modal-overlay-blur` (a ~3px `backdrop-filter` on top of the shared scrim). The
+  cover box also accepts drag-and-drop; the overlay `preventDefault`s stray drops so
+  Electron doesn't navigate to the file.
 - `playbackContext`: `{ type: 'library' }` or `{ type: 'playlist', id }`. Set whenever
   a NEW playing track is chosen from the middle column (`handlePlayTrack`,
   `handleTogglePlay` adopting a browsed track, `handlePlayPlaylist`) — derived from

@@ -17,6 +17,7 @@ function PlaylistNav({
   onTogglePin,
   onReorderPlaylists,
   onRenamePlaylist,
+  onEditPlaylist,
   onDeletePlaylist,
   onPlayPlaylist,
   // queue + history
@@ -120,6 +121,7 @@ function PlaylistNav({
           }
         ]
       : [
+          { label: 'Edit…', onClick: () => onEditPlaylist(pl.id) },
           { label: 'Play', onClick: () => onPlayPlaylist(pl.id) },
           { label: pl.pinned ? 'Unpin' : 'Pin to top', onClick: () => onTogglePin(pl.id) },
           {

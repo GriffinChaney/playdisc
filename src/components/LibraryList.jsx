@@ -61,6 +61,9 @@ function LibraryList({
   viewTitle,
   isPlaylistView,
   playlistId,
+  playlistDescription = '',
+  playlistImageBlob = null,
+  onEditPlaylist,
   playlists,
   currentTrackId,
   playingTrackId,
@@ -82,6 +85,7 @@ function LibraryList({
   onPrompt,
   searchInputRef
 }) {
+  const playlistImageUrl = useObjectUrl(playlistImageBlob);
   const [query, setQuery] = useState('');
   const [activeTag, setActiveTag] = useState(null);
   const [bulkTagMenu, setBulkTagMenu] = useState(null); // 'add' | 'remove' | null
@@ -272,35 +276,76 @@ function LibraryList({
     selectedInOrder().forEach((id) => onRemoveTag(id, tag));
   }
 
+  const showHero = isPlaylistView && (playlistImageBlob || playlistDescription);
+
+  const viewToggle = (
+    <div className="view-toggle">
+      <button
+        className={viewMode === 'list' ? 'active' : ''}
+        onClick={() => onSetViewMode('list')}
+        aria-label="list view"
+        title="list view"
+      >
+        ☰
+      </button>
+      <button
+        className={viewMode === 'grid' ? 'active' : ''}
+        onClick={() => onSetViewMode('grid')}
+        aria-label="grid view"
+        title="grid view"
+      >
+        ▦
+      </button>
+    </div>
+  );
+
+  const subtitle = (
+    <>
+      {visibleTracks.length} {visibleTracks.length === 1 ? 'song' : 'songs'}
+      {totalSeconds > 0 && ` · ${formatTotal(totalSeconds)}`}
+    </>
+  );
+
   return (
     <div className="library-list">
-      <div className="lib-header">
-        <div className="lib-title-block">
-          <h1 className="lib-title">{viewTitle}</h1>
-          <p className="lib-subtitle">
-            {visibleTracks.length} {visibleTracks.length === 1 ? 'song' : 'songs'}
-            {totalSeconds > 0 && ` · ${formatTotal(totalSeconds)}`}
-          </p>
+      {showHero ? (
+        <div className="playlist-hero">
+          {playlistImageUrl && (
+            <div
+              className="playlist-hero-cover"
+              style={{ backgroundImage: `url(${playlistImageUrl})` }}
+              role={onEditPlaylist ? 'button' : undefined}
+              onClick={onEditPlaylist}
+              title={onEditPlaylist ? 'edit playlist' : undefined}
+            />
+          )}
+          <div className="playlist-hero-text">
+            <h1 className="lib-title">{viewTitle}</h1>
+            {playlistDescription && (
+              <p className="playlist-hero-desc" title={playlistDescription}>
+                {playlistDescription}
+              </p>
+            )}
+            <p className="lib-subtitle">{subtitle}</p>
+          </div>
+          <div className="playlist-hero-actions">
+            {onEditPlaylist && (
+              <button className="playlist-hero-edit" onClick={onEditPlaylist}>
+                edit
+              </button>
+            )}
+            {viewToggle}
+          </div>
         </div>
-        <div className="view-toggle">
-          <button
-            className={viewMode === 'list' ? 'active' : ''}
-            onClick={() => onSetViewMode('list')}
-            aria-label="list view"
-            title="list view"
-          >
-            ☰
-          </button>
-          <button
-            className={viewMode === 'grid' ? 'active' : ''}
-            onClick={() => onSetViewMode('grid')}
-            aria-label="grid view"
-            title="grid view"
-          >
-            ▦
-          </button>
+      ) : (
+        <div className="lib-header">
+          <div className="lib-title-block">
+            <h1 className="lib-title">{viewTitle}</h1>
+            <p className="lib-subtitle">{subtitle}</p>
+          </div>
+          {viewToggle}
         </div>
-      </div>
+      )}
 
       <input
         ref={searchInputRef}
