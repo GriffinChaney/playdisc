@@ -282,8 +282,8 @@ body {
 .track-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 8px;
+  gap: 11px;
+  padding: 8px 8px;
   border-radius: 8px;
   cursor: pointer;
   transition: padding 0.15s ease, transform 0.12s ease, background 0.12s ease;
@@ -295,10 +295,10 @@ body {
 }
 .track-index {
   flex-shrink: 0;
-  width: 20px;
+  width: 22px;
   margin-right: -2px;
   text-align: right;
-  font-size: 12px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
   color: var(--text-muted);
   user-select: none;
@@ -566,9 +566,9 @@ body {
 }
 
 .track-thumb {
-  width: 36px;
-  height: 36px;
-  border-radius: 4px;
+  width: 44px;
+  height: 44px;
+  border-radius: 5px;
   background-color: var(--placeholder-bg);
   background-size: cover;
   background-position: center;
@@ -585,7 +585,7 @@ body {
 }
 .thumb-fallback {
   color: #cecbf6;
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .track-meta {
@@ -593,7 +593,7 @@ body {
   flex: 1;
 }
 .track-title {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   margin: 0;
   white-space: nowrap;
@@ -601,7 +601,7 @@ body {
   text-overflow: ellipsis;
 }
 .track-artist {
-  font-size: 12px;
+  font-size: 12.5px;
   color: var(--text-secondary);
   margin: 2px 0 0;
   white-space: nowrap;
@@ -610,7 +610,7 @@ body {
 }
 .track-duration {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
