@@ -36,6 +36,10 @@ export default function PlaylistEditModal({ playlist, onClose, onSave }) {
   }, [imageBlob]);
 
   useEffect(() => {
+    // only while the modal is actually open — otherwise this capture-phase
+    // stopPropagation would swallow Escape for the rest of the app (e.g.
+    // clearing a track selection) even when nothing is being edited
+    if (!playlist) return;
     function onKey(e) {
       if (e.key === 'Escape') {
         e.stopPropagation();
@@ -44,7 +48,7 @@ export default function PlaylistEditModal({ playlist, onClose, onSave }) {
     }
     document.addEventListener('keydown', onKey, true);
     return () => document.removeEventListener('keydown', onKey, true);
-  }, [onClose]);
+  }, [playlist, onClose]);
 
   if (!playlist) return null;
 
