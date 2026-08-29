@@ -12,8 +12,9 @@ now `layoutDefaults='v2.5'`), `v` grid⇄list toggle w/ staggered swap animation
 follow-mode + per-track fidelity info, Escape clears/blurs search. **Desktop session**
 (commits `dd634f1`..`4bfc65f`) added folder import (recursive, single native dialog),
 import-crash fix, `×`-acts-on-selection, mini-player tweaks, and a fix for the layout
-ratcheting smaller on every resize. **Laptop, latest**: fullscreen backdrop is now a
-multi-color mesh gradient sampled from the cover. See "Just finished"._
+ratcheting smaller on every resize. **Laptop, latest**: multi-color mesh gradient
+fullscreen backdrop, and a tag-picker combobox (`TagMenu`) with bulk add/remove. See
+"Just finished"._
 
 ## Working across two machines now (desktop + laptop)
 
@@ -84,9 +85,26 @@ project up in a fresh session, read both before changing anything.
   the above. Only works when both machines are on the same LAN. Not removed — ask
   Griffin if it should be revoked once no longer useful.
 
-## Just finished (2026-08-27 — zone sizing + Z / view-toggle round)
+## Just finished (2026-08-28 — tag combobox + fullscreen mesh backdrop)
 
 All user-confirmed in the packaged app.
+
+- **Fullscreen backdrop → multi-color mesh gradient** (tag `v2.5-mesh-backdrop`).
+  `dominantColor.js` `getArtworkPalette()` + `useArtworkPalette` hook; `FocusView`
+  renders 4 soft radial blobs over a dark base. Monochrome covers fan the one hue
+  into analogous tones. See the "Focus view ambient background" entry lower down.
+- **`TagMenu.jsx`** — new combobox popover replacing the inline `+ tag` input
+  everywhere:
+  - Opens with all existing tags listed (from `LibraryList`'s `allTags`); typing
+    narrows; non-match → "Create …" row. Picking keeps the menu open; Esc / click /
+    scroll closes. Portal + `position: fixed`, flips up when < 240px below the anchor.
+    Input autofocuses once positioned.
+  - Row `+ tag` while that row is in a multi-selection → applies to the whole
+    selection (`handleRowAddTag` → `menuTargets`), with an "adding to N songs" note.
+  - Bulk bar: `+ tag` (menu, `allTags`) and a new `− tag` (shown only when the
+    selection has tags; options = union of tags on selected tracks; removes from all).
+
+
 
 **Follow-up pass, same day (after packaged testing):**
 - **Tab reverted to the even split.** `--np-width` when collapsed is `viewportW / 2`

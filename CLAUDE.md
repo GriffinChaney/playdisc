@@ -45,6 +45,7 @@ music-player-app/
 │   │   ├── QueuePanel.jsx     # "up next" panel w/ drag-reorder (was inline in old Sidebar)
 │   │   ├── HistoryPanel.jsx   # "recently played" collapsible panel (was inline in old Sidebar)
 │   │   ├── ContextMenu.jsx    # reusable right-click menu (controlled: App holds `contextMenu` state, renders one instance); supports one level of submenu
+│   │   ├── TagMenu.jsx        # combobox popover for applying/removing tags (portal, position:fixed, flips up near the bottom); used by TrackItem's `+ tag` and the bulk bar's `+ tag` / `− tag`
 │   │   ├── TrackItem.jsx      # one row in the track list
 │   │   ├── UploadButton.jsx   # file picker
 │   │   ├── NowPlaying.jsx     # RIGHT column of the library view (artwork + waveform + transport)
@@ -275,6 +276,17 @@ persisted to `localStorage.navWidth`) / `1fr` / `var(--np-width)` (fixed 278px).
   `filter: brightness()` dip, NOT a `transform: scale()`** — a scale-down shrinks the
   row out from under the cursor and the click lands on empty space (this was the
   "clicks feel inconsistent" bug). Buttons keep the scale-down.
+- **Tags** (`TagMenu.jsx`): `+ tag` on a row opens a combobox popover pre-populated
+  with every existing tag (`allTags`, computed in `LibraryList` from the current
+  view's tracks) — no typing needed; typing narrows, and a non-matching query gets a
+  "Create …" row. Picking a tag keeps the menu open (tag several at once); Esc / click
+  / scroll closes. Rendered in a portal with `position: fixed` so the scrolling list
+  never clips it, and it flips above the button when there's < 240px below. If the
+  clicked row is part of a multi-selection, the pick fans out to the whole selection
+  (`LibraryList.handleRowAddTag` → `menuTargets`) and the menu shows an "adding to N
+  songs" note. The bulk bar has `+ tag` (same menu, `allTags`) and `− tag` (only shown
+  when the selection has tags; options = union of tags across selected tracks, removes
+  from all). The old inline `<input>`/`window.prompt`-style tag entry is gone.
 
 ### Other App.jsx state
 

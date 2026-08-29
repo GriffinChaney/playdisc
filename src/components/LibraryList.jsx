@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import TrackItem from './TrackItem';
+import TagMenu from './TagMenu';
 import { useObjectUrl } from '../lib/useObjectUrl';
 import { useListSelection } from '../lib/useListSelection';
 
@@ -83,10 +84,11 @@ function LibraryList({
 }) {
   const [query, setQuery] = useState('');
   const [activeTag, setActiveTag] = useState(null);
-  const [addingBulkTag, setAddingBulkTag] = useState(false);
-  const [bulkTagInput, setBulkTagInput] = useState('');
+  const [bulkTagMenu, setBulkTagMenu] = useState(null); // 'add' | 'remove' | null
   const [dropIndex, setDropIndex] = useState(null);
   const dragIndexRef = useRef(null);
+  const bulkAddRef = useRef(null);
+  const bulkRemoveRef = useRef(null);
 
   const allTags = useMemo(() => {
     const set = new Set();
@@ -138,6 +140,12 @@ function LibraryList({
       return visibleTracks.filter((t) => selectedIds.has(t.id)).map((t) => t.id);
     }
     return [trackId];
+  }
+
+  // a row's own `+ tag` menu: if that row is part of a multi-selection, the
+  // pick lands on every selected track, otherwise just that one
+  function handleRowAddTag(trackId, tag) {
+    menuTargets(trackId).forEach((id) => onAddTag(id, tag));
   }
 
   // the row's "×" button — same "whole selection vs. just this row" logic
@@ -245,15 +253,24 @@ function LibraryList({
     visibleTracks.forEach((t) => selectedIds.has(t.id) && onAddToQueue(t.id));
     setSelectedIds(new Set());
   }
-  function submitBulkTag(e) {
-    e.preventDefault();
-    const v = bulkTagInput.trim();
-    if (v) selectedIds.forEach((id) => onAddTag(id, v));
-    setBulkTagInput('');
-    setAddingBulkTag(false);
-  }
-
   const selectedInOrder = () => visibleTracks.filter((t) => selectedIds.has(t.id)).map((t) => t.id);
+
+  // every tag currently on at least one selected track (for the bulk "− tag"
+  // menu). Recomputed live, so as tags are removed the menu shrinks.
+  const selectionTags = useMemo(() => {
+    const set = new Set();
+    visibleTracks.forEach((t) => {
+      if (selectedIds.has(t.id)) t.tags.forEach((tg) => set.add(tg));
+    });
+    return [...set].sort();
+  }, [visibleTracks, selectedIds]);
+
+  function bulkAddTag(tag) {
+    selectedInOrder().forEach((id) => onAddTag(id, tag));
+  }
+  function bulkRemoveTag(tag) {
+    selectedInOrder().forEach((id) => onRemoveTag(id, tag));
+  }
 
   return (
     <div className="library-list">
@@ -333,21 +350,41 @@ function LibraryList({
       {selectedIds.size > 0 && (
         <div className="bulk-bar">
           <span className="bulk-count">{selectedIds.size} selected</span>
-          {addingBulkTag ? (
-            <form onSubmit={submitBulkTag} style={{ display: 'inline' }}>
-              <input
-                autoFocus
-                className="tag-input"
-                value={bulkTagInput}
-                onChange={(e) => setBulkTagInput(e.target.value)}
-                onBlur={() => setAddingBulkTag(false)}
-                placeholder="tag name"
-              />
-            </form>
-          ) : (
-            <button className="bulk-btn" onClick={() => setAddingBulkTag(true)}>
-              + tag
+          <button
+            ref={bulkAddRef}
+            className={`bulk-btn${bulkTagMenu === 'add' ? ' active' : ''}`}
+            onClick={() => setBulkTagMenu((m) => (m === 'add' ? null : 'add'))}
+          >
+            + tag
+          </button>
+          {selectionTags.length > 0 && (
+            <button
+              ref={bulkRemoveRef}
+              className={`bulk-btn${bulkTagMenu === 'remove' ? ' active' : ''}`}
+              onClick={() => setBulkTagMenu((m) => (m === 'remove' ? null : 'remove'))}
+            >
+              − tag
             </button>
+          )}
+          {bulkTagMenu === 'add' && (
+            <TagMenu
+              anchorEl={bulkAddRef.current}
+              mode="add"
+              options={allTags}
+              onPick={bulkAddTag}
+              onClose={() => setBulkTagMenu(null)}
+              note={`adding to ${selectedIds.size} songs`}
+            />
+          )}
+          {bulkTagMenu === 'remove' && (
+            <TagMenu
+              anchorEl={bulkRemoveRef.current}
+              mode="remove"
+              options={selectionTags}
+              onPick={bulkRemoveTag}
+              onClose={() => setBulkTagMenu(null)}
+              note={`removing from ${selectedIds.size} songs`}
+            />
           )}
           <button className="bulk-btn" onClick={handleBulkQueue}>
             + queue
@@ -457,8 +494,12 @@ function LibraryList({
                 onPlay={onPlayTrack}
                 onMouseDownTrack={onItemMouseDown}
                 onContextMenuTrack={openTrackMenu}
-                onAddTag={onAddTag}
+                onAddTag={handleRowAddTag}
                 onRemoveTag={onRemoveTag}
+                allTags={allTags}
+                multiTagCount={
+                  selectedIds.has(track.id) && selectedIds.size > 1 ? selectedIds.size : 0
+                }
                 onRowAction={handleRowDelete}
                 inPlaylist={isPlaylistView}
                 onAddToQueue={onAddToQueue}

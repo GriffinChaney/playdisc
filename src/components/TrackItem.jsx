@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useObjectUrl } from '../lib/useObjectUrl';
 import { qualityChips, qualityTier } from '../lib/audioQuality';
+import TagMenu from './TagMenu';
 
 function formatDuration(seconds = 0) {
   const m = Math.floor(seconds / 60);
@@ -58,12 +59,17 @@ export default function TrackItem({
   onRemoveTag,
   onRowAction,
   inPlaylist,
-  onAddToQueue
+  onAddToQueue,
+  allTags = [],
+  // when this row is part of a multi-selection, `+ tag` acts on the whole
+  // selection (LibraryList wires onAddTag to fan out); show every tag as a
+  // candidate and note how many songs it'll hit
+  multiTagCount = 0
 }) {
   const artworkUrl = useObjectUrl(track.artworkBlob);
   const rowRef = useRef(null);
-  const [addingTag, setAddingTag] = useState(false);
-  const [tagInput, setTagInput] = useState('');
+  const tagBtnRef = useRef(null);
+  const [tagMenuOpen, setTagMenuOpen] = useState(false);
 
   // when the zoom lands on this row (via Z, or following next/prev), keep it
   // on screen
@@ -78,13 +84,6 @@ export default function TrackItem({
     return () => cancelAnimationFrame(id);
   }, [isExpanded]);
 
-  function submitTag(e) {
-    e.preventDefault();
-    const value = tagInput.trim();
-    if (value) onAddTag(track.id, value);
-    setTagInput('');
-    setAddingTag(false);
-  }
 
   // the parent (LibraryList) decides what "×" actually does — single track
   // vs. the whole highlighted selection, confirm wording, library-delete
@@ -150,21 +149,22 @@ export default function TrackItem({
               </button>
             </span>
           ))}
-          {addingTag ? (
-            <form onSubmit={submitTag} style={{ display: 'inline' }}>
-              <input
-                autoFocus
-                className="tag-input"
-                value={tagInput}
-                onChange={(e) => setTagInput(e.target.value)}
-                onBlur={() => setAddingTag(false)}
-                placeholder="tag name"
-              />
-            </form>
-          ) : (
-            <button className="tag-add-btn" onClick={() => setAddingTag(true)}>
-              + tag
-            </button>
+          <button
+            ref={tagBtnRef}
+            className={`tag-add-btn${tagMenuOpen ? ' active' : ''}`}
+            onClick={() => setTagMenuOpen((o) => !o)}
+          >
+            + tag
+          </button>
+          {tagMenuOpen && (
+            <TagMenu
+              anchorEl={tagBtnRef.current}
+              mode="add"
+              options={multiTagCount > 1 ? allTags : allTags.filter((t) => !track.tags.includes(t))}
+              onPick={(tag) => onAddTag(track.id, tag)}
+              onClose={() => setTagMenuOpen(false)}
+              note={multiTagCount > 1 ? `adding to ${multiTagCount} songs` : null}
+            />
           )}
         </div>
       </div>
