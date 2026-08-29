@@ -400,8 +400,15 @@ All of this lives in `src/components/Waveform.jsx`.
   320 kbps lossy). The decoded data grabbed on `ready` is only for the visualizer, not
   playback. Don't add a normalize / gain / resample stage without a very good reason.
 - **Custom `renderFunction`** (`renderHeatmapBars`): draws every waveform bar's color
-  from its *own* amplitude — quiet bars run cool (teal/green), loud bars run hot
-  (red/orange), via `amplitudeColor(amplitude)` (HSL hue 150→0 as amplitude rises).
+  from its *own* amplitude, via a `colorFn(amplitude)` held in `colorFnRef`. Default
+  is `amplitudeColor` — quiet bars cool (teal/green), loud bars hot (red/orange), HSL
+  hue 150→0. When the **playing** track has cover art, App feeds a `palette` prop
+  (`useArtworkPalette` on `playingTrack.artworkBlob`, same sampler as the fullscreen
+  backdrop) and `colorFnRef` is swapped for `makeAmplitudeScale(palette.colors)` — the
+  cover's colors ordered dark→bright and interpolated in RGB across amplitude, so the
+  waveform + EQ strip + scrub cursor take on the cover's colors. No artwork → stays on
+  the default heatmap. The EQ loop reads `colorFnRef` live; the already-painted
+  waveform canvas is repainted by re-setting `renderFunction` via `ws.setOptions`.
   This bypasses WaveSurfer's built-in `normalize` step, so the function does its own
   peak-scan normalization against the track's own max.
 - **Progress/"played" region**: WaveSurfer always re-tints the played region with a

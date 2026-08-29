@@ -25,6 +25,7 @@ import {
 } from './lib/db';
 import { parseTrack } from './lib/parseTrack';
 import { useObjectUrl } from './lib/useObjectUrl';
+import { useArtworkPalette } from './lib/useDominantColor';
 import { loadKeybindings, saveKeybindings, eventToKeyString, DEFAULT_KEYBINDINGS } from './lib/keybindings';
 
 // One-time: earlier builds could persist a hand-dragged column width (often
@@ -285,6 +286,9 @@ export default function App() {
   const playingTrack = tracks.find((t) => t.id === playingTrackId) || null;
   // the audio engine always follows the PLAYING track, never the browsed one
   const audioUrl = useObjectUrl(playingTrack?.audioBlob);
+  // colors sampled from the PLAYING track's cover, fed to the waveform + EQ
+  // visualizer (null when the track has no artwork -> default heatmap colors)
+  const playingPalette = useArtworkPalette(playingTrack?.artworkBlob);
   const isViewingPlayingTrack = currentTrackId === playingTrackId;
 
   // the ordered track list the middle column shows for the active left-nav
@@ -1009,6 +1013,7 @@ export default function App() {
           ref={waveformRef}
           audioUrl={audioUrl}
           theme={theme}
+          palette={playingPalette}
           onReady={handleReady}
           onTimeUpdate={handleTimeUpdate}
           onFinish={handleFinish}

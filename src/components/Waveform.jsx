@@ -1,13 +1,16 @@
 import { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import WaveSurfer from 'wavesurfer.js';
+import { makeAmplitudeScale } from '../lib/dominantColor';
 
 const EQ_BAR_COUNT = 24;
 // throttled well below 60fps so bars snap between heights instead of
 // smoothly interpolating — reads as chunky pixel-art rather than a wobble
 const EQ_UPDATE_INTERVAL_MS = 90;
 
-// Louder bars run hot (red/orange), quieter bars run cool (teal/green) —
-// a loudness heatmap rather than flat bars.
+// Default coloring: louder bars run hot (red/orange), quieter run cool
+// (teal/green) — a loudness heatmap. When the playing track has cover art,
+// App feeds a `palette` and this is swapped for a scale built from those
+// colors (see makeAmplitudeScale).
 function amplitudeColor(amplitude) {
   const hue = 150 - amplitude * 150;
   const lightness = 48 + amplitude * 10;
@@ -16,7 +19,8 @@ function amplitudeColor(amplitude) {
 
 // Custom bar renderer (wavesurfer's renderFunction hook) so each bar's
 // color reflects its own loudness instead of just its screen position.
-function renderHeatmapBars(channelData, ctx) {
+// `colorFn` maps a 0..1 amplitude to a CSS color.
+function renderHeatmapBars(channelData, ctx, colorFn = amplitudeColor) {
   const { width, height } = ctx.canvas;
   const pixelRatio = Math.max(1, window.devicePixelRatio || 1);
   const barWidth = 2 * pixelRatio;
@@ -48,7 +52,7 @@ function renderHeatmapBars(channelData, ctx) {
       const barHeight = Math.max(2, Math.round(amplitude * halfHeight));
       const y = halfHeight - barHeight;
 
-      ctx.fillStyle = amplitudeColor(amplitude);
+      ctx.fillStyle = colorFn(amplitude);
       ctx.beginPath();
       if ('roundRect' in ctx) {
         ctx.roundRect(prevX * spacing, y, barWidth, barHeight * 2, 1);
@@ -76,7 +80,7 @@ function progressColorForTheme(theme) {
 }
 
 const Waveform = forwardRef(function Waveform(
-  { audioUrl, theme, height = 60, onReady, onFinish, onTimeUpdate, onPlayStateChange },
+  { audioUrl, theme, palette, height = 60, onReady, onFinish, onTimeUpdate, onPlayStateChange },
   ref
 ) {
   const containerRef = useRef(null);
@@ -86,6 +90,8 @@ const Waveform = forwardRef(function Waveform(
   const trackPeakRef = useRef(1);
   const eqBarRefs = useRef([]);
   const eqRafRef = useRef(null);
+  // amplitude -> color; swapped to a cover-palette scale when one is available
+  const colorFnRef = useRef(amplitudeColor);
 
   useEffect(() => {
     if (!containerRef.current || !audioUrl) return;
@@ -102,7 +108,7 @@ const Waveform = forwardRef(function Waveform(
       cursorColor: '#f97316',
       cursorWidth: 2,
       height,
-      renderFunction: renderHeatmapBars,
+      renderFunction: (chan, ctx) => renderHeatmapBars(chan, ctx, colorFnRef.current),
       interact: true, // <-- this is what makes click/drag-to-seek work
       dragToSeek: true // scrub by clicking and dragging across the waveform
     });
@@ -170,7 +176,7 @@ const Waveform = forwardRef(function Waveform(
           const el = eqBarRefs.current[b];
           if (el) {
             el.style.height = `${8 + amplitude * 92}%`;
-            el.style.background = amplitudeColor(amplitude);
+            el.style.background = colorFnRef.current(amplitude);
           }
         }
       }
@@ -205,6 +211,21 @@ const Waveform = forwardRef(function Waveform(
   useEffect(() => {
     wsRef.current?.setOptions({ progressColor: progressColorForTheme(theme) });
   }, [theme]);
+
+  // Recolor the visualizer from the playing track's cover. The EQ strip picks
+  // it up on its next frame automatically (reads colorFnRef live); the
+  // waveform canvas is already painted, so re-set renderFunction to force
+  // wavesurfer to repaint it. No palette (no artwork) -> default heatmap.
+  useEffect(() => {
+    const scale = makeAmplitudeScale(palette?.colors);
+    colorFnRef.current = scale || amplitudeColor;
+    const ws = wsRef.current;
+    if (!ws) return;
+    ws.setOptions({
+      renderFunction: (chan, ctx) => renderHeatmapBars(chan, ctx, colorFnRef.current),
+      cursorColor: scale ? scale(1) : '#f97316'
+    });
+  }, [palette]);
 
   useImperativeHandle(ref, () => ({
     play: () => wsRef.current?.play(),

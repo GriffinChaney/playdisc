@@ -1,3 +1,38 @@
+// Build an amplitude -> color function from a cover palette, for the waveform
+// heatmap bars + EQ strip. Colors are ordered dark -> bright so louder samples
+// land on the more luminous end (VU-meter feel), then interpolated in RGB so
+// the scale only ever passes through colors that are actually in the cover.
+// Returns null for an empty palette (callers fall back to the default ramp).
+export function makeAmplitudeScale(colors) {
+  if (!colors || !colors.length) return null;
+  const parsed = colors
+    .map((c) => {
+      const m = /rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/.exec(c);
+      return m ? [+m[1], +m[2], +m[3]] : null;
+    })
+    .filter(Boolean);
+  if (!parsed.length) return null;
+  const lum = ([r, g, b]) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  parsed.sort((a, b) => lum(a) - lum(b));
+  const n = parsed.length;
+  if (n === 1) {
+    const [r, g, b] = parsed[0];
+    return () => `rgb(${r}, ${g}, ${b})`;
+  }
+  return (amp) => {
+    const a = Math.max(0, Math.min(1, amp));
+    const pos = a * (n - 1);
+    const i = Math.min(n - 2, Math.floor(pos));
+    const t = pos - i;
+    const c0 = parsed[i];
+    const c1 = parsed[i + 1];
+    const r = Math.round(c0[0] + (c1[0] - c0[0]) * t);
+    const g = Math.round(c0[1] + (c1[1] - c0[1]) * t);
+    const b = Math.round(c0[2] + (c1[2] - c0[2]) * t);
+    return `rgb(${r}, ${g}, ${b})`;
+  };
+}
+
 function rgbToHsl(r, g, b) {
   r /= 255;
   g /= 255;

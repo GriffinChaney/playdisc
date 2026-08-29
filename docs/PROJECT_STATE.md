@@ -96,9 +96,20 @@ the primary revert mechanism regardless; the zips are just belt-and-suspenders.
   the above. Only works when both machines are on the same LAN. Not removed — ask
   Griffin if it should be revoked once no longer useful.
 
-## Just finished (2026-08-28 — playlist edit + grid fill)
+## Just finished (2026-08-28 — playlist edit + grid fill + cover-colored visualizer)
 
 All user-confirmed in the packaged app.
+
+- **Waveform + EQ visualizer follow the cover colors.** `dominantColor.js` gained
+  `makeAmplitudeScale(colors)` — parses the palette, orders dark→bright, returns an
+  `amp→rgb` interpolator. `Waveform` takes a `palette` prop (App: `useArtworkPalette`
+  on the *playing* track), holds the active `amp→color` in `colorFnRef` (default
+  `amplitudeColor` heatmap), swaps it when a palette arrives, repaints the waveform
+  canvas via `ws.setOptions({renderFunction})`, and tints the cursor. No cover art →
+  unchanged. Experimental but the user liked it.
+- **Repo moved** to `~/Developer/sona`; `npm run backup` → `~/Developer/sona-backups/`.
+
+
 
 - **Playlist edit modal** (`PlaylistEditModal.jsx`). Right-click playlist → "Edit…"
   (Rename kept). Name + optional description + optional cover image. New playlist
