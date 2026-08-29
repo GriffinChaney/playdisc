@@ -833,10 +833,12 @@ body {
   height: 100vh;
   padding: 24px;
   animation: view-enter 260ms cubic-bezier(0.16, 1, 0.3, 1);
-  /* ambient backdrop color (sampled from the current cover art, see
-     FocusView's dominantColor) crossfades on track switch instead of
-     cutting sharply */
-  transition: background 0.6s ease;
+  /* ambient mesh backdrop (colors sampled from the current cover art, see
+     FocusView's useArtworkPalette) crossfades on track switch. background-
+     color always interpolates; the gradient layers interpolate too when the
+     new cover yields the same number of blobs, otherwise they cut — fine. */
+  background-color: var(--bg);
+  transition: background-color 0.6s ease, background-image 0.6s ease;
 }
 
 @keyframes view-enter {

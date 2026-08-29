@@ -7,11 +7,13 @@ move finished items out of "unfinished," log new bugs as they're found, and keep
 
 _Last updated: 2026-08-27 — playlist system, 3-column library view, play history, and
 several batches of view/UX polish all shipped and user-confirmed in the packaged app.
-Latest round: zone proportions locked to a user-approved screenshot (one-time layout
-reset baked in), `v` grid⇄list toggle with a staggered swap animation, Z zoom is now
-a follow-mode showing per-track audio-fidelity info, Escape clears/blurs search, Tab
-collapse restored to an even list/artwork split. Tag `v2.3-zone-sizing-2026-08-27`
-was cut mid-round; a fresh tag should follow this commit. See "Just finished"._
+Recent: zone proportions locked to a user-approved screenshot (one-time layout reset,
+now `layoutDefaults='v2.5'`), `v` grid⇄list toggle w/ staggered swap animation, Z zoom
+follow-mode + per-track fidelity info, Escape clears/blurs search. **Desktop session**
+(commits `dd634f1`..`4bfc65f`) added folder import (recursive, single native dialog),
+import-crash fix, `×`-acts-on-selection, mini-player tweaks, and a fix for the layout
+ratcheting smaller on every resize. **Laptop, latest**: fullscreen backdrop is now a
+multi-color mesh gradient sampled from the cover. See "Just finished"._
 
 ## Working across two machines now (desktop + laptop)
 
@@ -269,13 +271,18 @@ Two back-to-back reminders-list batches, each rebuilt/re-signed/reinstalled to
   changed from purple (`--accent-dim`) to a new neutral `--placeholder-bg`.
 - **Settings dark/light toggle** changed from purple to the same neutral
   text-on-inverted-background style already used for tag-filter buttons.
-- **Focus view ambient background**: new Spotify-style radial gradient sampled from
-  the current track's own artwork (`src/lib/dominantColor.js` — downscales to a 48×48
-  canvas, averages pixels weighted toward saturated/mid-lightness ones to avoid a
-  muddy gray average; `src/lib/useDominantColor.js` hook re-samples on track switch).
-  Applied as an inline `background` style on `.focus-view`, `transition: background
-  0.6s ease` for a crossfade on track change. Falls back to the plain theme background
-  when there's no artwork or the sample hasn't resolved yet.
+- **Focus view ambient background** → **now a multi-color mesh gradient**
+  (2026-08-27). `src/lib/dominantColor.js` gained `getArtworkPalette()`: buckets the
+  cover's pixels into 18 hue bins, keeps the 4 heaviest that are ≥2 bins apart
+  (distinct hues), normalizes each to a vivid backdrop tone; near-monochrome covers
+  fan the one hue into ~4 analogous tones so the gradient still has depth (this is the
+  Coldplay-*Parachutes* case the user explicitly liked). `useArtworkPalette` hook in
+  `useDominantColor.js`. `FocusView` renders them as 4 soft `radial-gradient` blobs
+  (corners, `rgba(...,0.85) → transparent 60%`) over a dark base derived from the
+  dominant hue. `transition: background-color / background-image 0.6s` — color always
+  crossfades, gradient layers crossfade when blob counts match else cut. Falls back to
+  the old single-color radial (`getDominantColor`, still present) while the palette
+  samples, then to the plain theme bg with no artwork.
 
 ## Just finished (earlier session)
 

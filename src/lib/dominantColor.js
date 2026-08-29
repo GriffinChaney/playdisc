@@ -126,3 +126,114 @@ export function getDominantColor(blob) {
     img.src = url;
   });
 }
+
+// Pulls a small PALETTE of distinct colors from the cover (not just one
+// average), for the multi-color mesh gradient behind the fullscreen view.
+// Buckets pixels by hue, keeps the heaviest well-separated buckets, then
+// normalizes each into a vivid backdrop tone. For near-monochrome covers
+// (e.g. Coldplay "Parachutes") it fans the single hue out into a few
+// analogous tones so the gradient still has depth instead of reading flat.
+export function getArtworkPalette(blob) {
+  return new Promise((resolve) => {
+    if (!blob) {
+      resolve(null);
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      const size = 56;
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, size, size);
+      URL.revokeObjectURL(url);
+
+      const BINS = 18; // 20° hue buckets
+      const bins = Array.from({ length: BINS }, () => ({ w: 0, r: 0, g: 0, b: 0 }));
+      let sampled = 0;
+
+      try {
+        const { data } = ctx.getImageData(0, 0, size, size);
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i];
+          const g = data[i + 1];
+          const b = data[i + 2];
+          if (data[i + 3] < 128) continue;
+          const [h, s, l] = rgbToHsl(r, g, b);
+          // ignore near-black / near-white / near-gray for hue bucketing
+          if (l < 0.06 || l > 0.96 || s < 0.12) continue;
+          const bin = Math.min(BINS - 1, Math.floor(h * BINS));
+          // favour saturated, mid-lightness pixels
+          const weight = s * s * (1 - Math.abs(l - 0.5) * 1.1) + 0.05;
+          bins[bin].w += weight;
+          bins[bin].r += r * weight;
+          bins[bin].g += g * weight;
+          bins[bin].b += b * weight;
+          sampled += 1;
+        }
+      } catch {
+        resolve(null);
+        return;
+      }
+
+      const norm = (bin) => {
+        const rr = bin.r / bin.w;
+        const gg = bin.g / bin.w;
+        const bb = bin.b / bin.w;
+        const [h, s] = rgbToHsl(rr, gg, bb);
+        return { h, s: Math.min(1, Math.max(s, 0.5)) };
+      };
+
+      // rank buckets, then greedily keep ones at least 2 bins apart so the
+      // palette spans real hue variety instead of 4 near-identical colors
+      const ranked = bins
+        .map((bin, idx) => ({ idx, ...bin }))
+        .filter((bin) => bin.w > 0)
+        .sort((a, b) => b.w - a.w);
+
+      const picks = [];
+      for (const bin of ranked) {
+        if (picks.length >= 4) break;
+        const tooClose = picks.some((p) => {
+          const d = Math.abs(p.idx - bin.idx);
+          return Math.min(d, BINS - d) < 2;
+        });
+        if (!tooClose) picks.push(bin);
+      }
+
+      let hues;
+      if (picks.length >= 2) {
+        hues = picks.map((bin) => norm(bin));
+      } else if (picks.length === 1 || ranked.length) {
+        // monochrome-ish cover: fan the dominant hue into analogous tones
+        const base = norm(picks[0] || ranked[0]);
+        hues = [-0.09, -0.03, 0.02, 0.08].map((dh) => ({
+          h: (base.h + dh + 1) % 1,
+          s: base.s
+        }));
+      } else {
+        resolve(null);
+        return;
+      }
+
+      // spread lightness across the blobs so they don't all sit at one tone
+      const lights = [0.56, 0.48, 0.42, 0.5, 0.44];
+      const colors = hues.map(({ h, s }, i) => {
+        const [r, g, b] = hslToRgb(h, s, lights[i % lights.length]);
+        return `rgb(${r}, ${g}, ${b})`;
+      });
+
+      // dark base so the view never falls to pure black between the blobs
+      const baseHue = hues[0];
+      const [br, bg, bb] = hslToRgb(baseHue.h, Math.min(0.6, baseHue.s), 0.12);
+      resolve({ colors, base: `rgb(${br}, ${bg}, ${bb})`, sampled });
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(null);
+    };
+    img.src = url;
+  });
+}
