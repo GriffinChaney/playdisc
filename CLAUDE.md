@@ -31,7 +31,7 @@ pastes a screenshot of it, those are real asks to work through, not fluff.
 ## Directory layout
 
 ```
-music-player-app/
+sona/                    # repo lives at ~/Developer/sona (was ~/Downloads/music-player-app)
 ├── electron/
 │   ├── main.js        # main process: window creation, mini-mode IPC handlers
 │   └── preload.cjs     # contextBridge: exposes window.electronAPI (MUST stay .cjs)

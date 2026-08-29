@@ -19,7 +19,10 @@ fullscreen backdrop, and a tag-picker combobox (`TagMenu`) with bulk add/remove.
 ## Working across two machines now (desktop + laptop)
 
 The project is a git repo, backed up to a **private** GitHub repo:
-`https://github.com/GriffinChaney/sona`. Both the desktop and Griffin's laptop
+`https://github.com/GriffinChaney/sona`. **On the laptop it now lives at
+`~/Developer/sona`** (moved 2026-08-28 from `~/Downloads/music-player-app`; start
+`claude` from there). The desktop clone is wherever it was cloned — unaffected.
+Both the desktop and Griffin's laptop
 (`Griffins-MacBook-Pro`, macOS 14.6) have their own clone, authenticated via `gh`
 (GitHub CLI). Normal flow: `git pull` before starting work, `git add -A && git commit
 -m "..." && git push` when done. `claude` (Claude Code CLI) is installed on both
