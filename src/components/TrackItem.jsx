@@ -60,6 +60,7 @@ export default function TrackItem({
   onRowAction,
   inPlaylist,
   onAddToQueue,
+  position,
   allTags = [],
   // when this row is part of a multi-selection, `+ tag` acts on the whole
   // selection (LibraryList wires onAddTag to fan out); show every tag as a
@@ -102,6 +103,7 @@ export default function TrackItem({
       onContextMenu={(e) => onContextMenuTrack?.(e, track.id)}
       onMouseDown={(e) => onMouseDownTrack(track.id, e)}
     >
+      {position != null && <span className="track-index">{position}</span>}
       <div className="track-thumb" style={artworkUrl ? { backgroundImage: `url(${artworkUrl})` } : undefined}>
         {!artworkUrl && <span className="thumb-fallback">♪</span>}
       </div>

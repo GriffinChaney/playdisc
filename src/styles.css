@@ -293,6 +293,20 @@ body {
   background: var(--surface-2);
   transform: scale(1.012);
 }
+.track-index {
+  flex-shrink: 0;
+  width: 20px;
+  margin-right: -2px;
+  text-align: right;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  user-select: none;
+}
+.track-item.active .track-index,
+.track-item:hover .track-index {
+  color: var(--text-secondary);
+}
 .track-item.active {
   background: var(--surface-2);
 }

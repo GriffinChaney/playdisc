@@ -486,6 +486,7 @@ function LibraryList({
               {reorderEnabled && dropIndex === index && <div className="lib-drop-line top" />}
               <TrackItem
                 track={track}
+                position={index + 1}
                 isActive={track.id === currentTrackId}
                 isPlayingTrack={track.id === playingTrackId}
                 isExpanded={track.id === expandedTrackId}
