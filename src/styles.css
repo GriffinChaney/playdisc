@@ -2068,6 +2068,20 @@ body {
 .vm-missing {
   color: #e5715c;
 }
+.vm-reset {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.vm-reset:hover {
+  color: var(--text-primary);
+}
 .vm-relocate {
   border: 0.5px solid #e5715c;
   color: #e5715c;
@@ -2363,6 +2377,25 @@ body {
 .prompt-modal-btn.primary:disabled {
   opacity: 0.4;
   cursor: default;
+}
+.prompt-modal-btn.danger {
+  border-color: var(--danger, #d9524a);
+  color: var(--danger, #d9524a);
+}
+.prompt-modal-btn.danger:hover {
+  background: var(--danger, #d9524a);
+  color: #fff;
+}
+.choice-modal-message {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-primary);
+}
+/* three-way choices need room to sit left-to-right, not crammed right */
+.choice-modal-message + .prompt-modal-actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
 }
 
 /* ---------- 3-column resize / collapse ---------- */

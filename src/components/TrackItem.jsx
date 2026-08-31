@@ -171,12 +171,20 @@ export default function TrackItem({
         </div>
       </div>
       {(() => {
-        const vcount = track.versions?.length || 0;
+        const vers = track.versions || [];
+        const vtotal = vers.length;
         const open = (track.notes || []).filter((n) => !n.complete).length;
-        if (vcount < 2 && open === 0) return null;
+        if (vtotal < 2 && open === 0) return null;
+        // active version's position (in the modal's date-added order) over total
+        const vpos =
+          [...vers].sort((a, b) => a.dateAdded - b.dateAdded).findIndex((v) => v.id === track.activeVersionId) + 1;
         return (
           <span className="track-marks">
-            {vcount >= 2 && <span className="track-mark track-mark-v">v{vcount}</span>}
+            {vtotal >= 2 && (
+              <span className="track-mark track-mark-v" title="active version / total">
+                v{vpos || 1}/{vtotal}
+              </span>
+            )}
             {open > 0 && <span className="track-mark track-mark-notes">{open}</span>}
           </span>
         );

@@ -109,7 +109,10 @@ function LibraryList({
     const q = query.toLowerCase();
     return tracks.filter((t) => {
       const matchesQuery =
-        !q || t.title.toLowerCase().includes(q) || t.artist.toLowerCase().includes(q);
+        !q ||
+        t.artist.toLowerCase().includes(q) ||
+        t.title.toLowerCase().includes(q) ||
+        (t.versions || []).some((v) => v.title && v.title.toLowerCase().includes(q));
       const matchesTag = !activeTag || t.tags.includes(activeTag);
       return matchesQuery && matchesTag;
     });

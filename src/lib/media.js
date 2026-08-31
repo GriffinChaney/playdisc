@@ -54,11 +54,15 @@ export async function readAudioMeta(bytes, name = '') {
   let duration = 0;
   let format = null;
   let title = name.replace(/\.[^/.]+$/, '') || null;
+  let taggedTitle = null; // the raw embedded tag title, or null if none
   let artist = null;
   let picture = null;
   try {
     const meta = await parseBlob(blob);
-    if (meta.common.title) title = meta.common.title;
+    if (meta.common.title) {
+      title = meta.common.title;
+      taggedTitle = meta.common.title;
+    }
     if (meta.common.artist) artist = meta.common.artist;
     if (meta.format?.duration) duration = meta.format.duration;
     const f = meta.format || {};
@@ -74,16 +78,40 @@ export async function readAudioMeta(bytes, name = '') {
   } catch (err) {
     console.warn('[media] metadata read failed for', name, err);
   }
-  return { duration, format, title, artist, picture };
+  return { duration, format, title, taggedTitle, artist, picture };
 }
 
 export { fingerprint };
 
-// make a fresh version record from an already-read file
-export function makeVersion({ label = '', filePath, duration = 0, format = null, fp = null }) {
+// a display title from a source filename — the stem, extension stripped.
+// Versions take their title from the file they were imported from (never an
+// embedded tag), so what plays is what you see in the library.
+export function titleFromName(name = '') {
+  return name.replace(/\.[^/.]+$/, '').trim() || 'untitled';
+}
+
+// The title to give a freshly imported file/version: the embedded tag title
+// if the file has one, otherwise the filename stem. WIP bounces with no tags
+// keep showing their filenames; proper releases show their clean tag title.
+export function importTitle(meta, name) {
+  return (meta?.title && meta.title.trim()) || titleFromName(name);
+}
+
+// make a fresh version record from an already-read file. `originalTitle` is
+// the title as derived at import time — kept immutable so a rename can be
+// reverted (see VersionsModal's "reset").
+export function makeVersion({
+  title = 'untitled',
+  originalTitle,
+  filePath,
+  duration = 0,
+  format = null,
+  fp = null
+}) {
   return {
     id: crypto.randomUUID(),
-    label,
+    title,
+    originalTitle: originalTitle ?? title,
     filePath,
     duration,
     format,
@@ -102,4 +130,10 @@ export function allVersions(tracks) {
 export function activeVersion(track) {
   if (!track?.versions?.length) return null;
   return track.versions.find((v) => v.id === track.activeVersionId) || track.versions[0];
+}
+
+// the title to show for a track anywhere in the UI: the active version's own
+// title, falling back to the track-level title for pre-versioning records.
+export function displayTitle(track) {
+  return activeVersion(track)?.title || track?.title || 'untitled';
 }

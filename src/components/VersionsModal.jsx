@@ -11,7 +11,7 @@ function fmtDate(ms) {
 }
 
 // Versions + notes for one track. Same blur/darken backdrop as the playlist
-// editor. Versions: click a row to make it active, rename its label inline,
+// editor. Versions: click a row to make it active, rename its title inline,
 // or delete it (blocked when it's the only one). Notes: a plain checklist
 // on the track (not any version) — add / check / edit text / delete.
 export default function VersionsModal({
@@ -28,8 +28,8 @@ export default function VersionsModal({
   onEditNote,
   onDeleteNote
 }) {
-  const [editingLabelId, setEditingLabelId] = useState(null);
-  const [labelDraft, setLabelDraft] = useState('');
+  const [editingTitleId, setEditingTitleId] = useState(null);
+  const [titleDraft, setTitleDraft] = useState('');
   const [editingNoteId, setEditingNoteId] = useState(null);
   const [noteDraft, setNoteDraft] = useState('');
   const [newNote, setNewNote] = useState('');
@@ -51,9 +51,10 @@ export default function VersionsModal({
   const notes = track.notes || [];
   const single = versions.length <= 1;
 
-  function commitLabel(id) {
-    onRenameVersion(track.id, id, labelDraft.trim());
-    setEditingLabelId(null);
+  function commitTitle(id) {
+    const t = titleDraft.trim();
+    if (t) onRenameVersion(track.id, id, t);
+    setEditingTitleId(null);
   }
   function commitNote(id) {
     const t = noteDraft.trim();
@@ -104,16 +105,16 @@ export default function VersionsModal({
                     <span className={isActive ? 'on' : ''} />
                   </button>
                   <div className="vm-row-main" onClick={() => !missing && onSetActiveVersion(track.id, v.id)}>
-                    {editingLabelId === v.id ? (
+                    {editingTitleId === v.id ? (
                       <input
                         autoFocus
                         className="vm-label-input"
-                        value={labelDraft}
-                        onChange={(e) => setLabelDraft(e.target.value)}
-                        onBlur={() => commitLabel(v.id)}
+                        value={titleDraft}
+                        onChange={(e) => setTitleDraft(e.target.value)}
+                        onBlur={() => commitTitle(v.id)}
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter') commitLabel(v.id);
-                          if (e.key === 'Escape') setEditingLabelId(null);
+                          if (e.key === 'Enter') commitTitle(v.id);
+                          if (e.key === 'Escape') setEditingTitleId(null);
                         }}
                         onClick={(e) => e.stopPropagation()}
                       />
@@ -122,12 +123,12 @@ export default function VersionsModal({
                         className="vm-label"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setEditingLabelId(v.id);
-                          setLabelDraft(v.label || '');
+                          setEditingTitleId(v.id);
+                          setTitleDraft(v.title || track.title || '');
                         }}
-                        title="rename"
+                        title="rename this version"
                       >
-                        {v.label || <span className="vm-label-empty">unlabeled</span>}
+                        {v.title || track.title}
                       </button>
                     )}
                     <span className="vm-meta">
@@ -138,6 +139,21 @@ export default function VersionsModal({
                       )}
                       {' · '}
                       {fmtDate(v.dateAdded)}
+                      {v.originalTitle && v.title && v.title !== v.originalTitle && (
+                        <>
+                          {' · '}
+                          <button
+                            className="vm-reset"
+                            title={`reset to imported title: ${v.originalTitle}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onRenameVersion(track.id, v.id, v.originalTitle);
+                            }}
+                          >
+                            reset to original
+                          </button>
+                        </>
+                      )}
                     </span>
                   </div>
                   {missing && (

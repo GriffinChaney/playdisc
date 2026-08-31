@@ -15,6 +15,7 @@ import VolumeIcon from './components/VolumeIcon';
 import ImportOverlay from './components/ImportOverlay';
 import ImportToast from './components/ImportToast';
 import VersionsModal from './components/VersionsModal';
+import ChoiceModal from './components/ChoiceModal';
 import {
   addTrack,
   getAllTracks,
@@ -32,6 +33,8 @@ import {
   fingerprint,
   makeVersion,
   activeVersion,
+  displayTitle,
+  importTitle,
   allVersions,
   extFromName,
   extFromBlob,
@@ -103,6 +106,9 @@ export default function App() {
   const [importProgress, setImportProgress] = useState(null); // { done, total } | { done, total, label }
   const [importToast, setImportToast] = useState(null); // { id, count } | { id, error }
   const [versionsModalTrackId, setVersionsModalTrackId] = useState(null);
+  // multi-choice confirm (e.g. merge / copy / cancel when adding a version
+  // from a file that's already its own track). null when nothing to ask.
+  const [choiceConfig, setChoiceConfig] = useState(null);
   // filePaths of active versions whose file is missing from disk
   const [missingPaths, setMissingPaths] = useState(() => new Set());
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
@@ -299,7 +305,7 @@ export default function App() {
         const rewritten = [];
         for (const w of written) {
           const v = makeVersion({
-            label: '',
+            title: w.track.title,
             filePath: w.storedPath,
             duration: w.track.duration || 0,
             format: w.track.audio || null,
@@ -358,6 +364,68 @@ export default function App() {
         setTracks((prev) => prev.map((t) => updated.find((u) => u.id === t.id) || t));
       }
       localStorage.setItem('sona:extFix', 'done');
+    })();
+  }, [tracks]);
+
+  // Backfill (v2): give every version a title + immutable originalTitle by
+  // re-reading its file on disk. A file WITH an embedded tag title takes that
+  // tag (fixes proper releases that the old filename-only rule mangled); a
+  // file with NO tag keeps whatever title it has (WIP bounces stay on their
+  // filename). Any hand-rename on a tagged file is reset here — re-rename it,
+  // it's two clicks now. On-disk filenames are re-synced to match.
+  const versionTitleRanRef = useRef(false);
+  useEffect(() => {
+    if (versionTitleRanRef.current) return;
+    if (localStorage.getItem('sona:versionTitles') === 'v2') return;
+    if (!tracks.some((t) => t.versions?.length)) return;
+    if (!window.electronAPI?.readAudioFile) return; // dev browser — retry when packaged
+    versionTitleRanRef.current = true;
+    (async () => {
+      const allV = tracksRef.current.flatMap((t) => (t.versions || []).map(() => 1));
+      let done = 0;
+      setImportProgress({ done: 0, total: allV.length, label: 'Refreshing version titles…' });
+      const updated = [];
+      for (const t of tracksRef.current) {
+        let changed = false;
+        const versions = [];
+        for (const v of t.versions || []) {
+          let next = v;
+          try {
+            let title = v.title || t.title;
+            let taggedTitle = null;
+            if (v.filePath && !v.filePath.startsWith('blob:')) {
+              const bytes = await window.electronAPI.readAudioFile(v.filePath);
+              const meta = await readAudioMeta(bytes, v.filePath.split('/').pop() || '');
+              taggedTitle = meta.taggedTitle;
+              if (taggedTitle) title = taggedTitle;
+            }
+            const originalTitle = taggedTitle || v.originalTitle || title;
+            let filePath = v.filePath;
+            if (title !== v.title && filePath && window.electronAPI?.mediaRename) {
+              filePath = await window.electronAPI.mediaRename({ filePath, title }).catch(() => v.filePath);
+            }
+            if (title !== v.title || originalTitle !== v.originalTitle || filePath !== v.filePath) {
+              next = { ...v, title, originalTitle, filePath };
+              changed = true;
+            }
+          } catch (err) {
+            console.warn('[versionTitles] skipped', v.filePath, err);
+          }
+          versions.push(next);
+          setImportProgress({ done: ++done, total: allV.length, label: 'Refreshing version titles…' });
+        }
+        if (changed) {
+          const activeT = versions.find((x) => x.id === t.activeVersionId) || versions[0];
+          const rec = { ...t, versions, title: activeT?.title || t.title };
+          await replaceTrack(rec);
+          updated.push(rec);
+        }
+      }
+      if (updated.length) {
+        setTracks((prev) => prev.map((t) => updated.find((u) => u.id === t.id) || t));
+      }
+      localStorage.setItem('sona:versionTitles', 'v2');
+      setImportProgress(null);
     })();
   }, [tracks]);
 
@@ -485,11 +553,14 @@ export default function App() {
           }
           existing.add(fp);
           const meta = await readAudioMeta(bytes, item.name);
+          const fileTitle = importTitle(meta, item.name);
           const { storedPath } = await window.electronAPI.mediaCopyIn({
             srcPath: item.path,
             artist: meta.artist || 'unknown artist',
-            title: meta.title || item.name.replace(/\.[^/.]+$/, ''),
-            label: '',
+            title: fileTitle,
+            // on-disk filename base = the version title, so the library
+            // folder is self-documenting
+            label: fileTitle,
             ext: sniffExt(bytes) || extFromName(item.name)
           });
           const track = buildImportedTrack({ name: item.name, meta, storedPath, fp });
@@ -1024,26 +1095,47 @@ export default function App() {
     [playingTrackId, isPlaying]
   );
 
+  // the track-level title is always a mirror of the active version's title —
+  // that's what makes the library show whatever version is playing.
   const handleSetActiveVersion = useCallback(
     (trackId, versionId) => {
       const t = tracksRef.current.find((x) => x.id === trackId);
       const v = t?.versions.find((x) => x.id === versionId);
       if (!t || !v || t.activeVersionId === versionId) return;
-      patchTrack(trackId, { activeVersionId: versionId, duration: v.duration, audio: v.format });
+      patchTrack(trackId, {
+        activeVersionId: versionId,
+        title: v.title || t.title,
+        duration: v.duration,
+        audio: v.format
+      });
       restartIfPlaying(trackId);
     },
     [patchTrack, restartIfPlaying]
   );
 
   const handleRenameVersion = useCallback(
-    (trackId, versionId, label) => {
+    async (trackId, versionId, rawTitle) => {
       const t = tracksRef.current.find((x) => x.id === trackId);
-      if (!t) return;
+      const v = t?.versions.find((x) => x.id === versionId);
+      const title = (rawTitle || '').trim();
+      if (!t || !v || !title || title === v.title) return;
+      // rename the file on disk to match, best-effort (DB path stays truth)
+      let filePath = v.filePath;
+      if (filePath && window.electronAPI?.mediaRename) {
+        try {
+          filePath = await window.electronAPI.mediaRename({ filePath, title });
+        } catch {
+          filePath = v.filePath;
+        }
+      }
+      const isActive = t.activeVersionId === versionId;
       patchTrack(trackId, {
-        versions: t.versions.map((v) => (v.id === versionId ? { ...v, label } : v))
+        versions: t.versions.map((x) => (x.id === versionId ? { ...x, title, filePath } : x)),
+        ...(isActive ? { title } : {})
       });
+      if (isActive && filePath !== v.filePath) restartIfPlaying(trackId);
     },
-    [patchTrack]
+    [patchTrack, restartIfPlaying]
   );
 
   const handleDeleteVersion = useCallback(
@@ -1057,7 +1149,7 @@ export default function App() {
       if (activeVersionId === versionId) {
         const next = [...remaining].sort((a, b) => b.dateAdded - a.dateAdded)[0];
         activeVersionId = next.id;
-        extra = { duration: next.duration, audio: next.format };
+        extra = { title: next.title || t.title, duration: next.duration, audio: next.format };
       }
       patchTrack(trackId, { versions: remaining, activeVersionId, ...extra });
       if (gone?.filePath) window.electronAPI?.mediaDelete(gone.filePath);
@@ -1083,6 +1175,7 @@ export default function App() {
       const picked = await readPicked();
       if (!picked) return;
       const { entry, bytes, fp, meta } = picked;
+      const title = importTitle(meta, entry.name);
 
       if (t.versions.some((v) => v.fingerprint === fp)) {
         window.alert('That file is already a version of this track.');
@@ -1092,66 +1185,77 @@ export default function App() {
         (x) => x.version.fingerprint === fp && x.track.id !== trackId
       );
 
+      // copy the picked file into this track's folder as a new active version
+      const addSeparateCopy = async () => {
+        const { storedPath } = await window.electronAPI.mediaCopyIn({
+          srcPath: entry.path,
+          artist: t.artist,
+          title: t.title,
+          label: title, // on-disk filename base
+          ext: sniffExt(bytes) || extFromName(entry.name)
+        });
+        const newVersion = makeVersion({
+          title,
+          filePath: storedPath,
+          duration: meta.duration,
+          format: meta.format,
+          fp
+        });
+        patchTrack(trackId, {
+          versions: [...t.versions, newVersion],
+          activeVersionId: newVersion.id,
+          title: newVersion.title,
+          duration: newVersion.duration,
+          audio: newVersion.format
+        });
+        restartIfPlaying(trackId);
+      };
+
+      // fold the standalone track's version(s) into this one and remove it
+      const mergeFromElsewhere = async () => {
+        const src = elsewhere.track;
+        patchTrack(trackId, {
+          versions: [...t.versions, ...src.versions], // files already in the library
+          activeVersionId: elsewhere.version.id,
+          title: elsewhere.version.title || src.title,
+          duration: elsewhere.version.duration,
+          audio: elsewhere.version.format
+        });
+        await deleteTrack(src.id);
+        setTracks((prev) => prev.filter((x) => x.id !== src.id));
+        playlistsRef.current.forEach((pl) => {
+          if (pl.trackIds.includes(src.id)) {
+            persistPlaylist({
+              ...pl,
+              trackIds: [...new Set(pl.trackIds.map((id) => (id === src.id ? trackId : id)))]
+            });
+          }
+        });
+        if (src.id === playingTrackId) setPlayingTrackId(trackId);
+        if (src.id === currentTrackId) setCurrentTrackId(trackId);
+        restartIfPlaying(trackId);
+      };
+
       if (elsewhere) {
-        const merge = window.confirm(
-          `"${entry.name}" is already in your library as "${elsewhere.track.title}".\n\n` +
-            `OK — merge that track's version(s) into this one and remove it.\n` +
-            `Cancel — add a separate copy here.`
-        );
-        if (merge) {
-          const src = elsewhere.track;
-          patchTrack(trackId, {
-            versions: [...t.versions, ...src.versions], // files already in the library
-            activeVersionId: elsewhere.version.id,
-            duration: elsewhere.version.duration,
-            audio: elsewhere.version.format
-          });
-          await deleteTrack(src.id);
-          setTracks((prev) => prev.filter((x) => x.id !== src.id));
-          playlistsRef.current.forEach((pl) => {
-            if (pl.trackIds.includes(src.id)) {
-              persistPlaylist({
-                ...pl,
-                trackIds: [...new Set(pl.trackIds.map((id) => (id === src.id ? trackId : id)))]
-              });
-            }
-          });
-          if (src.id === playingTrackId) setPlayingTrackId(trackId);
-          if (src.id === currentTrackId) setCurrentTrackId(trackId);
-          restartIfPlaying(trackId);
-          return;
-        }
+        setChoiceConfig({
+          title: 'That file is already in your library',
+          message: `"${entry.name}" is already here as "${displayTitle(elsewhere.track)}".`,
+          choices: [
+            { value: 'merge', label: 'Merge', danger: true },
+            { value: 'copy', label: 'Add separate copy', primary: true },
+            { value: 'cancel', label: 'Cancel' }
+          ],
+          onChoose: (v) => {
+            if (v === 'merge') mergeFromElsewhere();
+            else if (v === 'copy') addSeparateCopy();
+          }
+        });
+        return;
       }
 
-      const { storedPath } = await window.electronAPI.mediaCopyIn({
-        srcPath: entry.path,
-        artist: t.artist,
-        title: t.title,
-        label: '',
-        ext: sniffExt(bytes) || extFromName(entry.name)
-      });
-      const newVersion = makeVersion({
-        label: '',
-        filePath: storedPath,
-        duration: meta.duration,
-        format: meta.format,
-        fp
-      });
-      patchTrack(trackId, {
-        versions: [...t.versions, newVersion],
-        activeVersionId: newVersion.id,
-        duration: newVersion.duration,
-        audio: newVersion.format
-      });
-      restartIfPlaying(trackId);
-      setPromptConfig({
-        title: 'Label this version (optional)',
-        placeholder: 'e.g. rough mix, v2 brighter vocal',
-        confirmLabel: 'Save',
-        onSubmit: (label) => handleRenameVersion(trackId, newVersion.id, label)
-      });
+      await addSeparateCopy();
     },
-    [readPicked, patchTrack, persistPlaylist, restartIfPlaying, handleRenameVersion, playingTrackId, currentTrackId]
+    [readPicked, patchTrack, persistPlaylist, restartIfPlaying, playingTrackId, currentTrackId]
   );
 
   const handleRelocateVersion = useCallback(
@@ -1166,7 +1270,7 @@ export default function App() {
         srcPath: entry.path,
         artist: t.artist,
         title: t.title,
-        label: v.label,
+        label: v.title || 'original',
         ext: sniffExt(bytes) || extFromName(entry.name)
       });
       const nextV = { ...v, filePath: storedPath, duration: meta.duration, format: meta.format, fingerprint: fp };
@@ -1565,6 +1669,7 @@ export default function App() {
       )}
       <ContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} />
       <PromptModal config={promptConfig} onClose={() => setPromptConfig(null)} />
+      <ChoiceModal config={choiceConfig} onClose={() => setChoiceConfig(null)} />
       <PlaylistEditModal
         playlist={playlists.find((p) => p.id === editingPlaylistId) || null}
         onClose={() => setEditingPlaylistId(null)}

@@ -69,6 +69,69 @@ files can stay — old code ignores them.)
 Git tag `pre-versioning-2026-08-28` marks the last pre-versioning commit on
 main. Code-only backup zips are in `~/Developer/sona-backups/`.
 
+## Update 2026-08-31 — title follows the active version
+
+Griffin tested the versioning build and asked for one change (this reverses
+the earlier "titles stay at track level" decision — he changed his mind after
+using it):
+
+- **Each version now has its own `title`**, derived from its source filename
+  on import (`titleFromName` in `src/lib/media.js`) — never an embedded tag.
+- The **track-level `title` is now a mirror** of the active version's title.
+  Every version mutation that can change which version is active
+  (`handleSetActiveVersion`, `handleDeleteVersion`, `handleAddVersion`,
+  merge) writes `title:` through `patchTrack`. So the whole existing UI
+  (LibraryList, NowPlaying, FocusView, MiniPlayer, BackgroundPlayBar, queue,
+  history) shows the active version's name with no per-component changes.
+- `displayTitle(track)` helper exists as a fallback (`activeVersion?.title ||
+  track.title`) for any record that predates version titles.
+- **Freeform `label` on versions is gone.** The Versions modal row now shows
+  the version's title (click to rename inline) + date. The `v4` count badge
+  in list view stays.
+- **Search** matches any version's title, not just the active one — searching
+  a non-active version's name still finds the track.
+- **On-disk filenames** now follow the version title: `mediaCopyIn` is passed
+  `label: <title>`, and renaming a version title calls the new
+  `media:rename` IPC (`electron/main.js` + `preload.cjs`) to rename the file
+  in place. Best-effort — the DB `filePath` stays source of truth, so a
+  failed rename just leaves the old filename.
+- **Backfill:** a one-time effect (`sona:versionTitles` localStorage flag)
+  seeds every titleless version with its track's current title. Griffin's
+  pre-existing multi-version tracks (files named `original.wav` etc., no
+  recoverable original name) will show the track title until he
+  **deletes + re-adds** those versions — his choice, not an auto-derive.
+- **Duplicate-on-add** (adding a version from a file already in the library
+  as its own track) is now a 3-way `ChoiceModal`
+  (`src/components/ChoiceModal.jsx`): Merge / Add separate copy / Cancel,
+  instead of the old 2-button `window.confirm`.
+
+Still **not** done: track-folder names (`~/Music/Sona Library/<Artist —
+Title>/`) are per-track and still don't re-sync on a title edit. Only the
+per-version *file* names now sync.
+
+### 2026-08-31 (later, after more testing)
+
+Three revisions from Griffin:
+
+1. **Title source reverted to tag-then-filename** (`importTitle` in
+   `src/lib/media.js`). Filename-only mangled proper releases
+   ("03 - Massive Attack - Teardrop"). Tagless WIP bounces still fall back to
+   the filename. `readAudioMeta` now also returns `taggedTitle` (raw embedded
+   tag, or null) so callers can tell "has a real tag" from "using the stem".
+2. **`originalTitle` on every version** — the title as derived at import,
+   immutable. The Versions modal shows a **"reset to original"** link on a row
+   whose title has been changed from it; that calls the normal rename path so
+   it re-syncs the on-disk filename too.
+3. **List-view badge is now `v2/4`** (active version's date-added position /
+   total), not `v4` (a bare count that read like "you're on v4").
+
+Backfill flag bumped `sona:versionTitles` → **`v2`**: re-reads every version
+file on disk, takes the embedded tag title when there is one (else keeps the
+current title), sets `originalTitle`, and renames files to match. Runs behind
+the import-progress overlay ("Refreshing version titles…"). **It resets any
+hand-rename on a tagged file** — acceptable since "reset to original" + inline
+rename make that a two-click fix.
+
 ## For a fresh session picking this up later
 
 - Read `CLAUDE.md` + `docs/PROJECT_STATE.md` first (they do **not** yet

@@ -1,14 +1,16 @@
-import { makeVersion } from './media';
+import { makeVersion, importTitle } from './media';
 
 // Build the track record for a freshly imported file. `meta` comes from
 // readAudioMeta (media.js), `storedPath` is the copy already placed in the
 // library, `fp` its fingerprint. Audio bytes are NOT stored on the record —
 // only the on-disk path, via a single implicit version.
 export function buildImportedTrack({ name, meta, storedPath, fp }) {
-  const title = meta.title || name.replace(/\.[^/.]+$/, '') || 'untitled';
+  // the version's title: embedded tag title if present, else the filename
+  // stem; the track-level title mirrors the active version's.
+  const title = importTitle(meta, name);
   const artist = meta.artist || 'unknown artist';
   const version = makeVersion({
-    label: '',
+    title,
     filePath: storedPath,
     duration: meta.duration || 0,
     format: meta.format,
