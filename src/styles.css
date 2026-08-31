@@ -286,12 +286,16 @@ body {
   padding: 8px 8px;
   border-radius: 8px;
   cursor: pointer;
-  transition: padding 0.15s ease, transform 0.12s ease, background 0.12s ease;
+  transition: padding 0.15s ease, background 0.12s ease, box-shadow 0.12s ease;
   border: 1px solid transparent;
 }
+/* hover treatment stays OFF the clickable box — a transform on the row itself
+   shifts its edges mid-transition and a fast click's mouseup lands in the
+   gap. Background + shadow don't affect layout or hit-testing; the little
+   scale lives on the inner thumb, which has slack around it. */
 .track-item:hover {
   background: var(--surface-2);
-  transform: scale(1.012);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 .track-index {
   flex-shrink: 0;
@@ -576,7 +580,10 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: width 0.15s ease, height 0.15s ease;
+  transition: width 0.15s ease, height 0.15s ease, transform 0.13s ease;
+}
+.track-item:hover .track-thumb {
+  transform: scale(1.05);
 }
 .track-item.expanded .track-thumb {
   width: 108px;
@@ -1593,7 +1600,7 @@ body {
   gap: 2px;
   border-radius: 4px;
   padding-right: 8px;
-  transition: background 0.12s ease;
+  transition: background 0.12s ease, box-shadow 0.12s ease;
 }
 .playlist-drop-line {
   position: absolute;
@@ -1613,6 +1620,7 @@ body {
 }
 .playlist-item-row:hover {
   background: var(--surface-2);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 .playlist-item-row.active {
   background: var(--selection-bg);
