@@ -12,5 +12,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   selectAudioImport: () => ipcRenderer.invoke('select-audio-import'),
   // reads one file's bytes at a time — called once per file so a big
   // folder import never serializes everything through IPC in one message
-  readAudioFile: (filePath) => ipcRenderer.invoke('read-audio-file', filePath)
+  readAudioFile: (filePath) => ipcRenderer.invoke('read-audio-file', filePath),
+
+  // --- media library (versioning) ---
+  selectAudioFile: () => ipcRenderer.invoke('select-audio-file'),
+  mediaCopyIn: (opts) => ipcRenderer.invoke('media:copy-in', opts),
+  mediaWriteBytes: (opts) => ipcRenderer.invoke('media:write-bytes', opts),
+  mediaExists: (paths) => ipcRenderer.invoke('media:exists', paths),
+  mediaDelete: (filePath) => ipcRenderer.invoke('media:delete', filePath),
+  mediaFixExtension: (filePath) => ipcRenderer.invoke('media:fix-extension', filePath),
+  mediaLibraryDir: () => ipcRenderer.invoke('media:library-dir')
 });

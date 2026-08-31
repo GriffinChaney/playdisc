@@ -23,7 +23,9 @@ export default function NowPlaying({
   onEnterFocus,
   shuffleEnabled,
   onToggleShuffle,
-  onResizeStart
+  onResizeStart,
+  mediaMissing,
+  onRelocate
 }) {
   const artworkUrl = useObjectUrl(track?.artworkBlob);
 
@@ -60,8 +62,15 @@ export default function NowPlaying({
       <div className="waveform-wrap" style={!track ? { display: 'none' } : undefined}>
         <div className="waveform-inner">
           <WaveformSlot host={waveformHost} />
-          {!isCurrentlyPlayingTrack && (
-            <div className="waveform-placeholder-overlay">press play to switch playback to this track</div>
+          {mediaMissing ? (
+            <div className="waveform-placeholder-overlay missing">
+              <span>audio file missing</span>
+              <button onClick={onRelocate}>relocate…</button>
+            </div>
+          ) : (
+            !isCurrentlyPlayingTrack && (
+              <div className="waveform-placeholder-overlay">press play to switch playback to this track</div>
+            )
           )}
         </div>
         <div className="time-row">

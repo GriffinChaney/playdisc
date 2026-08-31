@@ -170,6 +170,17 @@ export default function TrackItem({
           )}
         </div>
       </div>
+      {(() => {
+        const vcount = track.versions?.length || 0;
+        const open = (track.notes || []).filter((n) => !n.complete).length;
+        if (vcount < 2 && open === 0) return null;
+        return (
+          <span className="track-marks">
+            {vcount >= 2 && <span className="track-mark track-mark-v">v{vcount}</span>}
+            {open > 0 && <span className="track-mark track-mark-notes">{open}</span>}
+          </span>
+        );
+      })()}
       <span className="track-duration">{formatDuration(track.duration)}</span>
       <button
         className="track-queue-btn"

@@ -1,52 +1,29 @@
-import { parseBlob } from 'music-metadata-browser';
+import { makeVersion } from './media';
 
-// Turns a raw File (from <input type="file"> or drag/drop) into the track
-// record shape that db.js expects. Falls back to the filename when tags
-// are missing, since not every download has clean ID3 metadata.
-export async function parseTrack(file) {
-  let title = file.name.replace(/\.[^/.]+$/, '');
-  let artist = 'unknown artist';
-  let duration = 0;
-  let artworkBlob = null;
-  // audio fidelity info, surfaced in the UI so it's obvious Sona plays the
-  // original file untouched (no re-encode) — quality is whatever you import
-  let audio = null;
-
-  try {
-    const metadata = await parseBlob(file);
-    if (metadata.common.title) title = metadata.common.title;
-    if (metadata.common.artist) artist = metadata.common.artist;
-    if (metadata.format.duration) duration = metadata.format.duration;
-
-    const f = metadata.format || {};
-    audio = {
-      codec: f.codec || f.container || null,
-      sampleRate: f.sampleRate || null, // Hz
-      bitrate: f.bitrate || null, // bits/sec
-      bitsPerSample: f.bitsPerSample || null,
-      channels: f.numberOfChannels || null,
-      lossless: typeof f.lossless === 'boolean' ? f.lossless : null
-    };
-
-    const picture = metadata.common.picture?.[0];
-    if (picture) {
-      artworkBlob = new Blob([picture.data], { type: picture.format });
-    }
-  } catch (err) {
-    // Some files (e.g. certain Spotify-downloaded exports) may have
-    // stripped or non-standard tags, or be DRM-protected. Fall back to
-    // filename-only metadata rather than blocking the upload.
-    console.warn(`Could not read metadata for "${file.name}":`, err);
-  }
-
+// Build the track record for a freshly imported file. `meta` comes from
+// readAudioMeta (media.js), `storedPath` is the copy already placed in the
+// library, `fp` its fingerprint. Audio bytes are NOT stored on the record —
+// only the on-disk path, via a single implicit version.
+export function buildImportedTrack({ name, meta, storedPath, fp }) {
+  const title = meta.title || name.replace(/\.[^/.]+$/, '') || 'untitled';
+  const artist = meta.artist || 'unknown artist';
+  const version = makeVersion({
+    label: '',
+    filePath: storedPath,
+    duration: meta.duration || 0,
+    format: meta.format,
+    fp
+  });
   return {
     id: crypto.randomUUID(),
     title,
     artist,
-    duration,
-    audioBlob: file,
-    artworkBlob,
-    audio,
+    duration: version.duration,
+    artworkBlob: meta.picture ? new Blob([meta.picture.data], { type: meta.picture.format }) : null,
+    audio: version.format,
+    activeVersionId: version.id,
+    versions: [version],
+    notes: [],
     tags: [],
     dateAdded: Date.now()
   };
