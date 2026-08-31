@@ -20,15 +20,23 @@ export default function ImportToast({ toast, onDismiss }) {
     };
   }, [toast.id, onDismiss]);
 
-  const { count, error, failed } = toast;
-  const text = error
-    ? 'Import failed'
-    : `${count} ${count === 1 ? 'sample' : 'samples'} imported${failed ? ` (${failed} skipped)` : ''}`;
+  const { count, error, failed, skipped, migrated, migrationError } = toast;
+  const isError = error || migrationError;
+  let text;
+  if (migrationError) text = 'Library move failed — nothing was lost';
+  else if (error) text = 'Import failed';
+  else if (migrated != null) text = `Moved ${migrated} ${migrated === 1 ? 'track' : 'tracks'} to disk`;
+  else {
+    const extras = [failed && `${failed} failed`, skipped && `${skipped} already in library`]
+      .filter(Boolean)
+      .join(', ');
+    text = `${count} ${count === 1 ? 'sample' : 'samples'} imported${extras ? ` · ${extras}` : ''}`;
+  }
 
   return (
-    <div className={`import-toast${exiting ? ' exiting' : ''}${error ? ' error' : ''}`}>
+    <div className={`import-toast${exiting ? ' exiting' : ''}${isError ? ' error' : ''}`}>
       <span className="import-toast-icon" aria-hidden="true">
-        {error ? (
+        {isError ? (
           <svg viewBox="0 0 16 16" width="14" height="14">
             <path d="M8 1.5v9M8 13.5v.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none" />
           </svg>

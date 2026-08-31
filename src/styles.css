@@ -286,12 +286,16 @@ body {
   padding: 8px 8px;
   border-radius: 8px;
   cursor: pointer;
-  transition: padding 0.15s ease, transform 0.12s ease, background 0.12s ease;
+  transition: padding 0.15s ease, background 0.12s ease, box-shadow 0.12s ease;
   border: 1px solid transparent;
 }
+/* hover treatment stays OFF the clickable box — a transform on the row itself
+   shifts its edges mid-transition and a fast click's mouseup lands in the
+   gap. Background + shadow don't affect layout or hit-testing; the little
+   scale lives on the inner thumb, which has slack around it. */
 .track-item:hover {
   background: var(--surface-2);
-  transform: scale(1.012);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 .track-index {
   flex-shrink: 0;
@@ -576,7 +580,10 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: width 0.15s ease, height 0.15s ease;
+  transition: width 0.15s ease, height 0.15s ease, transform 0.13s ease;
+}
+.track-item:hover .track-thumb {
+  transform: scale(1.05);
 }
 .track-item.expanded .track-thumb {
   width: 108px;
@@ -1593,7 +1600,7 @@ body {
   gap: 2px;
   border-radius: 4px;
   padding-right: 8px;
-  transition: background 0.12s ease;
+  transition: background 0.12s ease, box-shadow 0.12s ease;
 }
 .playlist-drop-line {
   position: absolute;
@@ -1613,6 +1620,7 @@ body {
 }
 .playlist-item-row:hover {
   background: var(--surface-2);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 .playlist-item-row.active {
   background: var(--selection-bg);
@@ -1921,6 +1929,255 @@ body {
   border-top: 0.5px solid var(--border);
 }
 
+/* ---------- Track row: version / notes markers ---------- */
+.track-marks {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.track-mark {
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  background: var(--surface-2);
+}
+.track-mark-notes {
+  color: var(--text-secondary);
+}
+
+/* ---------- Versions & notes modal ---------- */
+.vm-modal {
+  width: 480px;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5);
+  animation: import-card-in 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.vm-body {
+  padding: 8px 18px 18px;
+  overflow-y: auto;
+}
+.vm-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 12px 2px 6px;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.vm-notes-head {
+  margin-top: 20px;
+}
+.vm-add {
+  border: 0.5px solid var(--border);
+  background: none;
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: normal;
+  padding: 3px 9px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.vm-add:hover {
+  background: var(--surface-2);
+  color: var(--text-primary);
+}
+.vm-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.vm-row,
+.vm-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: 7px;
+}
+.vm-row:hover,
+.vm-note:hover {
+  background: var(--surface-2);
+}
+.vm-row.active {
+  background: var(--selection-bg);
+}
+.vm-radio {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 1.5px solid var(--text-muted);
+  background: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.vm-radio .on {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-primary);
+}
+.vm-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  cursor: pointer;
+}
+.vm-label {
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  text-align: left;
+  padding: 0;
+  cursor: text;
+  align-self: flex-start;
+}
+.vm-label-empty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+.vm-label-input,
+.vm-note-input {
+  border: 0.5px solid var(--text-muted);
+  background: var(--bg);
+  color: var(--text-primary);
+  font-size: 13px;
+  padding: 4px 7px;
+  border-radius: 6px;
+  width: 100%;
+}
+.vm-label-input:focus,
+.vm-note-input:focus {
+  outline: none;
+}
+.vm-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.vm-missing {
+  color: #e5715c;
+}
+.vm-reset {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.vm-reset:hover {
+  color: var(--text-primary);
+}
+.vm-relocate {
+  border: 0.5px solid #e5715c;
+  color: #e5715c;
+  background: none;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.vm-del {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0;
+  padding: 2px 4px;
+}
+.vm-row:hover .vm-del,
+.vm-note:hover .vm-del {
+  opacity: 1;
+}
+.vm-del:hover {
+  color: #e5484d;
+}
+.vm-check {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1.5px solid var(--text-muted);
+  background: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: var(--bg);
+  padding: 0;
+}
+.vm-check .on {
+  width: 100%;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.vm-note-text {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  text-align: left;
+  padding: 0;
+  cursor: text;
+}
+.vm-note.done .vm-note-text {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+.vm-note-add {
+  padding: 6px 8px 0;
+}
+.waveform-placeholder-overlay.missing {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  color: #e5715c;
+  font-size: 12px;
+}
+.waveform-placeholder-overlay.missing button {
+  border: 0.5px solid #e5715c;
+  color: #e5715c;
+  background: none;
+  padding: 4px 12px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
 .library-list .track-list {
   margin-top: 2px;
 }
@@ -2128,6 +2385,25 @@ body {
 .prompt-modal-btn.primary:disabled {
   opacity: 0.4;
   cursor: default;
+}
+.prompt-modal-btn.danger {
+  border-color: var(--danger, #d9524a);
+  color: var(--danger, #d9524a);
+}
+.prompt-modal-btn.danger:hover {
+  background: var(--danger, #d9524a);
+  color: #fff;
+}
+.choice-modal-message {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-primary);
+}
+/* three-way choices need room to sit left-to-right, not crammed right */
+.choice-modal-message + .prompt-modal-actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
 }
 
 /* ---------- 3-column resize / collapse ---------- */

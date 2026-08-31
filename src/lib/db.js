@@ -31,15 +31,23 @@ function getDB() {
 
 // track shape:
 // {
-//   id: string,
-//   title: string,
-//   artist: string,
-//   duration: number,          // seconds
-//   audioBlob: Blob,           // the actual audio file
-//   artworkBlob: Blob | null,  // extracted cover art, if any
+//   id: string,                // STABLE — never regenerated (future sharing)
+//   title: string,             // per-track, never per-version
+//   artist: string,            // per-track
+//   duration: number,          // mirrors the ACTIVE version's duration
+//   artworkBlob: Blob | null,  // per-track cover art (stays in IndexedDB)
+//   audio: {...} | null,       // mirrors the active version's format info
+//   activeVersionId: string,
+//   versions: [                // >=1; an unversioned track has one implicit
+//     { id, label, filePath, duration, format, fingerprint, dateAdded }
+//   ],
+//   notes: [ { id, text, complete, dateAdded } ],
 //   tags: string[],
-//   dateAdded: number          // epoch ms, used for sorting
+//   dateAdded: number
 // }
+// Audio bytes live on disk (~/Music/Sona Library), NOT in IndexedDB — see
+// electron/main.js. Records from before the migration still carry audioBlob
+// until the one-time migration in App.jsx rewrites them.
 
 export async function addTrack(track) {
   const db = await getDB();
@@ -59,6 +67,14 @@ export async function updateTrack(id, changes) {
   const updated = { ...existing, ...changes };
   await db.put(STORE, updated);
   return updated;
+}
+
+// full-record write — used by the blob->file migration, which needs to
+// *remove* audioBlob, not just merge new keys over it
+export async function replaceTrack(record) {
+  const db = await getDB();
+  await db.put(STORE, record);
+  return record;
 }
 
 export async function deleteTrack(id) {

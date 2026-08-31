@@ -138,7 +138,18 @@ export default function TrackItem({
               ))}
           </div>
         )}
-        <div className="track-tags" onClick={(e) => e.stopPropagation()}>
+        {/* Only the interactive bits in this strip (tag chips, the "+ tag"
+            button, and the portaled TagMenu — which stops its own clicks)
+            swallow the click. A click on empty space in the strip must fall
+            through to the row so it still selects the track — a blanket
+            stopPropagation here was eating a fast click that landed in the
+            tag row instead of on .track-meta. */}
+        <div
+          className="track-tags"
+          onClick={(e) => {
+            if (e.target.closest('.tag-chip, .tag-add-btn')) e.stopPropagation();
+          }}
+        >
           {track.tags.map((tag) => (
             <span className="tag-chip" key={tag}>
               {tag}
@@ -170,6 +181,25 @@ export default function TrackItem({
           )}
         </div>
       </div>
+      {(() => {
+        const vers = track.versions || [];
+        const vtotal = vers.length;
+        const open = (track.notes || []).filter((n) => !n.complete).length;
+        if (vtotal < 2 && open === 0) return null;
+        // active version's position (in the modal's date-added order) over total
+        const vpos =
+          [...vers].sort((a, b) => a.dateAdded - b.dateAdded).findIndex((v) => v.id === track.activeVersionId) + 1;
+        return (
+          <span className="track-marks">
+            {vtotal >= 2 && (
+              <span className="track-mark track-mark-v" title="active version / total">
+                v{vpos || 1}/{vtotal}
+              </span>
+            )}
+            {open > 0 && <span className="track-mark track-mark-notes">{open}</span>}
+          </span>
+        );
+      })()}
       <span className="track-duration">{formatDuration(track.duration)}</span>
       <button
         className="track-queue-btn"
