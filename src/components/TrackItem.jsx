@@ -138,7 +138,18 @@ export default function TrackItem({
               ))}
           </div>
         )}
-        <div className="track-tags" onClick={(e) => e.stopPropagation()}>
+        {/* Only the interactive bits in this strip (tag chips, the "+ tag"
+            button, and the portaled TagMenu — which stops its own clicks)
+            swallow the click. A click on empty space in the strip must fall
+            through to the row so it still selects the track — a blanket
+            stopPropagation here was eating a fast click that landed in the
+            tag row instead of on .track-meta. */}
+        <div
+          className="track-tags"
+          onClick={(e) => {
+            if (e.target.closest('.tag-chip, .tag-add-btn')) e.stopPropagation();
+          }}
+        >
           {track.tags.map((tag) => (
             <span className="tag-chip" key={tag}>
               {tag}
