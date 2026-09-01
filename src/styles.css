@@ -920,13 +920,15 @@ body {
   height: 52px;
 }
 .shuffle-btn,
-.restart-btn {
+.restart-btn,
+.repeat-btn {
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 15px;
 }
-.shuffle-btn.active {
+.shuffle-btn.active,
+.repeat-btn.active {
   color: var(--text-primary);
 }
 .transport button:disabled {

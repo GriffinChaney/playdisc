@@ -4,6 +4,7 @@ import { handleArtworkMouseMove, handleArtworkMouseLeave } from '../lib/artworkT
 import WaveformSlot from './WaveformSlot';
 import ShuffleIcon from './ShuffleIcon';
 import RestartIcon from './RestartIcon';
+import RepeatIcon from './RepeatIcon';
 
 // where each palette color's blob sits — spread around the frame so the
 // colors pool in different regions and blend across the middle
@@ -34,7 +35,9 @@ export default function FocusView({
   canRestart,
   onExitFocus,
   shuffleEnabled,
-  onToggleShuffle
+  onToggleShuffle,
+  repeatMode,
+  onCycleRepeat
 }) {
   const artworkUrl = useObjectUrl(track?.artworkBlob);
   const dominantColor = useDominantColor(track?.artworkBlob);
@@ -120,6 +123,18 @@ export default function FocusView({
         </button>
         <button onClick={() => onSkip(1)} aria-label="next track">
           ⏭
+        </button>
+        <button
+          className={`repeat-btn${repeatMode !== 'off' ? ' active' : ''}`}
+          onClick={onCycleRepeat}
+          aria-label={
+            repeatMode === 'one' ? 'repeat one' : repeatMode === 'all' ? 'repeat all' : 'repeat off'
+          }
+          title={
+            repeatMode === 'one' ? 'repeat one' : repeatMode === 'all' ? 'repeat all' : 'repeat off'
+          }
+        >
+          <RepeatIcon one={repeatMode === 'one'} />
         </button>
       </div>
     </div>

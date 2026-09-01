@@ -133,6 +133,21 @@ export default function App() {
   }, [shuffleEnabled]);
   const handleToggleShuffle = useCallback(() => setShuffleEnabled((v) => !v), []);
 
+  // three-state repeat, cycled off -> all -> one -> off. `all` makes
+  // auto-advance wrap to the top of the context instead of stopping at the
+  // end; `one` loops the current track on finish (but a manual next-track
+  // still skips). Persisted like shuffle.
+  const [repeatMode, setRepeatMode] = useState(() => {
+    const v = localStorage.getItem('repeat');
+    return v === 'all' || v === 'one' ? v : 'off';
+  });
+  useEffect(() => {
+    localStorage.setItem('repeat', repeatMode);
+  }, [repeatMode]);
+  const handleCycleRepeat = useCallback(() => {
+    setRepeatMode((m) => (m === 'off' ? 'all' : m === 'all' ? 'one' : 'off'));
+  }, []);
+
   // draggable column widths — left nav (handle on its right edge) and the
   // right now-playing column (handle on its left edge)
   const [navWidth, setNavWidth] = useState(() => {
@@ -1051,6 +1066,13 @@ export default function App() {
   // a track finishing naturally should always auto-advance and keep
   // playing, regardless of ambient isPlaying state at that instant
   const handleFinish = useCallback(() => {
+    // repeat-one: loop the current track, bypassing queue / context entirely
+    if (repeatMode === 'one' && playingTrackId) {
+      waveformRef.current?.seekTo(0);
+      setCurrentTime(0);
+      waveformRef.current?.play();
+      return;
+    }
     // if the finish happened while stepped back in history, retrace forward
     if (historyIndexRef.current < historyRef.current.length - 1) {
       const j = stepHistory(historyIndexRef.current, 1);
@@ -1075,9 +1097,19 @@ export default function App() {
       return;
     }
     const idx = sorted.findIndex((t) => t.id === referenceId);
+    // Sequential playback only — the shuffle branch above always returns first
+    // when shuffle is on with >1 track, so shuffle keeps going regardless of
+    // repeat. End of the context with repeat off -> stop, don't wrap.
+    if (idx === sorted.length - 1 && repeatMode !== 'all') {
+      waveformRef.current?.pause();
+      waveformRef.current?.seekTo(0);
+      setCurrentTime(0);
+      setIsPlaying(false);
+      return;
+    }
     const nextIdx = (idx + 1) % sorted.length;
     handleAdoptAndPlay(sorted[nextIdx].id, { autoPlay: true });
-  }, [tracks, playingTrackId, currentTrackId, handleAdoptAndPlay, queue, shuffleEnabled, goToHistory, stepHistory, orderedContextTracks]);
+  }, [tracks, playingTrackId, currentTrackId, handleAdoptAndPlay, queue, shuffleEnabled, repeatMode, goToHistory, stepHistory, orderedContextTracks]);
 
   // audioprocess fires many times a second — updating currentTime state on
   // every tick meant the whole app re-rendered constantly during playback,
@@ -1602,6 +1634,8 @@ export default function App() {
             onEnterFocus={() => setView('focus')}
             shuffleEnabled={shuffleEnabled}
             onToggleShuffle={handleToggleShuffle}
+            repeatMode={repeatMode}
+            onCycleRepeat={handleCycleRepeat}
             mediaMissing={currentMissing}
             onRelocate={() => {
               const v = activeVersion(currentTrack);
@@ -1624,6 +1658,8 @@ export default function App() {
           onExitFocus={() => setView('sidebar')}
           shuffleEnabled={shuffleEnabled}
           onToggleShuffle={handleToggleShuffle}
+          repeatMode={repeatMode}
+          onCycleRepeat={handleCycleRepeat}
         />
       )}
       {playingTrack && !isViewingPlayingTrack && view !== 'mini' && (

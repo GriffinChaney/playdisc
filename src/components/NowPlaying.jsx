@@ -3,6 +3,7 @@ import { handleArtworkMouseMove, handleArtworkMouseLeave } from '../lib/artworkT
 import WaveformSlot from './WaveformSlot';
 import ShuffleIcon from './ShuffleIcon';
 import RestartIcon from './RestartIcon';
+import RepeatIcon from './RepeatIcon';
 
 function formatTime(seconds = 0) {
   const m = Math.floor(seconds / 60);
@@ -26,6 +27,8 @@ export default function NowPlaying({
   onEnterFocus,
   shuffleEnabled,
   onToggleShuffle,
+  repeatMode,
+  onCycleRepeat,
   onResizeStart,
   mediaMissing,
   onRelocate
@@ -109,6 +112,18 @@ export default function NowPlaying({
           </button>
           <button onClick={() => onSkip(1)} aria-label="next track">
             ⏭
+          </button>
+          <button
+            className={`repeat-btn${repeatMode !== 'off' ? ' active' : ''}`}
+            onClick={onCycleRepeat}
+            aria-label={
+              repeatMode === 'one' ? 'repeat one' : repeatMode === 'all' ? 'repeat all' : 'repeat off'
+            }
+            title={
+              repeatMode === 'one' ? 'repeat one' : repeatMode === 'all' ? 'repeat all' : 'repeat off'
+            }
+          >
+            <RepeatIcon one={repeatMode === 'one'} />
           </button>
         </div>
       )}
