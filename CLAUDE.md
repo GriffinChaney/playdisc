@@ -12,9 +12,15 @@ For what's currently in progress, broken, or next, see `docs/PROJECT_STATE.md`.
 > `~/Library/Application Support/Playdisc/`; `electron/main.js` has a one-time
 > `migrateProfileFromSona()` that copies `IndexedDB/` + `Local Storage/` from the
 > old `Sona/` profile on first launch (copy, not move — old profile kept).
-> **Deliberately NOT renamed:** the `~/Music/Sona Library/` folder (every stored
-> `version.filePath` is absolute) and the `my-music-player` IndexedDB name. The
-> git remote and `~/Developer/sona` repo dir also still say `sona`.
+> **Deliberately NOT renamed** (both need a real data migration, not a rename):
+> the `~/Music/Sona Library/` folder (every stored `version.filePath` is
+> absolute) and the `my-music-player` IndexedDB name. Also left as-is: the
+> `~/Library/Application Support/Sona/` frozen pre-migration profile snapshot,
+> and the `~/Developer/sona-backups/` dir (holds `idb-pre-versioning/`).
+>
+> The GitHub repo and local dir **were** renamed on 2026-09-01: repo is now
+> `github.com/GriffinChaney/playdisc` (GitHub redirects the old URL), local
+> clone is `~/Developer/playdisc`.
 
 A local-file desktop music player, built as an Electron + React app for macOS.
 User uploads audio files (mp3/wav/flac/m4a/aac/ogg) from disk; Playdisc parses ID3-style
@@ -42,7 +48,7 @@ pastes a screenshot of it, those are real asks to work through, not fluff.
 ## Directory layout
 
 ```
-sona/                    # repo lives at ~/Developer/sona (was ~/Downloads/music-player-app)
+playdisc/                # repo lives at ~/Developer/playdisc (was ~/Developer/sona, was ~/Downloads/music-player-app)
 ├── electron/
 │   ├── main.js        # main process: window creation, mini-mode IPC handlers
 │   └── preload.cjs     # contextBridge: exposes window.electronAPI (MUST stay .cjs)

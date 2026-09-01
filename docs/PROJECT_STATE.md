@@ -19,9 +19,11 @@ fullscreen backdrop, and a tag-picker combobox (`TagMenu`) with bulk add/remove.
 ## Working across two machines now (desktop + laptop)
 
 The project is a git repo, backed up to a **private** GitHub repo:
-`https://github.com/GriffinChaney/sona`. **On the laptop it now lives at
-`~/Developer/sona`** (moved 2026-08-28 from `~/Downloads/music-player-app`; start
-`claude` from there). The desktop clone is wherever it was cloned — unaffected.
+`https://github.com/GriffinChaney/playdisc` (renamed from `sona` 2026-09-01;
+GitHub redirects the old URL). **On the laptop it now lives at
+`~/Developer/playdisc`** (renamed from `~/Developer/sona` 2026-09-01; moved
+2026-08-28 from `~/Downloads/music-player-app`; start `claude` from there). The
+desktop clone will need its remote re-pointed and, if desired, its dir renamed.
 Both the desktop and Griffin's laptop
 (`Griffins-MacBook-Pro`, macOS 14.6) have their own clone, authenticated via `gh`
 (GitHub CLI). Normal flow: `git pull` before starting work, `git add -A && git commit
@@ -111,10 +113,14 @@ Post-rename the zip prefix is `playdisc-*.zip` (was `sona-*.zip`); prune globs
   `IndexedDB/` + `Local Storage/` from the old `Sona/` profile (copy-not-move,
   guarded by a `.migrated-from-sona` marker, logs which branch it took). User
   confirmed library / playlists / versions / notes / tags all carried across.
-- **Deferred with the rename:** `~/Music/Sona Library/` folder (renaming orphans
-  every absolute `version.filePath`), the `my-music-player` IndexedDB name, the
-  git remote (`github.com/GriffinChaney/sona`), and the `~/Developer/sona` repo
-  dir. Docs updated for name references only.
+- **Follow-up cleanup (2026-09-01, same day):** renamed the GitHub repo
+  `sona` → `playdisc`, re-pointed the local `origin`, renamed the local dir
+  `~/Developer/sona` → `~/Developer/playdisc`, and swept the remaining
+  label/comment "Sona" strings. **Still deferred** (need real migrations, not
+  renames): `~/Music/Sona Library/` folder, the `my-music-player` IndexedDB
+  name. **Left as-is:** the `~/Library/Application Support/Sona/` frozen
+  pre-migration snapshot, and `~/Developer/sona-backups/` (holds
+  `idb-pre-versioning/`).
 - Context: since the 2026-08-28 batch below, per-track versioning + notes shipped
   and merged to `main`, followed by "title follows the active version", a
   restart-current-song transport button, and a three-state repeat button. This

@@ -1,4 +1,4 @@
-// Helpers for showing the fidelity of an imported file. Sona never re-encodes
+// Helpers for showing the fidelity of an imported file. Playdisc never re-encodes
 // audio — it plays the exact bytes you imported through an <audio> element —
 // so what these report is genuinely what you hear.
 

@@ -4,7 +4,7 @@
 //
 // Electron's bundled Info.plist template ships placeholder
 // NSMicrophoneUsageDescription / NSCameraUsageDescription / Bluetooth usage
-// strings meant for apps that use those APIs. Sona never does (local file
+// strings meant for apps that use those APIs. Playdisc never does (local file
 // playback only), and their mere presence appears to be what makes macOS
 // show a microphone permission prompt on every launch (Chromium/CoreAudio
 // eagerly checks TCC status for any declared-but-unused capability when the

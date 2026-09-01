@@ -60,7 +60,7 @@ account, no sync, no catalog.
 ## Setup
 
 ```bash
-cd sona
+cd playdisc
 npm install
 npm run electron:dev      # Vite dev server + Electron, hot reload
 ```

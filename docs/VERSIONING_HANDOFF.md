@@ -53,7 +53,7 @@ next to the duration in **list view** when they apply.
 `main` has none of this. To go back:
 
 ```bash
-cd ~/Developer/sona
+cd ~/Developer/playdisc
 git checkout main
 npm run electron:build
 codesign --sign - --force --deep "release/mac-arm64/Playdisc.app"
@@ -146,15 +146,15 @@ rename make that a two-click fix.
 
 - Read `CLAUDE.md` + `docs/PROJECT_STATE.md` first (they do **not** yet
   describe versioning — that's deliberate, the feature isn't confirmed).
-- Repo is at `~/Developer/sona`. `npm run backup` snapshots to
-  `~/Developer/sona-backups/`.
+- Repo is at `~/Developer/playdisc` (renamed from `~/Developer/sona`).
+  `npm run backup` snapshots to `~/Developer/sona-backups/` (dir name kept).
 - **Path-based audio can't run in `npm run dev`** (plain browser, no Electron
   filesystem / no custom protocol). Test playback in the packaged app only.
   UI-only things (the modal, indicators, notes) can be tested in the browser
   by seeding IndexedDB with the new track shape — see the track shape comment
   in `src/lib/db.js`.
 - `electron:dev` is Gatekeeper-blocked on this laptop; packaged flow is the
-  only way (rebuild → re-sign → replace `/Applications/Sona.app`, ~2 min).
+  only way (rebuild → re-sign → replace `/Applications/Playdisc.app`, ~2 min).
 - Key files: `electron/main.js` (protocol + media IPC), `src/lib/media.js`
   (helpers, `sniffExt`), `src/lib/mediaFingerprint.js`, `src/App.jsx`
   (migration effects + all the version/note handlers, search
