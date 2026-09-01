@@ -3,6 +3,7 @@ import { useDominantColor, useArtworkPalette } from '../lib/useDominantColor';
 import { handleArtworkMouseMove, handleArtworkMouseLeave } from '../lib/artworkTilt';
 import WaveformSlot from './WaveformSlot';
 import ShuffleIcon from './ShuffleIcon';
+import RestartIcon from './RestartIcon';
 
 // where each palette color's blob sits — spread around the frame so the
 // colors pool in different regions and blend across the middle
@@ -29,6 +30,8 @@ export default function FocusView({
   duration,
   onTogglePlay,
   onSkip,
+  onRestart,
+  canRestart,
   onExitFocus,
   shuffleEnabled,
   onToggleShuffle
@@ -99,6 +102,15 @@ export default function FocusView({
           aria-pressed={shuffleEnabled}
         >
           <ShuffleIcon />
+        </button>
+        <button
+          className="restart-btn"
+          onClick={onRestart}
+          disabled={!canRestart}
+          aria-label="restart current song"
+          title="restart from the beginning"
+        >
+          <RestartIcon />
         </button>
         <button onClick={() => onSkip(-1)} aria-label="previous track">
           ⏮

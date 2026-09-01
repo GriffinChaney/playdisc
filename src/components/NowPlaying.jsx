@@ -2,6 +2,7 @@ import { useObjectUrl } from '../lib/useObjectUrl';
 import { handleArtworkMouseMove, handleArtworkMouseLeave } from '../lib/artworkTilt';
 import WaveformSlot from './WaveformSlot';
 import ShuffleIcon from './ShuffleIcon';
+import RestartIcon from './RestartIcon';
 
 function formatTime(seconds = 0) {
   const m = Math.floor(seconds / 60);
@@ -20,6 +21,8 @@ export default function NowPlaying({
   duration,
   onTogglePlay,
   onSkip,
+  onRestart,
+  canRestart,
   onEnterFocus,
   shuffleEnabled,
   onToggleShuffle,
@@ -88,6 +91,15 @@ export default function NowPlaying({
             aria-pressed={shuffleEnabled}
           >
             <ShuffleIcon />
+          </button>
+          <button
+            className="restart-btn"
+            onClick={onRestart}
+            disabled={!canRestart}
+            aria-label="restart current song"
+            title="restart from the beginning"
+          >
+            <RestartIcon />
           </button>
           <button onClick={() => onSkip(-1)} aria-label="previous track">
             ⏮

@@ -919,7 +919,8 @@ body {
   width: 52px;
   height: 52px;
 }
-.shuffle-btn {
+.shuffle-btn,
+.restart-btn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -927,6 +928,13 @@ body {
 }
 .shuffle-btn.active {
   color: var(--text-primary);
+}
+.transport button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.transport button:disabled:hover {
+  transform: none;
 }
 
 /* ---------- Focus view ---------- */

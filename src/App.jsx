@@ -643,6 +643,17 @@ export default function App() {
     }
   }, [currentTrackId, playingTrackId, handleAdoptAndPlay, contextFromActiveView]);
 
+  // restart the *playing* track from 0:00 without changing play/pause state
+  // (wavesurfer.seekTo keeps playing if playing, stays paused if paused).
+  // setCurrentTime(0) gives the time row an immediate reset — a programmatic
+  // seek doesn't emit an 'interaction' event, so a paused seek wouldn't
+  // otherwise update the UI until playback resumed.
+  const handleRestartTrack = useCallback(() => {
+    if (!playingTrackId) return;
+    waveformRef.current?.seekTo(0);
+    setCurrentTime(0);
+  }, [playingTrackId]);
+
   // merge `changes` into a track, in state and IndexedDB
   const patchTrack = useCallback((id, changes) => {
     setTracks((prev) => prev.map((t) => (t.id === id ? { ...t, ...changes } : t)));
@@ -1586,6 +1597,8 @@ export default function App() {
             duration={duration}
             onTogglePlay={handleTogglePlay}
             onSkip={handleSkip}
+            onRestart={handleRestartTrack}
+            canRestart={!!playingTrack}
             onEnterFocus={() => setView('focus')}
             shuffleEnabled={shuffleEnabled}
             onToggleShuffle={handleToggleShuffle}
@@ -1606,6 +1619,8 @@ export default function App() {
           duration={duration}
           onTogglePlay={handleTogglePlay}
           onSkip={handleSkip}
+          onRestart={handleRestartTrack}
+          canRestart={!!playingTrack}
           onExitFocus={() => setView('sidebar')}
           shuffleEnabled={shuffleEnabled}
           onToggleShuffle={handleToggleShuffle}
