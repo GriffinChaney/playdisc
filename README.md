@@ -1,4 +1,4 @@
-# Sona
+# Playdisc
 
 > **Working on this project?** Read [`CLAUDE.md`](CLAUDE.md) for architecture,
 > conventions, and things not to break, and
@@ -60,7 +60,7 @@ account, no sync, no catalog.
 ## Setup
 
 ```bash
-cd music-player-app
+cd sona
 npm install
 npm run electron:dev      # Vite dev server + Electron, hot reload
 ```
@@ -72,12 +72,12 @@ like mini mode, but faster to iterate on UI).
 
 ```bash
 npm run electron:build
-codesign --sign - --force --deep "release/mac-arm64/Sona.app"
+codesign --sign - --force --deep "release/mac-arm64/Playdisc.app"
 ```
 
 The ad-hoc re-sign is required every build — electron-builder doesn't sign
 (no paid Apple cert), and unsigned the app hits a hard Gatekeeper block. See
-`CLAUDE.md` for the full rebuild → re-sign → replace `/Applications/Sona.app`
+`CLAUDE.md` for the full rebuild → re-sign → replace `/Applications/Playdisc.app`
 loop.
 
 ## Stack

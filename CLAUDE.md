@@ -1,18 +1,29 @@
-# CLAUDE.md — Sona
+# CLAUDE.md — Playdisc
 
 Permanent project knowledge for Claude Code. Read this before changing anything.
 For what's currently in progress, broken, or next, see `docs/PROJECT_STATE.md`.
 
-## What Sona is
+## What Playdisc is
+
+> Renamed from **Sona** on 2026-09-01 (`915bbdc`). `productName`/`name`/`appId`
+> (`com.playdisc.app`), window + document title, and the custom audio protocol
+> (`sona-media://` → `playdisc-media://`) all changed. Because `productName`
+> drives `app.getPath('userData')`, the profile moved to
+> `~/Library/Application Support/Playdisc/`; `electron/main.js` has a one-time
+> `migrateProfileFromSona()` that copies `IndexedDB/` + `Local Storage/` from the
+> old `Sona/` profile on first launch (copy, not move — old profile kept).
+> **Deliberately NOT renamed:** the `~/Music/Sona Library/` folder (every stored
+> `version.filePath` is absolute) and the `my-music-player` IndexedDB name. The
+> git remote and `~/Developer/sona` repo dir also still say `sona`.
 
 A local-file desktop music player, built as an Electron + React app for macOS.
-User uploads audio files (mp3/wav/flac/m4a/aac/ogg) from disk; Sona parses ID3-style
+User uploads audio files (mp3/wav/flac/m4a/aac/ogg) from disk; Playdisc parses ID3-style
 metadata (title/artist/duration/embedded artwork), stores everything in IndexedDB, and
 plays it back with a custom-rendered, color-reactive waveform. It is explicitly **not**
 a streaming platform — no catalog, no accounts, no backend. Local files only.
 
 The user (Griffin) is iterating on this conversationally, screenshot by screenshot,
-usually testing the **packaged app in `/Applications/Sona.app`**, not just the dev
+usually testing the **packaged app in `/Applications/Playdisc.app`**, not just the dev
 build. He tracks his own backlog of requests/bugs in a macOS Reminders list; when he
 pastes a screenshot of it, those are real asks to work through, not fluff.
 
@@ -64,15 +75,15 @@ sona/                    # repo lives at ~/Developer/sona (was ~/Downloads/music
 │       ├── keybindings.js     # DEFAULT_KEYBINDINGS, load/save/format helpers
 │       └── artworkTilt.js     # shared mouse-tilt handlers for album art
 ├── vite.config.js        # dev server port 5173; ignores release/ in the watcher
-├── index.html             # <title>Sona</title>
-└── package.json           # name: "sona", productName: "Sona"
+├── index.html             # <title>Playdisc</title>
+└── package.json           # name: "playdisc", productName: "Playdisc"
 ```
 
 ## How to build / run
 
 ```bash
 npm run electron:dev      # vite dev server + electron pointed at localhost:5173
-npm run electron:build    # vite build + electron-builder -> release/mac-arm64/Sona.app
+npm run electron:build    # vite build + electron-builder -> release/mac-arm64/Playdisc.app
 ```
 
 **Always fully restart** `electron:dev` (kill both processes, don't rely on HMR) after
@@ -89,12 +100,12 @@ configured), which corrupts/omits the code signature enough that Gatekeeper show
 developer" prompt. Fix every time after `electron:build`:
 
 ```bash
-codesign --sign - --force --deep "release/mac-arm64/Sona.app"
+codesign --sign - --force --deep "release/mac-arm64/Playdisc.app"
 ```
 
 This produces a valid ad-hoc signature (`Sealed Resources` present) that Gatekeeper
 accepts for local execution. The user has established this workflow: rebuild → re-sign
-→ quit the running app → replace `/Applications/Sona.app` → relaunch. He explicitly
+→ quit the running app → replace `/Applications/Playdisc.app` → relaunch. He explicitly
 asked me to do the `/Applications` replacement directly (not just hand him the file) —
 that consent was scoped to this specific rebuild-and-replace loop for this app.
 
@@ -380,7 +391,8 @@ persisted to `localStorage.navWidth`) / `1fr` / `var(--np-width)` (fixed 278px).
 ```
 
 IndexedDB database name is `"my-music-player"` (stores `"tracks"` and, since
-DB_VERSION 2, `"playlists"`) — **not** renamed to `"sona"` when the app was rebranded.
+DB_VERSION 2, `"playlists"`) — **not** renamed when the app was rebranded (twice now:
+`my music player` → `Sona` → `Playdisc`).
 Harmless (it's an internal identifier the user never sees), but don't be surprised
 finding it while debugging storage, and don't
 "fix" it without checking whether a migration is worth the churn — a rename would
@@ -394,7 +406,7 @@ All of this lives in `src/components/Waveform.jsx`.
   internally) — not `WebAudio`. This is *why* the DOM-detachment-pauses-playback issue
   above is real and must be respected.
 - **Playback fidelity**: the `<audio>` element plays the imported file's original
-  bytes — Sona never transcodes (`parseTrack` stores `audioBlob: file` untouched). So
+  bytes — Playdisc never transcodes (`parseTrack` stores `audioBlob: file` untouched). So
   playback quality == whatever was imported; a lossless import (FLAC/ALAC/WAV) really
   is lossless out, which is the answer to "better than Spotify" (Spotify tops out at
   320 kbps lossy). The decoded data grabbed on `ready` is only for the visualizer, not

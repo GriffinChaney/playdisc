@@ -1,4 +1,4 @@
-# PROJECT_STATE.md — Sona
+# PROJECT_STATE.md — Playdisc
 
 Living, frequently-changing status doc. Read `../CLAUDE.md` first for the permanent
 architecture/conventions context this builds on. Update this file as work progresses —
@@ -38,6 +38,8 @@ HEAD to **`~/Developer/sona-backups/`** and auto-prunes to the newest 15. Run it
 after committing, alongside cutting a checkpoint tag. (Older ad-hoc zips lived in
 `~/Downloads/` — those are historical; the folder is the system now.) Git tags are
 the primary revert mechanism regardless; the zips are just belt-and-suspenders.
+Post-rename the zip prefix is `playdisc-*.zip` (was `sona-*.zip`); prune globs
+`*.zip` so old and new rotate together. Backup dir name unchanged.
 
 ### Laptop-specific setup notes (don't repeat this diagnosis if it comes up again)
 
@@ -95,6 +97,28 @@ the primary revert mechanism regardless; the zips are just belt-and-suspenders.
   `~/.ssh/authorized_keys`, labeled `griffin-desktop-to-laptop`) to speed up debugging
   the above. Only works when both machines are on the same LAN. Not removed — ask
   Griffin if it should be revoked once no longer useful.
+
+## Just finished (2026-09-01 — app renamed Sona → Playdisc)
+
+- **Renamed Sona → Playdisc** (`915bbdc`, on `main`). `productName`/`name`/`appId`
+  (`com.playdisc.app`), window + `<title>`, and the audio protocol
+  (`sona-media://` → `playdisc-media://`, generated per session so nothing
+  persisted references it). New `appId` ⇒ macOS treats it as a new app:
+  `/Applications/Sona.app` was removed manually and `Playdisc.app` installed fresh.
+  `productName` drives `app.getPath('userData')`, so the profile moved to
+  `~/Library/Application Support/Playdisc/`; `electron/main.js`
+  `migrateProfileFromSona()` runs first thing in `whenReady` and copies
+  `IndexedDB/` + `Local Storage/` from the old `Sona/` profile (copy-not-move,
+  guarded by a `.migrated-from-sona` marker, logs which branch it took). User
+  confirmed library / playlists / versions / notes / tags all carried across.
+- **Deferred with the rename:** `~/Music/Sona Library/` folder (renaming orphans
+  every absolute `version.filePath`), the `my-music-player` IndexedDB name, the
+  git remote (`github.com/GriffinChaney/sona`), and the `~/Developer/sona` repo
+  dir. Docs updated for name references only.
+- Context: since the 2026-08-28 batch below, per-track versioning + notes shipped
+  and merged to `main`, followed by "title follows the active version", a
+  restart-current-song transport button, and a three-state repeat button. This
+  file hasn't been given a full pass for those — see git log if in doubt.
 
 ## Just finished (2026-08-28 — playlist edit + grid fill + cover-colored visualizer)
 
@@ -388,6 +412,7 @@ re-signed, and reinstalled to `/Applications/Sona.app`:
 - Renamed app `my music player` → **Sona** throughout (window title, package name,
   productName, appId). **Note:** IndexedDB database name was *not* migrated and is
   still `"my-music-player"` internally — harmless, but see CLAUDE.md.
+  (Later renamed again **Sona → Playdisc**, 2026-09-01 — see "Just finished".)
 
 ## Known bugs / open issues
 
@@ -410,7 +435,7 @@ re-signed, and reinstalled to `/Applications/Sona.app`:
 - **Queue is not persisted.** Restarting the app loses any manually-queued tracks.
   Not reported as a bug yet, but worth knowing before someone asks "why did my queue
   disappear."
-- IndexedDB store name mismatch (`my-music-player` vs the app's actual name `Sona`) —
+- IndexedDB store name mismatch (`my-music-player` vs the app's actual name `Playdisc`) —
   cosmetic/internal only, see CLAUDE.md.
 
 ## Things tried that didn't work (don't repeat without a new angle)
@@ -457,5 +482,5 @@ re-signed, and reinstalled to `/Applications/Sona.app`:
 3. Either fix or remove the dead `handleReady` resume-position branch (see "Known
    bugs" above) — small cleanup, not urgent.
 4. If IndexedDB is ever touched for a schema change, consider whether to also rename
-   the database from `my-music-player` to something Sona-branded, with a proper
+   the database from `my-music-player` to something Playdisc-branded, with a proper
    migration (don't just rename and orphan existing users' data).

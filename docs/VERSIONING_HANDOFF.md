@@ -4,6 +4,12 @@ Branch: `versioning-notes` (pushed, **not merged**). `main` is untouched.
 Packaged build is installed at `/Applications/Sona.app` as of 2026-08-30 evening.
 Commit: `feat: optional per-track versioning + notes; audio moves to disk`.
 
+> **Stale on two counts:** versioning was merged to `main` (`f9b8cb4`), and the
+> app was later renamed **Sona → Playdisc** (`915bbdc`) — profile is now
+> `~/Library/Application Support/Playdisc/`, protocol is `playdisc-media://`,
+> packaged app is `/Applications/Playdisc.app`. Kept for the migration/decision
+> history below.
+
 Griffin has **not tested any of this yet.** The migration ran on his real
 library but the interactive feature is unverified.
 
@@ -22,7 +28,7 @@ library but the interactive feature is unverified.
 ## Test checklist (packaged app)
 
 1. **Playback** — does a track play at all? Audio now streams from disk via a
-   new `sona-media://` protocol (`electron/main.js`). This is the biggest
+   new `playdisc-media://` protocol (`electron/main.js`). This is the biggest
    unknown. If nothing plays, that protocol handler is the first suspect.
 2. **Seeking** — scrub/drag to a point in a long track; does it jump quickly
    (range requests) or hang/re-buffer?
@@ -50,8 +56,8 @@ next to the duration in **list view** when they apply.
 cd ~/Developer/sona
 git checkout main
 npm run electron:build
-codesign --sign - --force --deep "release/mac-arm64/Sona.app"
-rm -rf /Applications/Sona.app && cp -R release/mac-arm64/Sona.app /Applications/
+codesign --sign - --force --deep "release/mac-arm64/Playdisc.app"
+rm -rf /Applications/Playdisc.app && cp -R release/mac-arm64/Playdisc.app /Applications/
 ```
 
 The migration already dropped the audio blobs from IndexedDB, so old `main`
@@ -62,9 +68,13 @@ up at:
 ~/Developer/sona-backups/idb-pre-versioning/   (IndexedDB/, Local Storage/, blob_storage/)
 ```
 
-To restore it: quit Sona, copy those three folders back into
-`~/Library/Application Support/Sona/`, relaunch. (The `~/Music/Sona Library/`
+To restore it: quit Playdisc, copy those three folders back into
+`~/Library/Application Support/Playdisc/`, relaunch. (The `~/Music/Sona Library/`
 files can stay — old code ignores them.)
+
+Note: a `~/Library/Application Support/Sona/` directory may still exist — it's the
+**pre-rename profile copy**, left intact by `migrateProfileFromSona()` when the app
+became Playdisc. It's a frozen snapshot from 2026-09-01, not the live profile.
 
 Git tag `pre-versioning-2026-08-28` marks the last pre-versioning commit on
 main. Code-only backup zips are in `~/Developer/sona-backups/`.
