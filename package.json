@@ -39,7 +39,7 @@
       "output": "release"
     },
     "mac": {
-      "icon": "assets/icon.icns"
+      "icon": "build/icon.png"
     },
     "afterPack": "scripts/afterPack.cjs"
   },
