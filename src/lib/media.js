@@ -1,10 +1,10 @@
 import { parseBlob } from 'music-metadata-browser';
 import { fingerprint } from './mediaFingerprint';
 
-// Playback URL for a stored file — served by the sona-media:// protocol in
+// Playback URL for a stored file — served by the playdisc-media:// protocol in
 // electron/main.js (streams from ~/Music/Sona Library with range support).
 export function mediaUrl(filePath) {
-  return filePath ? `sona-media://f/${encodeURIComponent(filePath)}` : null;
+  return filePath ? `playdisc-media://f/${encodeURIComponent(filePath)}` : null;
 }
 
 const MIME_EXT = {

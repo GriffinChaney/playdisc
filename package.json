@@ -1,6 +1,6 @@
 {
-  "name": "sona",
-  "productName": "Sona",
+  "name": "playdisc",
+  "productName": "Playdisc",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -29,8 +29,8 @@
     "wait-on": "^7.2.0"
   },
   "build": {
-    "appId": "com.example.sona",
-    "productName": "Sona",
+    "appId": "com.playdisc.app",
+    "productName": "Playdisc",
     "files": [
       "dist/**/*",
       "electron/**/*"
