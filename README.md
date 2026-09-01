@@ -8,8 +8,9 @@
 
 A personal, local-only music player. You add exactly the songs you want — your
 own tracks, friends' mixes, downloads — and nothing else ever shows up. Desktop
-app (Electron + React), library stored locally in IndexedDB. No server, no
-account, no sync, no catalog.
+app (Electron + React); library metadata in IndexedDB, audio files copied to
+`~/Music/Sona Library/` and streamed from disk. No server, no account, no sync,
+no catalog.
 
 ## What it does
 
@@ -22,6 +23,11 @@ account, no sync, no catalog.
 - Multi-select in both list and grid view — ⌘-click, shift-click, ⌘-drag to paint
   a contiguous range — with a floating action bar (queue / add-to-playlist / tag /
   delete)
+- Per-track **versions** — attach alternate files (rough mix, master, demo) to one
+  track and switch the active one; the displayed title follows whichever version
+  is active, and a version whose file goes missing can be relocated
+- Per-track **notes** — a small checklist on any track (right-click → "Versions &
+  notes"); a badge shows unchecked-note count and `active-version / total`
 
 **Playlists** (three-column library view, Spotify-style)
 - **Left** — "Imported" (your whole library) + your playlists. Drag playlists to
@@ -42,6 +48,9 @@ account, no sync, no catalog.
   track list and the artwork zone. Opens near-maximized.
 
 **Playback**
+- Imported audio is never transcoded — it's streamed from the original file on
+  disk via a custom `playdisc-media://` protocol with range requests, so a
+  lossless import (FLAC/ALAC/WAV) plays back lossless and seeking doesn't rebuffer
 - Browsing a track (single click) never interrupts what's playing — a floating
   bar keeps the real playing track reachable
 - Scrubbable / scroll-to-scrub waveform (wavesurfer.js)
@@ -49,7 +58,11 @@ account, no sync, no catalog.
 - Browser-style **play history**: Previous / Next walk what you actually played
   (with a "recently played" list you can jump around in); playing from a playlist
   keeps Next inside that playlist
-- Shuffle, adjustable volume, fully rebindable keyboard shortcuts (Settings)
+- Transport: shuffle, three-state **repeat** (off → repeat-all → repeat-one), a
+  **restart** button (jump the current track to 0:00 without changing play state),
+  adjustable volume
+- Fully rebindable keyboard shortcuts (Settings) — play/pause, next/prev, seek,
+  volume, shuffle, grid/list, focus/mini toggles, and more
 
 **Views**
 - Normal 3-column library view, a fullscreen **focus** view (ambient backdrop
@@ -90,20 +103,30 @@ with custom properties, no framework, no TypeScript.
 
 ```
 electron/
-  main.js          # window creation, mini-mode IPC, acceptFirstMouse
+  main.js          # window + mini-mode IPC, playdisc-media:// protocol,
+                   #   media-library IPC, one-time Sona→Playdisc profile migration
   preload.cjs      # contextBridge (must stay .cjs)
+build/
+  icon.png         # app icon source — electron-builder generates .icns from it
 src/
   components/
     PlaylistNav.jsx    # left column: Imported + playlists + queue/history panels
     LibraryList.jsx    # middle column: track list / grid, search, tags, bulk bar
     NowPlaying.jsx     # right column: artwork + waveform + transport
-    QueuePanel.jsx     HistoryPanel.jsx    ContextMenu.jsx   PromptModal.jsx
-    TrackItem.jsx      FocusView.jsx       MiniPlayer.jsx     Waveform.jsx
-    WaveformSlot.jsx   BackgroundPlayBar.jsx  SettingsModal.jsx  ...
+    FocusView.jsx      MiniPlayer.jsx        Waveform.jsx       WaveformSlot.jsx
+    TrackItem.jsx      QueuePanel.jsx        HistoryPanel.jsx   BackgroundPlayBar.jsx
+    VersionsModal.jsx  PlaylistEditModal.jsx SettingsModal.jsx
+    ContextMenu.jsx    PromptModal.jsx       ChoiceModal.jsx    TagMenu.jsx
+    ShuffleIcon.jsx    RepeatIcon.jsx        RestartIcon.jsx    VolumeIcon.jsx
+    ImportOverlay.jsx  ImportToast.jsx       UploadButton.jsx
   lib/
-    db.js            # IndexedDB: tracks + playlists stores (v2)
-    parseTrack.js    # metadata + artwork extraction
-    keybindings.js   dominantColor.js   useObjectUrl.js   artworkTilt.js
-  App.jsx            # all state + orchestration
+    db.js              # IndexedDB (idb): tracks + playlists stores (DB v2).
+                       #   Audio is on disk now, not blobs — only paths are stored
+    media.js           # media-library helpers, mediaUrl(), readAudioMeta()
+    mediaFingerprint.js  parseTrack.js       audioQuality.js
+    dominantColor.js   useDominantColor.js   # cover-art palette sampling
+    useObjectUrl.js    useListSelection.js   artworkTilt.js     imageResize.js
+    keybindings.js
+  App.jsx              # all state + orchestration
   styles.css
 ```
