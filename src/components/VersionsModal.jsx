@@ -38,8 +38,10 @@ export default function VersionsModal({
   const [editingNoteId, setEditingNoteId] = useState(null);
   const [noteDraft, setNoteDraft] = useState('');
   const [newNote, setNewNote] = useState('');
-  const { dropTarget, onHandleDragStart, onRowDragOver, onRowDrop, onDragEnd } = useNoteReorder(
+  const orderedNotes = sortNotes(track?.notes || []);
+  const { draggingId, dropTarget, rowProps, setRowRef, clickGuard } = useNoteReorder(
     track?.id,
+    orderedNotes,
     onReorderNote
   );
 
@@ -57,7 +59,7 @@ export default function VersionsModal({
 
   if (!track) return null;
   const versions = [...(track.versions || [])].sort((a, b) => a.dateAdded - b.dateAdded);
-  const notes = sortNotes(track.notes || []);
+  const notes = orderedNotes;
   const single = versions.length <= 1;
 
   function commitTitle(id) {
@@ -192,24 +194,14 @@ export default function VersionsModal({
             {notes.map((n) => (
               <div
                 key={n.id}
-                className={`vm-note${n.complete ? ' done' : ''}${n.priority ? ' flagged' : ''}`}
-                onDragOver={(e) => onRowDragOver(n, e)}
-                onDrop={(e) => onRowDrop(n, e)}
+                ref={setRowRef(n.id)}
+                className={`vm-note${n.complete ? ' done' : ''}${n.priority ? ' flagged' : ''}${
+                  draggingId === n.id ? ' dragging' : ''
+                }`}
+                {...rowProps(n)}
               >
                 {dropTarget?.id === n.id && (
                   <div className={`note-drop-line ${dropTarget.before ? 'top' : 'bottom'}`} />
-                )}
-                {!n.complete && (
-                  <span
-                    className="note-drag-handle"
-                    draggable
-                    onDragStart={(e) => onHandleDragStart(n, e)}
-                    onDragEnd={onDragEnd}
-                    aria-hidden="true"
-                    title="drag to reorder"
-                  >
-                    ⠿
-                  </span>
                 )}
                 <button
                   className="vm-check"
@@ -231,15 +223,25 @@ export default function VersionsModal({
                     }}
                   />
                 ) : (
-                  <button
+                  <span
                     className="vm-note-text"
-                    onClick={() => {
-                      setEditingNoteId(n.id);
-                      setNoteDraft(n.text);
+                    role="button"
+                    tabIndex={0}
+                    onClick={() =>
+                      clickGuard(() => {
+                        setEditingNoteId(n.id);
+                        setNoteDraft(n.text);
+                      })
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        setEditingNoteId(n.id);
+                        setNoteDraft(n.text);
+                      }
                     }}
                   >
                     {n.text}
-                  </button>
+                  </span>
                 )}
                 <button
                   className={`vm-note-star${n.priority ? ' on' : ''}`}

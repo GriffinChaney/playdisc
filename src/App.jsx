@@ -1808,9 +1808,12 @@ export default function App() {
             }}
             onAddNote={handleAddNote}
             onToggleNote={handleToggleNote}
+            onEditNote={handleEditNote}
             onDeleteNote={handleDeleteNote}
             onToggleNotePriority={handleToggleNotePriority}
             onReorderNote={handleReorderNote}
+            onOpenMenu={setContextMenu}
+            onOpenVersions={setVersionsModalTrackId}
           />
         </>
       ) : (

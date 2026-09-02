@@ -1128,10 +1128,24 @@ body {
   min-width: 0;
   color: var(--text-primary);
   word-break: break-word;
+  cursor: text;
+  outline: none;
 }
 .np-note.done .np-note-text {
   color: var(--text-muted);
   text-decoration: line-through;
+}
+.np-note-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface);
+  border: 0.5px solid var(--selection);
+  border-radius: 5px;
+  padding: 2px 5px;
+  margin: -2px 0;
+  color: var(--text-primary);
+  font: inherit;
+  outline: none;
 }
 .np-note-star {
   margin-top: 1px;
@@ -2460,29 +2474,22 @@ body {
   border-radius: 7px;
 }
 
-/* note drag-to-reorder — shared handle + drop line for the modal and the
-   now-playing panel. Only incomplete notes get a handle; drag is confined to
-   one priority tier (see useNoteReorder). */
-.note-drag-handle {
-  flex-shrink: 0;
-  cursor: grab;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1;
+/* note drag-to-reorder (press-and-hold anywhere on a row — see useNoteReorder).
+   Confined to one priority tier; completed notes aren't draggable. */
+.vm-note,
+.np-note {
   user-select: none;
-  padding: 0 1px;
-  opacity: 0;
-  transition: opacity 0.12s ease;
+  touch-action: none;
 }
-.vm-note:hover .note-drag-handle,
-.np-note:hover .note-drag-handle {
-  opacity: 0.7;
-}
-.note-drag-handle:active {
+.vm-note.dragging,
+.np-note.dragging {
+  background: var(--surface-2);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  border-radius: 7px;
   cursor: grabbing;
-}
-.np-note .note-drag-handle {
-  margin-top: 1px;
+  z-index: 5;
+  /* so elementFromPoint sees the row *underneath* the lifted one */
+  pointer-events: none;
 }
 .note-drop-line {
   position: absolute;
@@ -2492,7 +2499,7 @@ body {
   border-radius: 1px;
   background: var(--selection);
   pointer-events: none;
-  z-index: 2;
+  z-index: 6;
 }
 .note-drop-line.top {
   top: -1px;
@@ -2668,6 +2675,8 @@ body {
   text-align: left;
   padding: 0;
   cursor: text;
+  word-break: break-word;
+  outline: none;
 }
 .vm-note.done .vm-note-text {
   color: var(--text-muted);

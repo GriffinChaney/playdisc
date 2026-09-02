@@ -5,25 +5,33 @@ import { sortNotes } from '../lib/notes';
 import { useNoteReorder } from '../lib/useNoteReorder';
 
 // Per-track notes, surfaced in the now-playing panel: a quiet icon in the
-// column's bottom-left that expands into an inline checklist. Check items
-// off, flag priority, add new ones, delete on hover here; editing note text
-// stays in the "Versions & notes…" modal. Same note data as the modal —
-// this reads `notes` straight off the track record and calls the same
-// handlers.
+// column's bottom-left that expands into an inline checklist. Check off, flag
+// priority, click the text to edit, add, delete on hover, and press-and-hold
+// a row to reorder. Same note data as the "Versions & notes…" modal — reads
+// `notes` straight off the track record and calls the same handlers.
+// Right-clicking the icon opens that modal for this track.
 export default function NowPlayingNotes({
   trackId,
   notes = [],
   onAddNote,
   onToggleNote,
+  onEditNote,
   onDeleteNote,
   onToggleNotePriority,
-  onReorderNote
+  onReorderNote,
+  onOpenMenu,
+  onOpenVersions
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
+  const [editingId, setEditingId] = useState(null);
+  const [editDraft, setEditDraft] = useState('');
   const rootRef = useRef(null);
-  const { dropTarget, onHandleDragStart, onRowDragOver, onRowDrop, onDragEnd } = useNoteReorder(
+
+  const ordered = sortNotes(notes);
+  const { draggingId, dropTarget, rowProps, setRowRef, clickGuard } = useNoteReorder(
     trackId,
+    ordered,
     onReorderNote
   );
 
@@ -34,6 +42,7 @@ export default function NowPlayingNotes({
   useEffect(() => {
     setOpen(false);
     setDraft('');
+    setEditingId(null);
   }, [trackId]);
 
   useEffect(() => {
@@ -44,7 +53,8 @@ export default function NowPlayingNotes({
     function onKey(e) {
       if (e.key === 'Escape') {
         e.stopPropagation(); // don't also clear the track selection
-        setOpen(false);
+        if (editingId) setEditingId(null);
+        else setOpen(false);
       }
     }
     document.addEventListener('mousedown', onDown, true);
@@ -53,7 +63,7 @@ export default function NowPlayingNotes({
       document.removeEventListener('mousedown', onDown, true);
       document.removeEventListener('keydown', onKey, true);
     };
-  }, [open]);
+  }, [open, editingId]);
 
   function submit(e) {
     e.preventDefault();
@@ -63,6 +73,16 @@ export default function NowPlayingNotes({
     setDraft('');
   }
 
+  function startEdit(n) {
+    setEditingId(n.id);
+    setEditDraft(n.text);
+  }
+  function commitEdit(id) {
+    const t = editDraft.trim();
+    if (t) onEditNote(trackId, id, t);
+    setEditingId(null);
+  }
+
   return (
     <div className="np-notes" ref={rootRef}>
       {open && (
@@ -70,27 +90,17 @@ export default function NowPlayingNotes({
           <p className="np-notes-head">notes</p>
           <div className="np-notes-list">
             {total === 0 && <p className="np-notes-empty">no notes yet</p>}
-            {sortNotes(notes).map((n) => (
+            {ordered.map((n) => (
               <div
                 key={n.id}
-                className={`np-note${n.complete ? ' done' : ''}${n.priority ? ' flagged' : ''}`}
-                onDragOver={(e) => onRowDragOver(n, e)}
-                onDrop={(e) => onRowDrop(n, e)}
+                ref={setRowRef(n.id)}
+                className={`np-note${n.complete ? ' done' : ''}${n.priority ? ' flagged' : ''}${
+                  draggingId === n.id ? ' dragging' : ''
+                }`}
+                {...rowProps(n)}
               >
                 {dropTarget?.id === n.id && (
                   <div className={`note-drop-line ${dropTarget.before ? 'top' : 'bottom'}`} />
-                )}
-                {!n.complete && (
-                  <span
-                    className="note-drag-handle"
-                    draggable
-                    onDragStart={(e) => onHandleDragStart(n, e)}
-                    onDragEnd={onDragEnd}
-                    aria-hidden="true"
-                    title="drag to reorder"
-                  >
-                    ⠿
-                  </span>
                 )}
                 <button
                   className="np-note-check"
@@ -99,7 +109,29 @@ export default function NowPlayingNotes({
                 >
                   {n.complete ? '✓' : ''}
                 </button>
-                <span className="np-note-text">{n.text}</span>
+                {editingId === n.id ? (
+                  <input
+                    autoFocus
+                    className="np-note-input"
+                    value={editDraft}
+                    onChange={(e) => setEditDraft(e.target.value)}
+                    onBlur={() => commitEdit(n.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') commitEdit(n.id);
+                      if (e.key === 'Escape') setEditingId(null);
+                    }}
+                  />
+                ) : (
+                  <span
+                    className="np-note-text"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => clickGuard(() => startEdit(n))}
+                    onKeyDown={(e) => e.key === 'Enter' && startEdit(n)}
+                  >
+                    {n.text}
+                  </span>
+                )}
                 <button
                   className={`np-note-star${n.priority ? ' on' : ''}`}
                   onClick={() => onToggleNotePriority(trackId, n.id)}
@@ -133,6 +165,14 @@ export default function NowPlayingNotes({
       <button
         className={`np-notes-btn${open ? ' active' : ''}`}
         onClick={() => setOpen((o) => !o)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          onOpenMenu?.({
+            x: e.clientX,
+            y: e.clientY,
+            items: [{ label: 'Versions & notes…', onClick: () => onOpenVersions?.(trackId) }]
+          });
+        }}
         aria-label={open ? 'hide notes' : total ? `notes (${openCount} open of ${total})` : 'notes'}
         aria-expanded={open}
         title="notes"
