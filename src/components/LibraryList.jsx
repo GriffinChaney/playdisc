@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import TrackItem from './TrackItem';
 import TagMenu from './TagMenu';
 import { useObjectUrl } from '../lib/useObjectUrl';
@@ -86,7 +86,8 @@ function LibraryList({
   onAddVersion,
   onOpenVersions,
   missingPaths,
-  searchInputRef
+  searchInputRef,
+  scrollPosRef
 }) {
   const playlistImageUrl = useObjectUrl(playlistImageBlob);
   const [query, setQuery] = useState('');
@@ -96,6 +97,32 @@ function LibraryList({
   const dragIndexRef = useRef(null);
   const bulkAddRef = useRef(null);
   const bulkRemoveRef = useRef(null);
+  const scrollRef = useRef(null);
+  // identity of the currently-shown list: changes on a list<->grid toggle
+  // or a playlist switch, stays put across a fullscreen/mini round-trip
+  const listKey = `${viewMode}|${isPlaylistView ? playlistId : 'imported'}`;
+  const prevListKeyRef = useRef(listKey);
+
+  // App owns the saved position so it survives this component unmounting on a
+  // fullscreen/mini toggle. Restore on mount, before paint. handleScroll
+  // keeps it current while mounted.
+  useLayoutEffect(() => {
+    if (scrollRef.current && scrollPosRef?.current != null) {
+      scrollRef.current.scrollTop = scrollPosRef.current;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // a different list or layout starts at the top (the container DOM node is
+  // reused across these, so it has to be reset explicitly)
+  useLayoutEffect(() => {
+    if (prevListKeyRef.current === listKey) return; // mount / no real change
+    prevListKeyRef.current = listKey;
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+    if (scrollPosRef) scrollPosRef.current = 0;
+  }, [listKey, scrollPosRef]);
+  function handleScroll(e) {
+    if (scrollPosRef) scrollPosRef.current = e.currentTarget.scrollTop;
+  }
 
   const allTags = useMemo(() => {
     const set = new Set();
@@ -490,7 +517,11 @@ function LibraryList({
       )}
 
       {viewMode === 'grid' ? (
-        <div className="track-grid view-swap">
+        <div
+          className="track-grid view-swap"
+          ref={scrollRef}
+          onScroll={handleScroll}
+        >
           {visibleTracks.map((track, index) => (
             <GridItem
               key={track.id}
@@ -509,7 +540,11 @@ function LibraryList({
           {visibleTracks.length === 0 && <p className="empty-state">nothing here yet.</p>}
         </div>
       ) : (
-        <div className="track-list view-swap">
+        <div
+          className="track-list view-swap"
+          ref={scrollRef}
+          onScroll={handleScroll}
+        >
           {visibleTracks.map((track, index) => (
             <div
               key={track.id}

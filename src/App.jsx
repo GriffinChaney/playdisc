@@ -178,6 +178,11 @@ export default function App() {
   const pendingNavRef = useRef(null);
   const pendingNpRef = useRef(null);
 
+  // middle library-list scroll position, preserved across a fullscreen/mini
+  // round-trip (which unmounts LibraryList). Owned here so it survives that
+  // unmount; LibraryList reads/writes it and resets it on a list switch.
+  const libScrollRef = useRef(0);
+
   const startResizeNav = useCallback(() => {
     isResizingSidebarRef.current = true;
     appRef.current?.classList.add('resizing');
@@ -1442,6 +1447,14 @@ export default function App() {
       // Cmd+, (open settings) is handled by the native app menu accelerator
       // in electron/main.js, not here — see keybindings.js.
 
+      // Escape leaves fullscreen / mini and returns to the general view.
+      // (In the general view, Escape is left to the search field + selection.)
+      if (e.key === 'Escape' && view !== 'sidebar') {
+        e.preventDefault();
+        setView('sidebar');
+        return;
+      }
+
       if (keyStr === keybindings.search.key) {
         e.preventDefault();
         setPendingFocusSearch(true);
@@ -1610,6 +1623,7 @@ export default function App() {
             expandedTrackId={expandedTrackId}
             viewMode={libraryViewMode}
             onSetViewMode={setLibraryViewMode}
+            scrollPosRef={libScrollRef}
             onSelectTrack={handleViewTrack}
             onPlayTrack={handlePlayTrack}
             onAddTag={handleAddTag}
