@@ -14,6 +14,10 @@
   --selection: #0a84ff;
   --selection-bg: rgba(10, 132, 255, 0.16);
   --placeholder-bg: #333336;
+  /* queue-row hover: the queue panel is itself --surface-2, so its rows need
+     a hover fill lighter than that to read (library rows sit on --surface,
+     lighter, so they can reuse --surface-2) */
+  --queue-hover: #3a3a3a;
   color-scheme: dark;
 }
 
@@ -28,6 +32,7 @@
   --selection: #0a84ff;
   --selection-bg: rgba(10, 132, 255, 0.12);
   --placeholder-bg: #dedede;
+  --queue-hover: #ffffff;
   color-scheme: light;
 }
 
@@ -297,6 +302,14 @@ body {
   background: var(--surface-2);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
+/* same treatment as library rows, but the queue panel's own background is
+   already --surface-2, so that fill is invisible here — give the hover its
+   own value, noticeably lighter than the panel in both themes. Box-shadow +
+   timing stay identical to .track-item:hover. */
+.queue-item:hover {
+  background: var(--queue-hover);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
 .track-index {
   flex-shrink: 0;
   width: 22px;
@@ -456,6 +469,9 @@ body {
   padding: 5px 4px;
   border-radius: 4px;
   cursor: grab;
+  /* same hover treatment as library rows (.track-item): background + shadow
+     transition on the row, scale lives on the inner handle, not the row */
+  transition: background 0.12s ease, box-shadow 0.12s ease;
 }
 .queue-item:active {
   cursor: grabbing;
@@ -466,6 +482,7 @@ body {
   font-size: 12px;
   line-height: 1;
   user-select: none;
+  transition: transform 0.13s ease;
 }
 .queue-item-title {
   flex: 1;
@@ -582,7 +599,8 @@ body {
   justify-content: center;
   transition: width 0.15s ease, height 0.15s ease, transform 0.13s ease;
 }
-.track-item:hover .track-thumb {
+.track-item:hover .track-thumb,
+.queue-item:hover .queue-drag-handle {
   transform: scale(1.05);
 }
 .track-item.expanded .track-thumb {
@@ -838,11 +856,17 @@ body {
 }
 .focus-title {
   font-size: 22px;
+  /* legibility guarantee against bright cover-derived backdrops — a soft
+     dark glow, not a hard shadow */
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
 }
 .np-artist,
 .focus-artist {
   color: var(--text-secondary);
   margin: 4px 0 0;
+}
+.focus-artist {
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
 }
 
 /* the waveform tracks the width of the artwork above it in each view */
@@ -958,6 +982,28 @@ body {
      new cover yields the same number of blobs, otherwise they cut — fine. */
   background-color: var(--bg);
   transition: background-color 0.6s ease, background-image 0.6s ease;
+}
+/* dial the cover-derived mesh backdrop back a touch so title/artist stay
+   readable over bright covers — a light uniform wash keeps the gradient's
+   color character, just less intense. Sits above the backdrop but below all
+   content (which is lifted to z-index 1 below). */
+.focus-view::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+}
+.focus-view > .focus-artwork,
+.focus-view > .focus-track-info,
+.focus-view > .focus-waveform-wrap,
+.focus-view > .transport {
+  position: relative;
+  z-index: 1;
+}
+/* .back-btn is already absolutely positioned; just ensure it clears the wash */
+.focus-view > .back-btn {
+  z-index: 1;
 }
 
 @keyframes view-enter {
