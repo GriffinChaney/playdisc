@@ -12,6 +12,7 @@ export const DEFAULT_KEYBINDINGS = {
   toggleNav: { label: 'hide / show playlists', key: 'tab' },
   seekBack: { label: 'seek back 5s', key: 'h' },
   seekForward: { label: 'seek forward 5s', key: 'l' },
+  restart: { label: 'restart track', key: 'r' },
   volumeUp: { label: 'volume up', key: 'arrowup' },
   volumeDown: { label: 'volume down', key: 'arrowdown' },
   shuffle: { label: 'toggle shuffle', key: 's' },

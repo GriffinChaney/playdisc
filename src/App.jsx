@@ -1494,6 +1494,9 @@ export default function App() {
       } else if (keyStr === keybindings.seekForward.key) {
         e.preventDefault();
         waveformRef.current?.skip(5);
+      } else if (keyStr === keybindings.restart.key) {
+        e.preventDefault();
+        handleRestartTrack(); // same as the transport restart button; no-ops if nothing's loaded
       } else if (keyStr === keybindings.volumeUp.key) {
         e.preventDefault();
         handleSetVolume(volumeRef.current + 0.1);
@@ -1516,7 +1519,8 @@ export default function App() {
     view,
     handleSetVolume,
     handleTogglePlay,
-    handleToggleShuffle
+    handleToggleShuffle,
+    handleRestartTrack
   ]);
 
   return (
