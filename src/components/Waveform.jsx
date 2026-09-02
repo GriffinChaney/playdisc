@@ -73,14 +73,28 @@ function renderHeatmapBars(channelData, ctx, colorFn = amplitudeColor) {
 // FocusView) can drive playback from its own transport buttons, while this
 // component owns the actual wavesurfer instance and the click/drag-to-seek
 // behavior.
-function progressColorForTheme(theme) {
-  // light mode's surface is near-white, so a faint dark wash barely reads —
-  // needs noticeably more contrast than the dark-mode version to be visible
-  return theme === 'light' ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.3)';
+function progressColorFor(theme, onDarkBackdrop) {
+  // the played-region wash has to contrast with whatever's behind the
+  // waveform. On a dark backdrop (fullscreen / mini over cover art) the
+  // light wash reads in both themes — same value dark mode already uses.
+  // In the library view, light theme sits on a near-white surface, so it
+  // needs the darker wash instead.
+  if (onDarkBackdrop || theme !== 'light') return 'rgba(255, 255, 255, 0.3)';
+  return 'rgba(0, 0, 0, 0.5)';
 }
 
 const Waveform = forwardRef(function Waveform(
-  { audioUrl, theme, palette, height = 60, onReady, onFinish, onTimeUpdate, onPlayStateChange },
+  {
+    audioUrl,
+    theme,
+    palette,
+    onDarkBackdrop = false,
+    height = 60,
+    onReady,
+    onFinish,
+    onTimeUpdate,
+    onPlayStateChange
+  },
   ref
 ) {
   const containerRef = useRef(null);
@@ -104,7 +118,7 @@ const Waveform = forwardRef(function Waveform(
     const ws = WaveSurfer.create({
       container: containerRef.current,
       waveColor: '#3d3a5c',
-      progressColor: progressColorForTheme(theme),
+      progressColor: progressColorFor(theme, onDarkBackdrop),
       cursorColor: '#f97316',
       cursorWidth: 2,
       height,
@@ -209,8 +223,8 @@ const Waveform = forwardRef(function Waveform(
   // looking "bugged" until the next track load happened to pick up the new
   // theme. Re-tint the existing instance directly instead.
   useEffect(() => {
-    wsRef.current?.setOptions({ progressColor: progressColorForTheme(theme) });
-  }, [theme]);
+    wsRef.current?.setOptions({ progressColor: progressColorFor(theme, onDarkBackdrop) });
+  }, [theme, onDarkBackdrop]);
 
   // Recolor the visualizer from the playing track's cover. The EQ strip picks
   // it up on its next frame automatically (reads colorFnRef live); the

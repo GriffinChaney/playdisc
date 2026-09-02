@@ -856,17 +856,43 @@ body {
 }
 .focus-title {
   font-size: 22px;
-  /* legibility guarantee against bright cover-derived backdrops — a soft
-     dark glow, not a hard shadow */
-  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
 }
 .np-artist,
 .focus-artist {
   color: var(--text-secondary);
   margin: 4px 0 0;
 }
-.focus-artist {
+
+/* ---- fullscreen legibility over a cover-derived backdrop ----
+   The mesh backdrop is always a dark, saturated field (palette base is fixed
+   near black, blobs are mid-lightness) regardless of theme — so when it's
+   showing, pin the foreground to light values in BOTH themes. Without this,
+   light theme puts near-black text/icons on that dark field. Scoped to
+   .has-backdrop so an art-less track (plain theme background) is untouched. */
+.focus-view.has-backdrop .focus-title,
+.mini-player.has-backdrop .mini-title {
+  color: #f4f4f2;
+  /* soft dark glow, not a hard shadow — legibility guarantee whatever
+     colors land behind the text */
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+}
+.focus-view.has-backdrop .focus-artist {
+  color: rgba(244, 244, 242, 0.72);
   text-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
+}
+.focus-view.has-backdrop .transport button,
+.mini-player.has-backdrop .mini-transport button {
+  color: rgba(244, 244, 242, 0.82);
+  filter: drop-shadow(0 1px 6px rgba(0, 0, 0, 0.45));
+}
+.focus-view.has-backdrop .shuffle-btn.active,
+.focus-view.has-backdrop .repeat-btn.active {
+  color: #f4f4f2;
+}
+.focus-view.has-backdrop .transport .play-btn,
+.mini-player.has-backdrop .mini-transport .play-btn {
+  background: #f4f4f2;
+  color: #1a1a1a;
 }
 
 /* the waveform tracks the width of the artwork above it in each view */
@@ -987,7 +1013,7 @@ body {
    readable over bright covers — a light uniform wash keeps the gradient's
    color character, just less intense. Sits above the backdrop but below all
    content (which is lifted to z-index 1 below). */
-.focus-view::before {
+.focus-view.has-backdrop::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -1233,6 +1259,8 @@ body {
   gap: 4px;
   z-index: 60;
   animation: view-enter 260ms cubic-bezier(0.16, 1, 0.3, 1);
+  /* crossfade the cover-derived backdrop on track change, same as focus view */
+  transition: background-color 0.5s ease, background-image 0.5s ease;
   /* traffic lights are hidden in mini mode (see enterMiniMode), so the
      whole card is the only way to grab and drag the window around —
      interactive children opt back out below */

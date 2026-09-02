@@ -1,11 +1,19 @@
 import { useObjectUrl } from '../lib/useObjectUrl';
+import { useDominantColor, useArtworkPalette } from '../lib/useDominantColor';
+import { meshBackdropStyle } from '../lib/meshBackdrop';
 import WaveformSlot from './WaveformSlot';
 
 export default function MiniPlayer({ track, waveformHost, isPlaying, onTogglePlay, onSkip, onExit }) {
   const artworkUrl = useObjectUrl(track?.artworkBlob);
+  // same cover-derived mesh as the focus view — the gradient's %-based blob
+  // positions scale straight down to this small window. undefined for an
+  // art-less track, which keeps the plain --surface background.
+  const palette = useArtworkPalette(track?.artworkBlob);
+  const dominantColor = useDominantColor(track?.artworkBlob);
+  const backdropStyle = meshBackdropStyle(palette, dominantColor);
 
   return (
-    <div className="mini-player">
+    <div className={`mini-player${backdropStyle ? ' has-backdrop' : ''}`} style={backdropStyle}>
       {/* keeps the underlying <audio> element attached to the document while
           minimized — detaching it (which happens if this unmounts) pauses it */}
       <div style={{ display: 'none' }}>

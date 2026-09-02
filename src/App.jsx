@@ -524,6 +524,10 @@ export default function App() {
   // visualizer (null when the track has no artwork -> default heatmap colors)
   const playingPalette = useArtworkPalette(playingTrack?.artworkBlob);
   const isViewingPlayingTrack = currentTrackId === playingTrackId;
+  // in focus / mini the waveform sits on the cover-derived (dark) mesh
+  // backdrop whenever there's cover art — so its played-region wash should
+  // use the light value in both themes, not the library view's dark wash
+  const waveOnDarkBackdrop = (view === 'focus' || view === 'mini') && !!playingPalette;
 
   // the ordered track list the middle column shows for the active left-nav
   // item: a playlist's manual order, or the whole library newest-first.
@@ -1544,6 +1548,7 @@ export default function App() {
           audioUrl={audioUrl}
           theme={theme}
           palette={playingPalette}
+          onDarkBackdrop={waveOnDarkBackdrop}
           onReady={handleReady}
           onTimeUpdate={handleTimeUpdate}
           onFinish={handleFinish}

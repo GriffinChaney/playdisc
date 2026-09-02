@@ -1,18 +1,11 @@
 import { useObjectUrl } from '../lib/useObjectUrl';
 import { useDominantColor, useArtworkPalette } from '../lib/useDominantColor';
+import { meshBackdropStyle } from '../lib/meshBackdrop';
 import { handleArtworkMouseMove, handleArtworkMouseLeave } from '../lib/artworkTilt';
 import WaveformSlot from './WaveformSlot';
 import ShuffleIcon from './ShuffleIcon';
 import RestartIcon from './RestartIcon';
 import RepeatIcon from './RepeatIcon';
-
-// where each palette color's blob sits — spread around the frame so the
-// colors pool in different regions and blend across the middle
-const BLOB_POS = ['22% 24%', '80% 18%', '68% 78%', '16% 82%', '48% 46%'];
-
-function withAlpha(rgb, a) {
-  return rgb.replace('rgb(', 'rgba(').replace(')', `, ${a})`);
-}
 
 function formatTime(seconds = 0) {
   const m = Math.floor(seconds / 60);
@@ -42,27 +35,13 @@ export default function FocusView({
   const artworkUrl = useObjectUrl(track?.artworkBlob);
   const dominantColor = useDominantColor(track?.artworkBlob);
   const palette = useArtworkPalette(track?.artworkBlob);
-  // Aurora/mesh backdrop: several colors sampled from the cover, each pooled
-  // in its own region of the frame and blended across the middle, over a
-  // dark base so it never falls to black. Falls back to the older single-
-  // color radial while the palette is still sampling, then to the plain
-  // theme background if there's no artwork at all.
-  let backdropStyle;
-  if (palette) {
-    backdropStyle = {
-      backgroundColor: palette.base,
-      backgroundImage: palette.colors
-        .map((c, i) => `radial-gradient(circle at ${BLOB_POS[i % BLOB_POS.length]}, ${withAlpha(c, 0.85)} 0%, transparent 60%)`)
-        .join(', ')
-    };
-  } else if (dominantColor) {
-    backdropStyle = {
-      background: `radial-gradient(ellipse 150% 110% at 50% 10%, ${dominantColor.vivid} 0%, ${dominantColor.dark} 60%, ${dominantColor.darker} 100%)`
-    };
-  }
+  // Cover-derived mesh backdrop (see meshBackdrop.js). undefined when the
+  // track has no artwork — then the view keeps the plain theme background
+  // and `has-backdrop` is off so the CSS doesn't force light-on-dark text.
+  const backdropStyle = meshBackdropStyle(palette, dominantColor);
 
   return (
-    <div className="focus-view" style={backdropStyle}>
+    <div className={`focus-view${backdropStyle ? ' has-backdrop' : ''}`} style={backdropStyle}>
       <button className="back-btn" onClick={onExitFocus}>
         ← library
       </button>
