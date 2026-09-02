@@ -70,6 +70,10 @@ function LibraryList({
   expandedTrackId,
   viewMode,
   onSetViewMode,
+  sort = 'added',
+  sortDir = 'desc',
+  onSetSort,
+  onReorderLibrary,
   onSelectTrack,
   onPlayTrack,
   onAddTag,
@@ -98,9 +102,10 @@ function LibraryList({
   const bulkAddRef = useRef(null);
   const bulkRemoveRef = useRef(null);
   const scrollRef = useRef(null);
-  // identity of the currently-shown list: changes on a list<->grid toggle
-  // or a playlist switch, stays put across a fullscreen/mini round-trip
-  const listKey = `${viewMode}|${isPlaylistView ? playlistId : 'imported'}`;
+  // identity of the currently-shown list: changes on a list<->grid toggle,
+  // a playlist switch, or a sort change; stays put across a fullscreen/mini
+  // round-trip
+  const listKey = `${viewMode}|${isPlaylistView ? playlistId : 'imported'}|${sort}|${sortDir}`;
   const prevListKeyRef = useRef(listKey);
 
   // App owns the saved position so it survives this component unmounting on a
@@ -145,7 +150,9 @@ function LibraryList({
     });
   }, [tracks, query, activeTag]);
 
-  const reorderEnabled = isPlaylistView && !query && !activeTag && viewMode === 'list';
+  // drag-reorder only under the "Custom" sort (library or playlist), and not
+  // while a search/tag filter or grid view is on
+  const reorderEnabled = !query && !activeTag && viewMode === 'list' && sort === 'custom';
 
   const totalSeconds = useMemo(
     () => visibleTracks.reduce((sum, t) => sum + (t.duration || 0), 0),
@@ -282,7 +289,8 @@ function LibraryList({
     setDropIndex(null);
     if (from === null || before === null) return;
     if (before === from || before === from + 1) return;
-    onReorderPlaylistTracks(playlistId, from, before);
+    if (isPlaylistView) onReorderPlaylistTracks(playlistId, from, before);
+    else onReorderLibrary(from, before);
   }
 
   function handleBulkDelete() {
@@ -337,6 +345,52 @@ function LibraryList({
     </div>
   );
 
+  // sort menu — the library (Imported) and every playlist. "Custom" is the
+  // library's hand-dragged order, or a playlist's manual trackIds order.
+  const SORT_OPTIONS = [
+    ['custom', 'desc', 'Custom order'],
+    ['added', 'desc', 'Newest first'],
+    ['added', 'asc', 'Oldest first'],
+    ['artist', 'asc', 'Artist · A–Z'],
+    ['artist', 'desc', 'Artist · Z–A']
+  ];
+  const activeSortLabel =
+    SORT_OPTIONS.find(([s, d]) => s === sort && (s === 'custom' || d === sortDir))?.[2] || 'Sort';
+
+  function openSortMenu(e) {
+    const r = e.currentTarget.getBoundingClientRect();
+    onOpenMenu({
+      x: r.left,
+      y: r.bottom + 4,
+      items: SORT_OPTIONS.map(([s, d, label]) => {
+        const active = s === sort && (s === 'custom' || d === sortDir);
+        return {
+          label: (
+            <span className="ctx-label">
+              <span className="ctx-check">{active ? '✓' : ''}</span>
+              {label}
+            </span>
+          ),
+          onClick: () => onSetSort(s, d)
+        };
+      })
+    });
+  }
+
+  const sortControl = onSetSort && (
+    <button className="lib-sort-btn" onClick={openSortMenu} title="sort">
+      {activeSortLabel}
+      <span className="lib-sort-caret" aria-hidden="true">▾</span>
+    </button>
+  );
+
+  const headerActions = (
+    <div className="lib-header-actions">
+      {sortControl}
+      {viewToggle}
+    </div>
+  );
+
   const subtitle = (
     <>
       {visibleTracks.length} {visibleTracks.length === 1 ? 'song' : 'songs'}
@@ -372,6 +426,7 @@ function LibraryList({
                 edit
               </button>
             )}
+            {sortControl}
             {viewToggle}
           </div>
         </div>
@@ -381,7 +436,7 @@ function LibraryList({
             <h1 className="lib-title">{viewTitle}</h1>
             <p className="lib-subtitle">{subtitle}</p>
           </div>
-          {viewToggle}
+          {headerActions}
         </div>
       )}
 

@@ -2187,6 +2187,35 @@ body {
   background: var(--surface-2);
 }
 
+.lib-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.lib-sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0.5px solid var(--border);
+  background: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 7px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+.lib-sort-btn:hover {
+  color: var(--text-primary);
+  background: var(--surface-2);
+}
+.lib-sort-caret {
+  font-size: 9px;
+  color: var(--text-muted);
+}
+
 /* ---------- Playlist hero (image + description atop the middle column) ---------- */
 .playlist-hero {
   display: flex;
@@ -2792,6 +2821,16 @@ body {
 .ctx-item.sub-open {
   background: var(--selection);
   color: #fff;
+}
+.ctx-label {
+  display: inline-flex;
+  align-items: center;
+}
+.ctx-check {
+  display: inline-block;
+  width: 15px;
+  flex-shrink: 0;
+  font-size: 11px;
 }
 .ctx-item.danger {
   color: #e5715c;

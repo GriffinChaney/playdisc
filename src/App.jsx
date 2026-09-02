@@ -42,6 +42,7 @@ import {
 } from './lib/media';
 import { useArtworkPalette } from './lib/useDominantColor';
 import { loadKeybindings, saveKeybindings, eventToKeyString, DEFAULT_KEYBINDINGS } from './lib/keybindings';
+import { sortLibrary, reconcileLibraryOrder } from './lib/librarySort';
 import { noteRank } from './lib/notes';
 
 // One-time: earlier builds could persist a hand-dragged column width (often
@@ -77,6 +78,23 @@ export default function App() {
   const [libraryViewMode, setLibraryViewMode] = useState(
     () => localStorage.getItem('libraryViewMode') || 'list'
   );
+  // Imported-view sort. 'added' | 'artist' | 'custom'; dir 'desc' | 'asc'.
+  // Playlists are unaffected — they keep their manual trackIds order.
+  const [librarySort, setLibrarySort] = useState(
+    () => localStorage.getItem('librarySort') || 'added'
+  );
+  const [librarySortDir, setLibrarySortDir] = useState(
+    () => localStorage.getItem('librarySortDir') || 'desc'
+  );
+  // the user's hand-dragged library order (track ids). Kept reconciled with
+  // the real library at all times so switching back to 'custom' always works.
+  const [libraryOrder, setLibraryOrder] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('libraryOrder') || '[]');
+    } catch {
+      return [];
+    }
+  });
   const [contextMenu, setContextMenu] = useState(null);
   const [promptConfig, setPromptConfig] = useState(null);
   const [editingPlaylistId, setEditingPlaylistId] = useState(null);
@@ -88,10 +106,16 @@ export default function App() {
   const playbackContextRef = useRef(playbackContext);
   const activeViewRef = useRef(activeView);
   const tracksRef = useRef(tracks);
+  const librarySortRef = useRef(librarySort);
+  const librarySortDirRef = useRef(librarySortDir);
+  const libraryOrderRef = useRef(libraryOrder);
   playlistsRef.current = playlists;
   playbackContextRef.current = playbackContext;
   activeViewRef.current = activeView;
   tracksRef.current = tracks;
+  librarySortRef.current = librarySort;
+  librarySortDirRef.current = librarySortDir;
+  libraryOrderRef.current = libraryOrder;
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -475,6 +499,39 @@ export default function App() {
     localStorage.setItem('libraryViewMode', libraryViewMode);
   }, [libraryViewMode]);
 
+  useEffect(() => {
+    localStorage.setItem('librarySort', librarySort);
+    localStorage.setItem('librarySortDir', librarySortDir);
+  }, [librarySort, librarySortDir]);
+
+  useEffect(() => {
+    localStorage.setItem('libraryOrder', JSON.stringify(libraryOrder));
+  }, [libraryOrder]);
+
+  // keep the saved custom order in step with the real library (imports,
+  // deletes) — cheap, returns the same array when nothing changed. Skips
+  // while tracks haven't loaded, so a saved order isn't wiped on startup.
+  useEffect(() => {
+    if (!tracks.length) return;
+    setLibraryOrder((prev) => reconcileLibraryOrder(prev, tracks));
+  }, [tracks]);
+
+  // pick a sort; the menu always passes an explicit dir
+  const handleSetLibrarySort = useCallback((sort, dir) => {
+    setLibrarySort(sort);
+    if (dir) setLibrarySortDir(dir);
+  }, []);
+
+  const handleReorderLibrary = useCallback((fromIndex, insertBeforeIndex) => {
+    setLibraryOrder((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      const adj = insertBeforeIndex > fromIndex ? insertBeforeIndex - 1 : insertBeforeIndex;
+      next.splice(adj, 0, moved);
+      return next;
+    });
+  }, []);
+
   // while a row is zoomed (Z), keep the zoom on whatever track is now current
   // — skip / prev / natural finish / clicking another row all move it along
   useEffect(() => {
@@ -545,13 +602,24 @@ export default function App() {
   // regressed the "clicks feel laggy / inconsistent" complaint.
   const activePlaylist =
     activeView.type === 'playlist' ? playlists.find((p) => p.id === activeView.id) || null : null;
+
+  // one sort surface for the middle column, resolved from whichever view is
+  // active. Library sort is app-level; playlist sort rides on the record.
+  // (the setter, handleSetActiveSort, is defined lower — it needs
+  // handleSetPlaylistSort, which needs persistPlaylist.)
+  const activeSort = activePlaylist ? activePlaylist.sort || 'custom' : librarySort;
+  const activeSortDir = activePlaylist ? activePlaylist.sortDir || 'desc' : librarySortDir;
+
   const shownTracks = useMemo(() => {
     if (activePlaylist) {
       const byId = new Map(tracks.map((t) => [t.id, t]));
-      return activePlaylist.trackIds.map((id) => byId.get(id)).filter(Boolean);
+      const plTracks = activePlaylist.trackIds.map((id) => byId.get(id)).filter(Boolean);
+      const sort = activePlaylist.sort || 'custom';
+      if (sort === 'custom') return plTracks;
+      return sortLibrary(plTracks, sort, activePlaylist.sortDir || 'desc', activePlaylist.trackIds);
     }
-    return [...tracks].sort((a, b) => b.dateAdded - a.dateAdded);
-  }, [tracks, activePlaylist]);
+    return sortLibrary(tracks, librarySort, librarySortDir, libraryOrder);
+  }, [tracks, activePlaylist, librarySort, librarySortDir, libraryOrder]);
 
   const dismissImportToast = useCallback(() => setImportToast(null), []);
 
@@ -641,7 +709,13 @@ export default function App() {
   // from whichever left-nav view a play was initiated from
   const contextFromActiveView = useCallback(() => {
     const av = activeViewRef.current;
-    return av.type === 'playlist' ? { type: 'playlist', id: av.id } : { type: 'library' };
+    // capture the sort in effect now, so changing it mid-playback doesn't
+    // reorder what "next" plays
+    if (av.type === 'playlist') {
+      const pl = playlistsRef.current.find((p) => p.id === av.id);
+      return { type: 'playlist', id: av.id, sort: pl?.sort || 'custom', dir: pl?.sortDir || 'desc' };
+    }
+    return { type: 'library', sort: librarySortRef.current, dir: librarySortDirRef.current };
   }, []);
 
   const handlePlayTrack = useCallback((id) => {
@@ -761,6 +835,27 @@ export default function App() {
     putPlaylist(withStamp);
     return withStamp;
   }, []);
+
+  // per-playlist sort lives on the playlist record ('custom' = the manual
+  // trackIds order; 'artist'/'added' are non-destructive view re-sorts).
+  const handleSetPlaylistSort = useCallback(
+    (playlistId, sort, dir) => {
+      const pl = playlistsRef.current.find((p) => p.id === playlistId);
+      if (!pl) return;
+      persistPlaylist({ ...pl, sort, sortDir: dir || pl.sortDir || 'desc' });
+    },
+    [persistPlaylist]
+  );
+
+  // the middle column's sort setter, routed to the active view
+  const handleSetActiveSort = useCallback(
+    (sort, dir) => {
+      const av = activeViewRef.current;
+      if (av.type === 'playlist') handleSetPlaylistSort(av.id, sort, dir);
+      else handleSetLibrarySort(sort, dir);
+    },
+    [handleSetPlaylistSort, handleSetLibrarySort]
+  );
 
   const handleCreatePlaylist = useCallback(
     (name, trackIds = []) => {
@@ -986,10 +1081,20 @@ export default function App() {
       if (pl) {
         const byId = new Map(tracks.map((t) => [t.id, t]));
         const list = pl.trackIds.map((tid) => byId.get(tid)).filter(Boolean);
-        if (list.length) return list;
+        if (list.length) {
+          const sort = ctx.sort || pl.sort || 'custom';
+          return sort === 'custom'
+            ? list
+            : sortLibrary(list, sort, ctx.dir || pl.sortDir || 'desc', pl.trackIds);
+        }
       }
     }
-    return [...tracks].sort((a, b) => b.dateAdded - a.dateAdded);
+    return sortLibrary(
+      tracks,
+      ctx.sort || 'added',
+      ctx.dir || 'desc',
+      libraryOrderRef.current
+    );
   }, [tracks]);
 
   const handleSkip = useCallback((direction) => {
@@ -1656,6 +1761,10 @@ export default function App() {
             expandedTrackId={expandedTrackId}
             viewMode={libraryViewMode}
             onSetViewMode={setLibraryViewMode}
+            sort={activeSort}
+            sortDir={activeSortDir}
+            onSetSort={handleSetActiveSort}
+            onReorderLibrary={handleReorderLibrary}
             scrollPosRef={libScrollRef}
             onSelectTrack={handleViewTrack}
             onPlayTrack={handlePlayTrack}
