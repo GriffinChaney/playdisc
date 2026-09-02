@@ -3,7 +3,9 @@ import { useState } from 'react';
 // "recently played" panel — collapsible, newest first, click a row to jump
 // back to that point in the play history. Extracted from the old Sidebar.
 export default function HistoryPanel({ history, historyIndex, tracks, onJumpToHistory, onClearHistory }) {
-  const [open, setOpen] = useState(() => localStorage.getItem('historyPanelOpen') === '1');
+  // always starts collapsed on launch/session start — only opens on a manual
+  // click, and that state is intentionally not persisted
+  const [open, setOpen] = useState(false);
 
   if (history.length === 0) return null;
 
@@ -12,11 +14,7 @@ export default function HistoryPanel({ history, historyIndex, tracks, onJumpToHi
       <div className="queue-panel-header">
         <button
           className="history-toggle"
-          onClick={() => {
-            const next = !open;
-            setOpen(next);
-            localStorage.setItem('historyPanelOpen', next ? '1' : '0');
-          }}
+          onClick={() => setOpen((o) => !o)}
         >
           <span className={`history-chevron${open ? ' open' : ''}`} aria-hidden="true">
             ›
