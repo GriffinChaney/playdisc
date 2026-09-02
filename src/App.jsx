@@ -510,6 +510,9 @@ export default function App() {
     setKeybindingsState(DEFAULT_KEYBINDINGS);
   }, []);
 
+  // native menu "Settings…" / Cmd+, (electron/main.js) opens the same modal
+  useEffect(() => window.electronAPI?.onOpenSettings?.(() => setSettingsOpen(true)), []);
+
   const currentTrack = tracks.find((t) => t.id === currentTrackId) || null;
   const playingTrack = tracks.find((t) => t.id === playingTrackId) || null;
   // the audio engine always follows the PLAYING track's ACTIVE version.
@@ -1436,11 +1439,8 @@ export default function App() {
           target.isContentEditable);
       const keyStr = eventToKeyString(e);
 
-      if (keyStr === keybindings.settings.key) {
-        e.preventDefault();
-        setSettingsOpen(true);
-        return;
-      }
+      // Cmd+, (open settings) is handled by the native app menu accelerator
+      // in electron/main.js, not here — see keybindings.js.
 
       if (keyStr === keybindings.search.key) {
         e.preventDefault();
@@ -1467,10 +1467,10 @@ export default function App() {
         // handleTogglePlay adopts the browsed track first, same as clicking
         // the play button does.
         handleTogglePlay();
-      } else if (keyStr === keybindings.next.key || e.key === 'ArrowRight') {
+      } else if (keyStr === keybindings.next.key || keyStr === keybindings.nextAlt.key) {
         e.preventDefault();
         handleSkip(1);
-      } else if (keyStr === keybindings.prev.key || e.key === 'ArrowLeft') {
+      } else if (keyStr === keybindings.prev.key || keyStr === keybindings.prevAlt.key) {
         e.preventDefault();
         handleSkip(-1);
       } else if (keyStr === keybindings.fullscreen.key) {
@@ -1724,6 +1724,7 @@ export default function App() {
           keybindings={keybindings}
           onSetKeybindings={handleSetKeybinding}
           onResetKeybindings={handleResetKeybindings}
+          trackCount={tracks.length}
           onClose={() => setSettingsOpen(false)}
         />
       )}

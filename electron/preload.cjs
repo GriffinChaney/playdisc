@@ -22,5 +22,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   mediaDelete: (filePath) => ipcRenderer.invoke('media:delete', filePath),
   mediaRename: (opts) => ipcRenderer.invoke('media:rename', opts),
   mediaFixExtension: (filePath) => ipcRenderer.invoke('media:fix-extension', filePath),
-  mediaLibraryDir: () => ipcRenderer.invoke('media:library-dir')
+  mediaLibraryDir: () => ipcRenderer.invoke('media:library-dir'),
+  revealLibraryDir: () => ipcRenderer.invoke('media:reveal-library'),
+
+  // --- app / settings ---
+  appVersion: () => ipcRenderer.invoke('app:version'),
+  // native menu "Settings…" (Cmd+,) asks the renderer to open its settings
+  // window. Returns an unsubscribe fn.
+  onOpenSettings: (cb) => {
+    const listener = () => cb();
+    ipcRenderer.on('open-settings', listener);
+    return () => ipcRenderer.removeListener('open-settings', listener);
+  }
 });

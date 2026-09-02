@@ -5,6 +5,8 @@ export const DEFAULT_KEYBINDINGS = {
   playPause: { label: 'play / pause', key: 'space' },
   next: { label: 'next track', key: 'd' },
   prev: { label: 'previous track', key: 'u' },
+  nextAlt: { label: 'next track (alt)', key: 'arrowright' },
+  prevAlt: { label: 'previous track (alt)', key: 'arrowleft' },
   fullscreen: { label: 'toggle fullscreen', key: 'f' },
   miniPlayer: { label: 'toggle mini player', key: 'm' },
   expandTrack: { label: 'expand track row', key: 'z' },
@@ -16,8 +18,10 @@ export const DEFAULT_KEYBINDINGS = {
   volumeUp: { label: 'volume up', key: 'arrowup' },
   volumeDown: { label: 'volume down', key: 'arrowdown' },
   shuffle: { label: 'toggle shuffle', key: 's' },
-  search: { label: 'focus search', key: 'mod+s' },
-  settings: { label: 'open settings', key: 'mod+,' }
+  search: { label: 'focus search', key: 'mod+s' }
+  // NOTE: "open settings" is intentionally NOT here — Cmd+, is a fixed native
+  // menu accelerator (electron/main.js app menu), not a rebindable action,
+  // matching standard macOS Preferences behavior.
 };
 
 export function loadKeybindings() {

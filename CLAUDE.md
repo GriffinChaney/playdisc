@@ -357,11 +357,12 @@ persisted to `localStorage.navWidth`) / `1fr` / `var(--np-width)` (fixed 278px).
   resets volume to its default — `handleReady` re-applies `volumeRef.current` on every
   new track load.
 - `keybindings`: loaded/saved via `src/lib/keybindings.js`, editable in
-  `SettingsModal`. `ArrowLeft`/`ArrowRight` are **hardcoded additional aliases** for
-  next/prev in `App.jsx`'s keydown handler (`e.key === 'ArrowRight'` etc., ORed with
-  the configurable binding) — they are *not* in `DEFAULT_KEYBINDINGS` and are not
-  user-rebindable. This is intentional (user asked for arrows to "also" work) but is
-  an inconsistency worth knowing about if the keybinding system is reworked.
+  `SettingsModal`. Next/prev track each have a second rebindable binding —
+  `nextAlt` / `prevAlt` (default `→` / `←`) — so `d`/`u` and the arrow keys are
+  both real, listed, user-rebindable shortcuts that call `handleSkip(±1)`. (This
+  replaced an earlier hardcoded `e.key === 'ArrowRight'` alias that never showed
+  in Settings.) The App.jsx keydown handler ORs `next`/`nextAlt` (and
+  `prev`/`prevAlt`) into one branch.
 - `theme`: `'dark' | 'light'`, persisted to `localStorage`, applied as
   `document.documentElement.dataset.theme`.
 - `expandedTrackId`: which track row is "zoomed" (Z key / `expandTrack`),
