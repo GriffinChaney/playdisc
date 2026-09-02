@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import StarIcon from './StarIcon';
+import { sortNotes } from '../lib/notes';
+import { useNoteReorder } from '../lib/useNoteReorder';
 
 function fmtDur(s = 0) {
   const m = Math.floor(s / 60);
@@ -26,13 +29,19 @@ export default function VersionsModal({
   onAddNote,
   onToggleNote,
   onEditNote,
-  onDeleteNote
+  onDeleteNote,
+  onToggleNotePriority,
+  onReorderNote
 }) {
   const [editingTitleId, setEditingTitleId] = useState(null);
   const [titleDraft, setTitleDraft] = useState('');
   const [editingNoteId, setEditingNoteId] = useState(null);
   const [noteDraft, setNoteDraft] = useState('');
   const [newNote, setNewNote] = useState('');
+  const { dropTarget, onHandleDragStart, onRowDragOver, onRowDrop, onDragEnd } = useNoteReorder(
+    track?.id,
+    onReorderNote
+  );
 
   useEffect(() => {
     if (!track) return;
@@ -48,7 +57,7 @@ export default function VersionsModal({
 
   if (!track) return null;
   const versions = [...(track.versions || [])].sort((a, b) => a.dateAdded - b.dateAdded);
-  const notes = track.notes || [];
+  const notes = sortNotes(track.notes || []);
   const single = versions.length <= 1;
 
   function commitTitle(id) {
@@ -181,7 +190,27 @@ export default function VersionsModal({
           </div>
           <div className="vm-list">
             {notes.map((n) => (
-              <div key={n.id} className={`vm-note${n.complete ? ' done' : ''}`}>
+              <div
+                key={n.id}
+                className={`vm-note${n.complete ? ' done' : ''}${n.priority ? ' flagged' : ''}`}
+                onDragOver={(e) => onRowDragOver(n, e)}
+                onDrop={(e) => onRowDrop(n, e)}
+              >
+                {dropTarget?.id === n.id && (
+                  <div className={`note-drop-line ${dropTarget.before ? 'top' : 'bottom'}`} />
+                )}
+                {!n.complete && (
+                  <span
+                    className="note-drag-handle"
+                    draggable
+                    onDragStart={(e) => onHandleDragStart(n, e)}
+                    onDragEnd={onDragEnd}
+                    aria-hidden="true"
+                    title="drag to reorder"
+                  >
+                    ⠿
+                  </span>
+                )}
                 <button
                   className="vm-check"
                   onClick={() => onToggleNote(track.id, n.id)}
@@ -212,6 +241,15 @@ export default function VersionsModal({
                     {n.text}
                   </button>
                 )}
+                <button
+                  className={`vm-note-star${n.priority ? ' on' : ''}`}
+                  onClick={() => onToggleNotePriority(track.id, n.id)}
+                  aria-label={n.priority ? 'clear priority' : 'flag as priority'}
+                  aria-pressed={!!n.priority}
+                  title={n.priority ? 'priority' : 'flag as priority'}
+                >
+                  <StarIcon filled={!!n.priority} />
+                </button>
                 <button
                   className="vm-del"
                   onClick={() => onDeleteNote(track.id, n.id)}

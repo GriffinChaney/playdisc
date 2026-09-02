@@ -42,6 +42,7 @@ import {
 } from './lib/media';
 import { useArtworkPalette } from './lib/useDominantColor';
 import { loadKeybindings, saveKeybindings, eventToKeyString, DEFAULT_KEYBINDINGS } from './lib/keybindings';
+import { noteRank } from './lib/notes';
 
 // One-time: earlier builds could persist a hand-dragged column width (often
 // from an accidental grab of a resize handle, or — before this fix — a
@@ -1380,6 +1381,38 @@ export default function App() {
     },
     [patchTrack]
   );
+  const handleToggleNotePriority = useCallback(
+    (trackId, noteId) => {
+      const t = tracksRef.current.find((x) => x.id === trackId);
+      if (!t) return;
+      patchTrack(trackId, {
+        notes: (t.notes || []).map((n) =>
+          n.id === noteId ? { ...n, priority: !n.priority } : n
+        )
+      });
+    },
+    [patchTrack]
+  );
+  // manual drag order for notes — moves `movedId` next to `targetId` in the
+  // raw notes array. Only within the same tier (flagged / incomplete /
+  // complete); the array order is what sortNotes preserves within a tier.
+  const handleReorderNote = useCallback(
+    (trackId, movedId, targetId, before) => {
+      const t = tracksRef.current.find((x) => x.id === trackId);
+      if (!t) return;
+      const notes = [...(t.notes || [])];
+      const from = notes.findIndex((n) => n.id === movedId);
+      const target = notes.find((n) => n.id === targetId);
+      if (from === -1 || !target || movedId === targetId) return;
+      if (noteRank(notes[from]) !== noteRank(target)) return; // different tier
+      const [moved] = notes.splice(from, 1);
+      let at = notes.findIndex((n) => n.id === targetId);
+      if (!before) at += 1;
+      notes.splice(at, 0, moved);
+      patchTrack(trackId, { notes });
+    },
+    [patchTrack]
+  );
 
   const handleDeleteTrack = useCallback(async (id) => {
     const t = tracksRef.current.find((x) => x.id === id);
@@ -1667,6 +1700,8 @@ export default function App() {
             onAddNote={handleAddNote}
             onToggleNote={handleToggleNote}
             onDeleteNote={handleDeleteNote}
+            onToggleNotePriority={handleToggleNotePriority}
+            onReorderNote={handleReorderNote}
           />
         </>
       ) : (
@@ -1766,6 +1801,8 @@ export default function App() {
         onToggleNote={handleToggleNote}
         onEditNote={handleEditNote}
         onDeleteNote={handleDeleteNote}
+        onToggleNotePriority={handleToggleNotePriority}
+        onReorderNote={handleReorderNote}
       />
     </div>
   );

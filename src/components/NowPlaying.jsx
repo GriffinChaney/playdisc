@@ -35,7 +35,9 @@ export default function NowPlaying({
   onRelocate,
   onAddNote,
   onToggleNote,
-  onDeleteNote
+  onDeleteNote,
+  onToggleNotePriority,
+  onReorderNote
 }) {
   const artworkUrl = useObjectUrl(track?.artworkBlob);
 
@@ -139,6 +141,8 @@ export default function NowPlaying({
           onAddNote={onAddNote}
           onToggleNote={onToggleNote}
           onDeleteNote={onDeleteNote}
+          onToggleNotePriority={onToggleNotePriority}
+          onReorderNote={onReorderNote}
         />
       )}
     </div>
