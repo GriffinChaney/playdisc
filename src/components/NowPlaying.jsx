@@ -4,6 +4,7 @@ import WaveformSlot from './WaveformSlot';
 import ShuffleIcon from './ShuffleIcon';
 import RestartIcon from './RestartIcon';
 import RepeatIcon from './RepeatIcon';
+import NowPlayingNotes from './NowPlayingNotes';
 
 function formatTime(seconds = 0) {
   const m = Math.floor(seconds / 60);
@@ -31,7 +32,10 @@ export default function NowPlaying({
   onCycleRepeat,
   onResizeStart,
   mediaMissing,
-  onRelocate
+  onRelocate,
+  onAddNote,
+  onToggleNote,
+  onDeleteNote
 }) {
   const artworkUrl = useObjectUrl(track?.artworkBlob);
 
@@ -126,6 +130,16 @@ export default function NowPlaying({
             <RepeatIcon one={repeatMode === 'one'} />
           </button>
         </div>
+      )}
+
+      {track && (
+        <NowPlayingNotes
+          trackId={track.id}
+          notes={track.notes || []}
+          onAddNote={onAddNote}
+          onToggleNote={onToggleNote}
+          onDeleteNote={onDeleteNote}
+        />
       )}
     </div>
   );

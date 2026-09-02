@@ -989,6 +989,184 @@ body {
   transform: none;
 }
 
+/* ---------- Now-playing per-track notes ---------- */
+/* quiet icon in the column's bottom-left; click to expand an inline
+   checklist that grows upward from the corner. .now-playing is
+   overflow:hidden — the panel is sized/placed to stay within the column. */
+.np-notes {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  z-index: 12; /* over .np-resize-handle (10) and the artwork */
+}
+.np-notes-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 0.5px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: transform 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.np-notes-btn:hover {
+  color: var(--text-secondary);
+  background: var(--surface-2);
+  transform: scale(1.05);
+}
+.np-notes-btn.active {
+  color: var(--text-primary);
+  background: var(--surface-2);
+}
+.np-notes-count,
+.np-notes-done {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 15px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.np-notes-count {
+  background: var(--text-primary);
+  color: var(--bg);
+}
+.np-notes-done {
+  background: var(--surface-2);
+  color: var(--text-muted);
+  border: 0.5px solid var(--border);
+}
+.np-notes-panel {
+  position: absolute;
+  left: 0;
+  bottom: 38px;
+  width: 248px;
+  max-width: calc(var(--np-width) - 32px);
+  max-height: 44vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  animation: np-notes-in 140ms ease;
+}
+@keyframes np-notes-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.np-notes-head {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin: 0;
+  padding: 9px 11px 5px;
+}
+.np-notes-list {
+  overflow-y: auto;
+  padding: 0 6px 4px;
+  display: flex;
+  flex-direction: column;
+}
+.np-notes-empty {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin: 0;
+  padding: 2px 6px 8px;
+}
+.np-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 6px;
+  border-radius: 6px;
+  font-size: 12.5px;
+}
+.np-note:hover {
+  background: var(--surface-2);
+}
+.np-note-check {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  margin-top: 1px;
+  border-radius: 4px;
+  border: 1.5px solid var(--text-muted);
+  background: none;
+  color: var(--bg);
+  font-size: 10px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.np-note.done .np-note-check {
+  background: var(--text-secondary);
+  border-color: var(--text-secondary);
+}
+.np-note-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+.np-note.done .np-note-text {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+.np-note-del {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 2px 3px;
+  margin-top: 1px;
+  cursor: pointer;
+  opacity: 0;
+}
+.np-note:hover .np-note-del {
+  opacity: 1;
+}
+.np-note-del:hover {
+  color: #e5484d;
+}
+.np-notes-add {
+  border-top: 0.5px solid var(--border);
+  padding: 7px 8px;
+}
+.np-notes-add input {
+  width: 100%;
+  background: var(--surface-2);
+  border: 0.5px solid var(--border);
+  border-radius: 7px;
+  padding: 6px 9px;
+  color: var(--text-primary);
+  font-size: 12.5px;
+  outline: none;
+}
+.np-notes-add input:focus {
+  border-color: var(--text-muted);
+}
+
 /* ---------- Focus view ---------- */
 
 .focus-view {
@@ -2182,6 +2360,11 @@ body {
 }
 .track-mark-notes {
   color: var(--text-secondary);
+}
+/* has notes but every one is checked off — quieter than the open-count pill,
+   but still there so "all done" doesn't read as "no notes" */
+.track-mark-notes.done {
+  color: var(--text-muted);
 }
 
 /* ---------- Versions & notes modal ---------- */

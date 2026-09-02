@@ -1650,6 +1650,9 @@ export default function App() {
               const v = activeVersion(currentTrack);
               if (v) handleRelocateVersion(currentTrack.id, v.id);
             }}
+            onAddNote={handleAddNote}
+            onToggleNote={handleToggleNote}
+            onDeleteNote={handleDeleteNote}
           />
         </>
       ) : (
