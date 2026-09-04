@@ -15,7 +15,10 @@ import { getArtworkHash, peekArtworkHashes } from './artworkHash';
 // Returns { blobs: Blob[] (0–4), pending: boolean }.
 export function usePlaylistMosaic(orderedTracks) {
   const withArt = orderedTracks.filter((t) => t && t.artworkBlob);
-  const sig = withArt.map((t) => t.id).join(',');
+  // keyed on id AND blob size, not just id membership — a cover edit
+  // (change/reset) can swap one track's artwork for another without ever
+  // adding or removing it from withArt, and id-only would miss that entirely
+  const sig = withArt.map((t) => `${t.id}:${t.artworkBlob.size}`).join(',');
 
   const [state, setState] = useState(() => resolveSync(withArt));
 

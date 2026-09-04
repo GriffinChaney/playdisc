@@ -448,9 +448,14 @@ function LibraryList({
     if (!many && onAddVersion) {
       items.push({ label: 'Add version…', onClick: () => onAddVersion(trackId) });
       items.push({ label: 'Versions & notes…', onClick: () => onOpenVersions(trackId) });
-      if (onEditCover) items.push({ label: 'Edit cover…', onClick: () => onEditCover(trackId) });
-      items.push({ separator: true });
     }
+    // Edit cover works on the whole selection (ids, from menuTargets above)
+    // when the clicked row is part of one — unlike Add version / Versions &
+    // notes above, which stay single-track only.
+    if (onEditCover) {
+      items.push({ label: many ? `Edit cover… (${label})` : 'Edit cover…', onClick: () => onEditCover(ids) });
+    }
+    if ((!many && onAddVersion) || onEditCover) items.push({ separator: true });
     items.push({
       label: many ? `Add ${label} to queue` : 'Add to queue',
       onClick: () => {

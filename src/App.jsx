@@ -46,6 +46,7 @@ import { useArtworkPalette } from './lib/useDominantColor';
 import { loadKeybindings, saveKeybindings, eventToKeyString, DEFAULT_KEYBINDINGS } from './lib/keybindings';
 import { sortLibrary, reconcileLibraryOrder } from './lib/librarySort';
 import { noteRank } from './lib/notes';
+import { invalidateArtworkHash } from './lib/artworkHash';
 
 // One-time: earlier builds could persist a hand-dragged column width (often
 // from an accidental grab of a resize handle, or — before this fix — a
@@ -150,7 +151,10 @@ export default function App() {
   const [importProgress, setImportProgress] = useState(null); // { done, total } | { done, total, label }
   const [importToast, setImportToast] = useState(null); // { id, count } | { id, error }
   const [versionsModalTrackId, setVersionsModalTrackId] = useState(null);
-  const [coverEditTrackId, setCoverEditTrackId] = useState(null);
+  // null when closed; a non-empty array of track ids while open (one id for
+  // a single-track edit, several when the right-clicked row was part of a
+  // selection — see LibraryList's menuTargets)
+  const [coverEditTrackIds, setCoverEditTrackIds] = useState(null);
   // multi-choice confirm (e.g. merge / copy / cancel when adding a version
   // from a file that's already its own track). null when nothing to ask.
   const [choiceConfig, setChoiceConfig] = useState(null);
@@ -680,9 +684,9 @@ export default function App() {
   // letting the window close. One coordination point here rather than
   // touching PlaylistEditModal/VersionsModal/CoverEditModal individually —
   // they already each expose a plain onClose prop wired to these setters.
-  const anyModalOpen = !!(editingPlaylistId || versionsModalTrackId || coverEditTrackId);
-  const modalStateRef = useRef({ editingPlaylistId, versionsModalTrackId, coverEditTrackId });
-  modalStateRef.current = { editingPlaylistId, versionsModalTrackId, coverEditTrackId };
+  const anyModalOpen = !!(editingPlaylistId || versionsModalTrackId || coverEditTrackIds);
+  const modalStateRef = useRef({ editingPlaylistId, versionsModalTrackId, coverEditTrackIds });
+  modalStateRef.current = { editingPlaylistId, versionsModalTrackId, coverEditTrackIds };
   useEffect(() => {
     window.electronAPI?.setModalOpen?.(anyModalOpen);
   }, [anyModalOpen]);
@@ -690,7 +694,7 @@ export default function App() {
     () =>
       window.electronAPI?.onCloseActiveModal?.(() => {
         const m = modalStateRef.current;
-        if (m.coverEditTrackId) setCoverEditTrackId(null);
+        if (m.coverEditTrackIds) setCoverEditTrackIds(null);
         else if (m.versionsModalTrackId) setVersionsModalTrackId(null);
         else if (m.editingPlaylistId) setEditingPlaylistId(null);
       }),
@@ -1709,10 +1713,13 @@ export default function App() {
   );
 
   // cover art edit — CoverEditModal captures `originalArtworkBlob` lazily and
-  // hands back the full pair to persist
+  // hands back the full pair to persist. Invalidate the playlist-mosaic's
+  // cached content hash for this track too — its artwork just changed, and
+  // that cache assumes otherwise (see artworkHash.js).
   const handleSaveCover = useCallback(
     (trackId, { artworkBlob, originalArtworkBlob }) => {
       patchTrack(trackId, { artworkBlob, originalArtworkBlob });
+      invalidateArtworkHash(trackId);
     },
     [patchTrack]
   );
@@ -1781,7 +1788,7 @@ export default function App() {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'w') {
         e.preventDefault();
         const m = modalStateRef.current;
-        if (m.coverEditTrackId) setCoverEditTrackId(null);
+        if (m.coverEditTrackIds) setCoverEditTrackIds(null);
         else if (m.versionsModalTrackId) setVersionsModalTrackId(null);
         else if (m.editingPlaylistId) setEditingPlaylistId(null);
         return;
@@ -2039,7 +2046,7 @@ export default function App() {
             onPrompt={setPromptConfig}
             onAddVersion={handleAddVersion}
             onOpenVersions={setVersionsModalTrackId}
-            onEditCover={setCoverEditTrackId}
+            onEditCover={setCoverEditTrackIds}
             missingPaths={missingPaths}
             searchInputRef={searchInputRef}
           />
@@ -2182,8 +2189,8 @@ export default function App() {
         onReorderNote={handleReorderNote}
       />
       <CoverEditModal
-        track={tracks.find((t) => t.id === coverEditTrackId) || null}
-        onClose={() => setCoverEditTrackId(null)}
+        tracks={coverEditTrackIds ? tracks.filter((t) => coverEditTrackIds.includes(t.id)) : []}
+        onClose={() => setCoverEditTrackIds(null)}
         onSave={handleSaveCover}
       />
     </div>

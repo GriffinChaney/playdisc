@@ -2891,6 +2891,28 @@ body {
   font-size: 11px;
   color: var(--text-muted);
 }
+.cover-edit-multi {
+  width: 100%;
+  min-height: 96px;
+  padding: 16px;
+  border-radius: 10px;
+  border: 1px dashed var(--border);
+  background: var(--placeholder-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  transition: border-color 0.12s ease;
+}
+.cover-edit-multi.dragging {
+  border-color: var(--text-secondary);
+}
+.cover-edit-multi-count {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
 .cover-edit-choices {
   display: flex;
   gap: 8px;

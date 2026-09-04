@@ -4,10 +4,19 @@
 // size check would collapse different covers into one tile — the exact bug the
 // mosaic exists to avoid. We hash the actual bytes instead.
 //
-// Cached by track id (artwork never changes after import), so each blob is read
-// and digested once per session, not once per render.
+// Cached by track id, so each blob is read and digested once, not once per
+// render. Artwork used to be immutable after import, which made that cache
+// permanent for a track's whole session — no longer true now that cover
+// editing (CoverEditModal) can change/reset/clear a track's artworkBlob at
+// runtime. handleSaveCover calls invalidateArtworkHash() on every save, so a
+// stale hash is never read back after an edit.
 
 const cache = new Map(); // trackId -> hex string | in-flight Promise<string|null>
+
+// Drop a track's cached hash — call this whenever its artworkBlob changes.
+export function invalidateArtworkHash(trackId) {
+  cache.delete(trackId);
+}
 
 // Synchronously resolved hashes for a set of tracks, or null if any is still
 // pending / unread. Lets the mosaic hook skip the loading state on a revisit.
