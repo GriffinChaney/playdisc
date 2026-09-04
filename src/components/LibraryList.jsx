@@ -120,7 +120,11 @@ function LibraryList({
   onEditCover,
   missingPaths,
   searchInputRef,
-  scrollPosRef
+  scrollPosRef,
+  query,
+  onSetQuery,
+  activeTag,
+  onSetActiveTag
 }) {
   const playlistImageUrl = useObjectUrl(playlistImageBlob);
 
@@ -167,8 +171,10 @@ function LibraryList({
   const dominantColor = useDominantColor(coverSourceBlob);
   const backdropStyle = meshBackdropStyle(palette, dominantColor);
 
-  const [query, setQuery] = useState('');
-  const [activeTag, setActiveTag] = useState(null);
+  // query/activeTag are lifted to App.jsx (query, onSetQuery, activeTag,
+  // onSetActiveTag) so they survive this component unmounting on a
+  // fullscreen/mini round trip — same reason scrollPosRef is lifted, see
+  // the scroll-restore effect below.
   const [bulkTagMenu, setBulkTagMenu] = useState(null); // 'add' | 'remove' | null
   const [dropIndex, setDropIndex] = useState(null);
   const dragIndexRef = useRef(null);
@@ -632,13 +638,13 @@ function LibraryList({
         className="search-input"
         placeholder="search"
         value={query}
-        onChange={(e) => setQuery(e.target.value)}
+        onChange={(e) => onSetQuery(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Escape') {
             // first Escape clears a query, a second (or Escape on an empty
             // field) drops focus back to the app
             e.stopPropagation();
-            if (query) setQuery('');
+            if (query) onSetQuery('');
             else e.currentTarget.blur();
           }
         }}
@@ -646,12 +652,12 @@ function LibraryList({
 
       {allTags.length > 0 && (
         <div className="tag-filter">
-          <button className={!activeTag ? 'active' : ''} onClick={() => setActiveTag(null)}>
+          <button className={!activeTag ? 'active' : ''} onClick={() => onSetActiveTag(null)}>
             all
           </button>
           {allTags.map((tag) => (
             <span key={tag} className={`tag-filter-item${activeTag === tag ? ' active' : ''}`}>
-              <button className="tag-filter-select" onClick={() => setActiveTag(tag)}>
+              <button className="tag-filter-select" onClick={() => onSetActiveTag(tag)}>
                 {tag}
               </button>
               <button
@@ -659,7 +665,7 @@ function LibraryList({
                 onClick={(e) => {
                   e.stopPropagation();
                   if (confirm(`Delete tag "${tag}" from all tracks?`)) {
-                    if (activeTag === tag) setActiveTag(null);
+                    if (activeTag === tag) onSetActiveTag(null);
                     onDeleteTagGroup(tag);
                   }
                 }}

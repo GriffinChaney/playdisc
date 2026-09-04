@@ -80,6 +80,13 @@ export default function App() {
   const [libraryViewMode, setLibraryViewMode] = useState(
     () => localStorage.getItem('libraryViewMode') || 'list'
   );
+  // Library search text + active tag filter. Lifted here (not persisted —
+  // session state, not a saved preference) so they survive LibraryList
+  // unmounting on a fullscreen/mini round trip, same reason as libScrollRef
+  // below. Switching playlists/sort does NOT clear these (matches existing
+  // behavior); only an actual LibraryList unmount ever used to lose them.
+  const [librarySearchQuery, setLibrarySearchQuery] = useState('');
+  const [libraryActiveTag, setLibraryActiveTag] = useState(null);
   // Imported-view sort. 'added' | 'artist' | 'custom'; dir 'desc' | 'asc'.
   // Playlists are unaffected — they keep their manual trackIds order.
   const [librarySort, setLibrarySort] = useState(
@@ -1953,6 +1960,10 @@ export default function App() {
             expandedTrackId={expandedTrackId}
             viewMode={libraryViewMode}
             onSetViewMode={setLibraryViewMode}
+            query={librarySearchQuery}
+            onSetQuery={setLibrarySearchQuery}
+            activeTag={libraryActiveTag}
+            onSetActiveTag={setLibraryActiveTag}
             sort={activeSort}
             sortDir={activeSortDir}
             onSetSort={handleSetActiveSort}
