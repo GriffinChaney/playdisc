@@ -42,6 +42,8 @@ function KeyboardGlyph() {
 export default function SettingsModal({
   theme,
   onSetTheme,
+  backgroundMovement,
+  onSetBackgroundMovement,
   keybindings,
   onSetKeybindings,
   onResetKeybindings,
@@ -73,6 +75,13 @@ export default function SettingsModal({
         section: 'appearance',
         label: 'Theme',
         keywords: 'appearance theme dark light mode color colour interface'
+      },
+      {
+        key: 'background-movement',
+        section: 'appearance',
+        label: 'Background movement',
+        keywords:
+          'appearance background movement motion animation gradient drift fullscreen ambient reactive'
       },
       {
         key: 'lib-location',
@@ -222,6 +231,31 @@ export default function SettingsModal({
             </div>
           </div>
         );
+      case 'background-movement':
+        return (
+          <div className="settings-field" key={key}>
+            <div className="settings-field-main">
+              <span className="settings-field-label">Background movement</span>
+              <span className="settings-field-desc">
+                Ambient drift on the fullscreen background — 0 turns it off entirely
+              </span>
+            </div>
+            <div className="settings-field-control settings-slider-control">
+              <input
+                type="range"
+                className="volume-slider settings-slider"
+                min="0"
+                max="100"
+                step="1"
+                value={backgroundMovement}
+                onChange={(e) => onSetBackgroundMovement(parseFloat(e.target.value))}
+                style={{ '--vol-pct': `${backgroundMovement}%` }}
+                aria-label="background movement"
+              />
+              <span className="settings-slider-value">{Math.round(backgroundMovement)}</span>
+            </div>
+          </div>
+        );
       case 'lib-location':
         return (
           <div className="settings-field" key={key}>
@@ -272,6 +306,7 @@ export default function SettingsModal({
           <>
             <h3 className="settings-section-title">Appearance</h3>
             {renderField('theme')}
+            {renderField('background-movement')}
           </>
         );
       case 'playback':

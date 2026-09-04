@@ -1,11 +1,30 @@
 import { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import WaveSurfer from 'wavesurfer.js';
+import FFT from 'wavesurfer.js/dist/fft.js';
 import { makeAmplitudeScale } from '../lib/dominantColor';
 
 const EQ_BAR_COUNT = 24;
 // throttled well below 60fps so bars snap between heights instead of
 // smoothly interpolating — reads as chunky pixel-art rather than a wobble
 const EQ_UPDATE_INTERVAL_MS = 90;
+
+// getFrequencyBands(): a window of already-decoded PCM around the playhead,
+// run through wavesurfer's own bundled FFT (imported nowhere else in the
+// app before this). No AudioContext, no createMediaElementSource, no touch
+// of the audio output path at all — see the gradient-drift investigation.
+// Power of 2, required by FFT.calculateSpectrum. 2048 samples is cheap
+// (sub-millisecond) and gives ~21Hz bins at 44.1kHz, plenty for 3 broad bands.
+const FREQ_FFT_SIZE = 2048;
+// Rough band boundaries (Hz) — frequency bands, not instrument separation.
+// Bass guitar and kick drum overlap here; that's an inherent limit of this
+// technique, not a bug.
+const FREQ_BAND_LOW = [20, 250];
+const FREQ_BAND_MID = [250, 4000];
+const FREQ_BAND_HIGH = [4000, 16000];
+// Spectrum magnitudes aren't pre-normalized to 0..1 for typical broadband
+// music (energy spread across many bins) — this empirical scale + perceptual
+// curve brings them into a usable range. Tune by ear if bands read too hot/cold.
+const FREQ_BAND_GAIN = 9;
 
 // Default coloring: louder bars run hot (red/orange), quieter run cool
 // (teal/green) — a loudness heatmap. When the playing track has cover art,
@@ -106,6 +125,11 @@ const Waveform = forwardRef(function Waveform(
   const eqRafRef = useRef(null);
   // amplitude -> color; swapped to a cover-palette scale when one is available
   const colorFnRef = useRef(amplitudeColor);
+  // reused across calls/tracks so getFrequencyBands() doesn't reallocate the
+  // FFT's internal sin/cos tables or the sample buffer on every call; only
+  // rebuilt if the sample rate actually changes between tracks
+  const fftRef = useRef(null);
+  const fftBufferRef = useRef(new Float32Array(FREQ_FFT_SIZE));
 
   useEffect(() => {
     if (!containerRef.current || !audioUrl) return;
@@ -268,6 +292,57 @@ const Waveform = forwardRef(function Waveform(
         if (v > peak) peak = v;
       }
       return Math.min(1, Math.pow(peak / trackPeakRef.current, 0.6));
+    },
+    // { low, mid, high }, each ~0..1 — an FFT over a window of already-decoded
+    // PCM around the playhead, split into three broad bands. For decorative
+    // audio-reactive UI (the fullscreen gradient drift); not audio-precise,
+    // frequency bands rather than instrument separation.
+    getFrequencyBands: () => {
+      const channel = decodedChannelRef.current;
+      const ws = wsRef.current;
+      const zero = { low: 0, mid: 0, high: 0 };
+      if (!channel || !ws) return zero;
+
+      const sampleRate = sampleRateRef.current;
+      if (!fftRef.current || fftRef.current.sampleRate !== sampleRate) {
+        fftRef.current = new FFT(FREQ_FFT_SIZE, sampleRate, 'hann');
+      }
+      const fft = fftRef.current;
+      const buffer = fftBufferRef.current;
+
+      const centerSample = Math.floor(ws.getCurrentTime() * sampleRate);
+      const start = Math.max(0, Math.min(channel.length - FREQ_FFT_SIZE, centerSample - FREQ_FFT_SIZE / 2));
+      for (let i = 0; i < FREQ_FFT_SIZE; i++) {
+        const s = start + i;
+        buffer[i] = s < channel.length ? channel[s] : 0;
+      }
+
+      let spectrum;
+      try {
+        spectrum = fft.calculateSpectrum(buffer);
+      } catch {
+        return zero; // e.g. a track shorter than one FFT window
+      }
+
+      const binWidth = sampleRate / FREQ_FFT_SIZE;
+      const bandLevel = ([loHz, hiHz]) => {
+        const i0 = Math.max(0, Math.floor(loHz / binWidth));
+        const i1 = Math.min(spectrum.length - 1, Math.ceil(hiHz / binWidth));
+        let sum = 0;
+        let n = 0;
+        for (let i = i0; i <= i1; i++) {
+          sum += spectrum[i];
+          n++;
+        }
+        return n ? sum / n : 0;
+      };
+      const norm = (x) => Math.min(1, Math.pow(x * FREQ_BAND_GAIN, 0.5));
+
+      return {
+        low: norm(bandLevel(FREQ_BAND_LOW)),
+        mid: norm(bandLevel(FREQ_BAND_MID)),
+        high: norm(bandLevel([FREQ_BAND_HIGH[0], Math.min(FREQ_BAND_HIGH[1], sampleRate / 2)]))
+      };
     }
   }));
 

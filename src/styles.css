@@ -1623,6 +1623,28 @@ body {
   color: var(--bg);
 }
 
+.settings-slider-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+/* .volume-slider's track fill is already themed via --vol-pct; the thumb is
+   hidden-until-hover there (tuned for the minimal now-playing transport) —
+   in a settings row it should just always be visible and a bit wider. */
+.settings-slider {
+  width: 120px;
+}
+.settings-slider::-webkit-slider-thumb {
+  opacity: 1;
+}
+.settings-slider-value {
+  width: 24px;
+  text-align: right;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 .keybind-row {
   display: flex;
   align-items: center;

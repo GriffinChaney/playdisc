@@ -1,6 +1,8 @@
+import { useRef } from 'react';
 import { useObjectUrl } from '../lib/useObjectUrl';
 import { useDominantColor, useArtworkPalette } from '../lib/useDominantColor';
 import { meshBackdropStyle } from '../lib/meshBackdrop';
+import { useGradientDrift } from '../lib/useGradientDrift';
 import { handleArtworkMouseMove, handleArtworkMouseLeave } from '../lib/artworkTilt';
 import WaveformSlot from './WaveformSlot';
 import ShuffleIcon from './ShuffleIcon';
@@ -30,7 +32,9 @@ export default function FocusView({
   shuffleEnabled,
   onToggleShuffle,
   repeatMode,
-  onCycleRepeat
+  onCycleRepeat,
+  movementIntensity = 0,
+  getFrequencyBands
 }) {
   const artworkUrl = useObjectUrl(track?.artworkBlob);
   const dominantColor = useDominantColor(track?.artworkBlob);
@@ -39,9 +43,28 @@ export default function FocusView({
   // track has no artwork — then the view keeps the plain theme background
   // and `has-backdrop` is off so the CSS doesn't force light-on-dark text.
   const backdropStyle = meshBackdropStyle(palette, dominantColor);
+  const focusRef = useRef(null);
+
+  // Ambient audio-reactive drift, position/scale only — see useGradientDrift.
+  // A no-op without a multi-blob palette (the single-ellipse dominantColor
+  // fallback and the no-artwork case are left completely alone); at
+  // intensity 0 it renders backdropStyle verbatim, pixel-identical to before
+  // this feature existed.
+  useGradientDrift({
+    elRef: focusRef,
+    palette,
+    backdropStyle,
+    intensity: movementIntensity,
+    isPlaying,
+    getFrequencyBands
+  });
 
   return (
-    <div className={`focus-view${backdropStyle ? ' has-backdrop' : ''}`} style={backdropStyle}>
+    <div
+      ref={focusRef}
+      className={`focus-view${backdropStyle ? ' has-backdrop' : ''}`}
+      style={palette ? { backgroundColor: backdropStyle.backgroundColor } : backdropStyle}
+    >
       <button className="back-btn" onClick={onExitFocus}>
         ← library
       </button>
