@@ -40,7 +40,9 @@ export default function NowPlaying({
   onToggleNotePriority,
   onReorderNote,
   onOpenMenu,
-  onOpenVersions
+  onOpenVersions,
+  notesPanelOpen,
+  onNotesPanelOpenChange
 }) {
   const artworkUrl = useObjectUrl(track?.artworkBlob);
 
@@ -149,6 +151,8 @@ export default function NowPlaying({
           onReorderNote={onReorderNote}
           onOpenMenu={onOpenMenu}
           onOpenVersions={onOpenVersions}
+          open={notesPanelOpen}
+          onOpenChange={onNotesPanelOpenChange}
         />
       )}
     </div>

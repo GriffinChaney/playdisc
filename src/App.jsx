@@ -6,6 +6,7 @@ import ContextMenu from './components/ContextMenu';
 import PromptModal from './components/PromptModal';
 import PlaylistEditModal from './components/PlaylistEditModal';
 import NowPlaying from './components/NowPlaying';
+import GearIcon from './components/GearIcon';
 import FocusView from './components/FocusView';
 import MiniPlayer from './components/MiniPlayer';
 import BackgroundPlayBar from './components/BackgroundPlayBar';
@@ -126,6 +127,9 @@ export default function App() {
   const [pendingFocusSearch, setPendingFocusSearch] = useState(false);
   const [expandedTrackId, setExpandedTrackId] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // now-playing notes panel open state — lifted here so the "n" shortcut and
+  // the icon click drive the same thing
+  const [notesPanelOpen, setNotesPanelOpen] = useState(false);
   // import UX: progress overlay while parsing/storing, then a self-dismissing
   // top-right confirmation toast. Both null when no import is happening.
   const [importProgress, setImportProgress] = useState(null); // { done, total } | { done, total, label }
@@ -207,6 +211,37 @@ export default function App() {
   // round-trip (which unmounts LibraryList). Owned here so it survives that
   // unmount; LibraryList reads/writes it and resets it on a list switch.
   const libScrollRef = useRef(0);
+
+  // j/k library scroll — a small rAF easing loop toward an accumulating
+  // target, so holding the key glides smoothly instead of jumping. Distinct
+  // from d/u's instant track jump.
+  const jkScrollRef = useRef({ el: null, target: 0, raf: 0 });
+  const nudgeLibraryScroll = useCallback((dir) => {
+    const el = document.querySelector('.track-list, .track-grid');
+    if (!el) return;
+    const st = jkScrollRef.current;
+    const max = el.scrollHeight - el.clientHeight;
+    if (!st.raf || st.el !== el) {
+      st.el = el;
+      st.target = el.scrollTop;
+    }
+    st.target = Math.max(0, Math.min(max, st.target + dir * 90));
+    if (!st.raf) {
+      const tick = () => {
+        const cur = st.el.scrollTop;
+        const diff = st.target - cur;
+        if (Math.abs(diff) < 0.5) {
+          st.el.scrollTop = st.target;
+          st.raf = 0;
+          return;
+        }
+        st.el.scrollTop = cur + diff * 0.18;
+        st.raf = requestAnimationFrame(tick);
+      };
+      st.raf = requestAnimationFrame(tick);
+    }
+  }, []);
+  useEffect(() => () => cancelAnimationFrame(jkScrollRef.current.raf), []);
 
   const startResizeNav = useCallback(() => {
     isResizingSidebarRef.current = true;
@@ -1635,6 +1670,19 @@ export default function App() {
         // toggles "keep the current track zoomed" — while on, the zoom
         // follows currentTrackId as you skip / browse (see effect below)
         setExpandedTrackId((id) => (id == null ? currentTrackId : null));
+      } else if (keyStr === keybindings.expandNotes.key) {
+        // same as clicking the now-playing notes icon (only exists in the
+        // general view)
+        if (view === 'sidebar') {
+          e.preventDefault();
+          setNotesPanelOpen((o) => !o);
+        }
+      } else if (keyStr === keybindings.scrollDown.key) {
+        e.preventDefault();
+        nudgeLibraryScroll(1);
+      } else if (keyStr === keybindings.scrollUp.key) {
+        e.preventDefault();
+        nudgeLibraryScroll(-1);
       } else if (keyStr === keybindings.toggleLibraryView.key) {
         e.preventDefault();
         setView('sidebar');
@@ -1671,7 +1719,8 @@ export default function App() {
     handleSetVolume,
     handleTogglePlay,
     handleToggleShuffle,
-    handleRestartTrack
+    handleRestartTrack,
+    nudgeLibraryScroll
   ]);
 
   return (
@@ -1712,6 +1761,16 @@ export default function App() {
         waveformHostRef.current
       )}
       {view !== 'mini' && <div className="drag-strip" />}
+      {view === 'sidebar' && (
+        <button
+          className="settings-gear"
+          onClick={() => setSettingsOpen(true)}
+          aria-label="settings"
+          title="settings"
+        >
+          <GearIcon />
+        </button>
+      )}
       {view === 'mini' ? (
         <MiniPlayer
           track={playingTrack}
@@ -1814,6 +1873,8 @@ export default function App() {
             onReorderNote={handleReorderNote}
             onOpenMenu={setContextMenu}
             onOpenVersions={setVersionsModalTrackId}
+            notesPanelOpen={notesPanelOpen}
+            onNotesPanelOpenChange={setNotesPanelOpen}
           />
         </>
       ) : (

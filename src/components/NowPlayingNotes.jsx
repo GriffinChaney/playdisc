@@ -20,9 +20,13 @@ export default function NowPlayingNotes({
   onToggleNotePriority,
   onReorderNote,
   onOpenMenu,
-  onOpenVersions
+  onOpenVersions,
+  open = false,
+  onOpenChange
 }) {
-  const [open, setOpen] = useState(false);
+  // controlled by App (so the "n" shortcut and the icon share one state);
+  // this shim keeps the existing setOpen(...) / setOpen(fn) call sites working
+  const setOpen = (v) => onOpenChange?.(v);
   const [draft, setDraft] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [editDraft, setEditDraft] = useState('');

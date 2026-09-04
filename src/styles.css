@@ -71,6 +71,35 @@ body {
   z-index: 500;
 }
 
+/* small Settings gear, top-right window corner — balances the traffic
+   lights on the left. Sits above the drag strip and opts out of dragging. */
+.settings-gear {
+  position: fixed;
+  top: 6px;
+  right: 11px;
+  z-index: 600;
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+.settings-gear:hover {
+  color: var(--text-secondary);
+  background: var(--surface-2);
+}
+.settings-gear:active {
+  transform: scale(0.92);
+}
+
 /* ---------- Library view: 3 columns ---------- */
 
 /* left playlist-nav + middle track-list share a base; the right column is
