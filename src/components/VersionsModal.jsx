@@ -16,7 +16,10 @@ function fmtDate(ms) {
 // Versions + notes for one track. Same blur/darken backdrop as the playlist
 // editor. Versions: click a row to make it active, rename its title inline,
 // or delete it (blocked when it's the only one). Notes: a plain checklist
-// on the track (not any version) — add / check / edit text / delete.
+// on the track (not any version) — add / check / edit text / delete. Artist
+// is a track-level field (unlike title, which lives per version), so it's
+// edited once in the header rather than per row — same inline edit/reset
+// interaction as a version's title, just scoped to the whole track.
 export default function VersionsModal({
   track,
   missingPaths,
@@ -24,6 +27,7 @@ export default function VersionsModal({
   onAddVersion,
   onSetActiveVersion,
   onRenameVersion,
+  onRenameArtist,
   onDeleteVersion,
   onRelocateVersion,
   onAddNote,
@@ -35,6 +39,8 @@ export default function VersionsModal({
 }) {
   const [editingTitleId, setEditingTitleId] = useState(null);
   const [titleDraft, setTitleDraft] = useState('');
+  const [editingArtist, setEditingArtist] = useState(false);
+  const [artistDraft, setArtistDraft] = useState('');
   const [editingNoteId, setEditingNoteId] = useState(null);
   const [noteDraft, setNoteDraft] = useState('');
   const [newNote, setNewNote] = useState('');
@@ -57,11 +63,24 @@ export default function VersionsModal({
     return () => document.removeEventListener('keydown', onKey, true);
   }, [track, onClose]);
 
+  // unlike editingTitleId (keyed to a version id, so it harmlessly stops
+  // matching anything when the track changes), editingArtist is a plain
+  // bool — reset it explicitly so switching tracks never leaves a stale
+  // edit box open pre-filled with the wrong track's draft
+  useEffect(() => {
+    setEditingArtist(false);
+  }, [track?.id]);
+
   if (!track) return null;
   const versions = [...(track.versions || [])].sort((a, b) => a.dateAdded - b.dateAdded);
   const notes = orderedNotes;
   const single = versions.length <= 1;
 
+  function commitArtist() {
+    const a = artistDraft.trim();
+    if (a) onRenameArtist(track.id, a);
+    setEditingArtist(false);
+  }
   function commitTitle(id) {
     const t = titleDraft.trim();
     if (t) onRenameVersion(track.id, id, t);
@@ -88,7 +107,44 @@ export default function VersionsModal({
     >
       <div className="vm-modal" onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>{track.title}</h2>
+          <div className="vm-header-text">
+            <h2>{track.title}</h2>
+            <div className="vm-artist-row">
+              {editingArtist ? (
+                <input
+                  autoFocus
+                  className="vm-label-input vm-artist-input"
+                  value={artistDraft}
+                  onChange={(e) => setArtistDraft(e.target.value)}
+                  onBlur={commitArtist}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') commitArtist();
+                    if (e.key === 'Escape') setEditingArtist(false);
+                  }}
+                />
+              ) : (
+                <button
+                  className="vm-label vm-artist-label"
+                  onClick={() => {
+                    setEditingArtist(true);
+                    setArtistDraft(track.artist || '');
+                  }}
+                  title="rename artist"
+                >
+                  {track.artist}
+                </button>
+              )}
+              {track.originalArtist !== undefined && track.artist !== track.originalArtist && (
+                <button
+                  className="vm-reset"
+                  title={`reset to imported artist: ${track.originalArtist}`}
+                  onClick={() => onRenameArtist(track.id, track.originalArtist)}
+                >
+                  reset to original
+                </button>
+              )}
+            </div>
+          </div>
           <button className="modal-close-btn" onClick={onClose} aria-label="close">
             ✕
           </button>

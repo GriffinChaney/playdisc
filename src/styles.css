@@ -1014,6 +1014,14 @@ body {
   color: rgba(244, 244, 242, 0.72);
   text-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
 }
+/* elapsed/total under the fullscreen waveform — same fix, dimmer than the
+   artist line so it stays visually subordinate to title/artist. Scoped to
+   .focus-view so NowPlaying's own .time-row (no backdrop concept) is
+   untouched, and to .has-backdrop so an art-less track is unaffected. */
+.focus-view.has-backdrop .time-row span {
+  color: rgba(244, 244, 242, 0.55);
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
+}
 .focus-view.has-backdrop .transport button,
 .mini-player.has-backdrop .mini-transport button {
   color: rgba(244, 244, 242, 0.82);
@@ -1424,6 +1432,29 @@ body {
   margin: 0;
   flex: 1;
   text-align: center;
+}
+.vm-header-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.vm-artist-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.vm-artist-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.vm-artist-input {
+  font-size: 12px;
+  text-align: center;
+  width: auto;
+  max-width: 220px;
 }
 
 .modal-close-btn {

@@ -1492,6 +1492,26 @@ export default function App() {
     [patchTrack, restartIfPlaying]
   );
 
+  // custom artist name, same edit/reset pattern as version titles just above
+  // (empty or unchanged input is a silent no-op, matching commitTitle's
+  // `if (t)` guard in VersionsModal) but scoped to the track, not a version —
+  // there's exactly one artist per track, unlike title which can genuinely
+  // differ per version. originalArtist is captured lazily on first edit,
+  // same as CoverEditModal's originalArtworkBlob: a never-edited track has
+  // nothing to reset (and shows no reset control), an edited one always has
+  // the real imported value to go back to, and a second edit never
+  // overwrites the true original with an already-edited value.
+  const handleRenameArtist = useCallback(
+    (trackId, rawArtist) => {
+      const t = tracksRef.current.find((x) => x.id === trackId);
+      const artist = (rawArtist || '').trim();
+      if (!t || !artist || artist === t.artist) return;
+      const originalArtist = t.originalArtist !== undefined ? t.originalArtist : t.artist;
+      patchTrack(trackId, { artist, originalArtist });
+    },
+    [patchTrack]
+  );
+
   const handleDeleteVersion = useCallback(
     (trackId, versionId) => {
       const t = tracksRef.current.find((x) => x.id === trackId);
@@ -2179,6 +2199,7 @@ export default function App() {
         onAddVersion={handleAddVersion}
         onSetActiveVersion={handleSetActiveVersion}
         onRenameVersion={handleRenameVersion}
+        onRenameArtist={handleRenameArtist}
         onDeleteVersion={handleDeleteVersion}
         onRelocateVersion={handleRelocateVersion}
         onAddNote={handleAddNote}
