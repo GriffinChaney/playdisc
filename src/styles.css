@@ -2188,12 +2188,42 @@ body {
 
 /* ---------- Library list (middle column) ---------- */
 
+/* One header, three states: .full (playlist w/ cover image, tall + gradient),
+   .compact (Imported or image-less playlist), .shrunk (.full after scroll). */
 .lib-header {
   display: flex;
+  gap: 20px;
+  align-items: flex-end;
+}
+.lib-header.compact {
   align-items: flex-start;
-  justify-content: space-between;
   gap: 12px;
 }
+/* the full header sits a touch off the top of the panel */
+.lib-header.full {
+  padding-top: 12px;
+}
+.lib-header-text {
+  flex: 1;
+  min-width: 0;
+}
+/* cover only ever renders in the full/shrunk header (compact has none) */
+.lib-header-cover {
+  width: 200px;
+  height: 200px;
+  border-radius: 8px;
+  background: var(--placeholder-bg) center / cover no-repeat;
+  flex-shrink: 0;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.32);
+  cursor: pointer;
+  transition: width 240ms cubic-bezier(0.16, 1, 0.3, 1),
+    height 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.lib-header.shrunk .lib-header-cover {
+  width: 64px;
+  height: 64px;
+}
+
 .lib-title {
   margin: 0;
   font-size: 20px;
@@ -2201,10 +2231,119 @@ body {
   color: var(--text-primary);
   letter-spacing: -0.01em;
 }
+.lib-header.full .lib-title {
+  font-size: 40px;
+  letter-spacing: -0.02em;
+  transition: font-size 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.lib-header.full.shrunk .lib-title {
+  font-size: 20px;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .lib-subtitle {
   margin: 3px 0 0;
   font-size: 12px;
   color: var(--text-muted);
+}
+/* description + meta collapse away in the shrunk state */
+.lib-header.full .playlist-hero-desc,
+.lib-header.full .lib-subtitle {
+  overflow: hidden;
+  transition: opacity 240ms cubic-bezier(0.16, 1, 0.3, 1),
+    max-height 240ms cubic-bezier(0.16, 1, 0.3, 1),
+    margin 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.lib-header.full .playlist-hero-desc {
+  max-height: 46px;
+}
+.lib-header.full .lib-subtitle {
+  max-height: 20px;
+}
+.lib-header.full.shrunk .playlist-hero-desc,
+.lib-header.full.shrunk .lib-subtitle {
+  opacity: 0;
+  max-height: 0;
+  margin-top: 0;
+}
+
+/* play / shuffle / overflow — the view's playback actions, under the meta line.
+   NOT the sort menu or view toggle, which control the list and stay top-right. */
+.lib-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.lib-play-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: #f4f4f2;
+  color: #1a1a1a;
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: width 240ms cubic-bezier(0.16, 1, 0.3, 1),
+    height 240ms cubic-bezier(0.16, 1, 0.3, 1), transform 0.12s ease,
+    opacity 0.12s ease;
+}
+.lib-header.full .lib-play-btn {
+  width: 44px;
+  height: 44px;
+  font-size: 14px;
+}
+.lib-header.full.shrunk .lib-play-btn {
+  width: 36px;
+  height: 36px;
+  font-size: 12px;
+}
+.lib-play-btn:active {
+  transform: scale(0.92);
+}
+.lib-shuffle-btn,
+.lib-overflow-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.12s ease, background 0.12s ease, transform 0.12s ease,
+    opacity 0.12s ease;
+}
+.lib-overflow-btn {
+  font-size: 16px;
+  line-height: 1;
+}
+.lib-shuffle-btn:hover,
+.lib-overflow-btn:hover {
+  background: var(--surface-2);
+  color: var(--text-primary);
+}
+.lib-shuffle-btn:active,
+.lib-overflow-btn:active {
+  transform: scale(0.92);
+}
+/* header shuffle only — FocusView/MiniPlayer's .shuffle-btn is untouched */
+.lib-shuffle-btn.active {
+  color: var(--text-primary);
+}
+.lib-play-btn:disabled,
+.lib-shuffle-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 .view-toggle {
   display: flex;
@@ -2235,6 +2374,7 @@ body {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  align-self: flex-start;
 }
 .lib-sort-btn {
   display: inline-flex;
@@ -2259,25 +2399,6 @@ body {
   color: var(--text-muted);
 }
 
-/* ---------- Playlist hero (image + description atop the middle column) ---------- */
-.playlist-hero {
-  display: flex;
-  align-items: flex-end;
-  gap: 16px;
-}
-.playlist-hero-cover {
-  width: 96px;
-  height: 96px;
-  border-radius: 6px;
-  background: var(--placeholder-bg) center / cover no-repeat;
-  flex-shrink: 0;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.32);
-  cursor: pointer;
-}
-.playlist-hero-text {
-  flex: 1;
-  min-width: 0;
-}
 .playlist-hero-desc {
   margin: 5px 0 0;
   font-size: 12px;
@@ -2288,26 +2409,129 @@ body {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.playlist-hero-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-  align-self: flex-start;
+
+/* ---------- Cover-derived backdrop behind the whole middle column ----------
+   The mesh gradient (same helper FocusView uses) sits on its own layer behind
+   .library-list, taller than the header, masked to fade to real transparency
+   over the first track rows — works in both themes with no second ruleset.
+   It shrinks along with the header (.shrunk) so the fade always completes just
+   past the header edge; only height animates, the mask stops snap. */
+.lib-backdrop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 420px;
+  pointer-events: none;
+  z-index: 0;
+  transition: height 240ms cubic-bezier(0.16, 1, 0.3, 1);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 1) 0%,
+    rgba(0, 0, 0, 1) 45%,
+    rgba(0, 0, 0, 0) 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 1) 0%,
+    rgba(0, 0, 0, 1) 45%,
+    rgba(0, 0, 0, 0) 100%
+  );
 }
-.playlist-hero-edit {
-  background: none;
-  border: 0.5px solid var(--border);
-  color: var(--text-secondary);
-  font-size: 12px;
-  padding: 3px 10px;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
+/* compressed to the shrunk header's height (+ overhang so the falloff clears
+   the header edge). The 45% solid stop is too short a fade at this height, so
+   hold full color to 60% and fall off over the last 40%. */
+.lib-backdrop.shrunk {
+  /* shrunk .lib-header renders 84px tall; it sits 32px below this layer's
+     top (panel padding), so its bottom edge is at 116px — +24px overhang */
+  height: 140px;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 1) 0%,
+    rgba(0, 0, 0, 1) 60%,
+    rgba(0, 0, 0, 0) 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 1) 0%,
+    rgba(0, 0, 0, 1) 60%,
+    rgba(0, 0, 0, 0) 100%
+  );
 }
-.playlist-hero-edit:hover {
-  background: var(--surface-2);
-  color: var(--text-primary);
+/* everything after .lib-backdrop sits above the wash */
+.library-list > .lib-header,
+.library-list > .search-input,
+.library-list > .tag-filter,
+.library-list > .bulk-bar,
+.library-list > .track-list,
+.library-list > .track-grid {
+  position: relative;
+  z-index: 1;
+}
+
+/* search field would read as a grey slab on the gradient — make it glassy */
+.library-list.has-backdrop .search-input {
+  background: rgba(255, 255, 255, 0.06);
+  border: 0.5px solid rgba(255, 255, 255, 0.14);
+  color: #f4f4f2;
+}
+.library-list.has-backdrop .search-input::placeholder {
+  color: rgba(244, 244, 242, 0.55);
+}
+
+/* legibility: the mesh base is always a dark saturated field regardless of
+   theme, so pin the header text light in BOTH themes when it's showing
+   (mirrors the .focus-view.has-backdrop rules) */
+.lib-header.has-backdrop .lib-title {
+  color: #f4f4f2;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+}
+.lib-header.has-backdrop .playlist-hero-desc {
+  color: rgba(244, 244, 242, 0.8);
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
+}
+.lib-header.has-backdrop .lib-subtitle {
+  color: rgba(244, 244, 242, 0.72);
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
+}
+.lib-header.has-backdrop .lib-shuffle-btn,
+.lib-header.has-backdrop .lib-overflow-btn {
+  color: rgba(244, 244, 242, 0.82);
+}
+.lib-header.has-backdrop .lib-shuffle-btn:hover,
+.lib-header.has-backdrop .lib-overflow-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #f4f4f2;
+}
+.lib-header.has-backdrop .lib-shuffle-btn.active {
+  color: #f4f4f2;
+}
+
+/* sort menu + view toggle control the list, not the playlist, so they stay
+   top-right — but their --border / --text-secondary chrome washes out on a
+   saturated backdrop. Pin them light only while .has-backdrop is present;
+   the no-backdrop (Imported) appearance is untouched. */
+.library-list.has-backdrop .lib-sort-btn {
+  color: #f4f4f2;
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.1);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+}
+.library-list.has-backdrop .lib-sort-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+.library-list.has-backdrop .lib-sort-caret {
+  color: rgba(244, 244, 242, 0.7);
+}
+.library-list.has-backdrop .view-toggle button {
+  color: rgba(244, 244, 242, 0.7);
+}
+.library-list.has-backdrop .view-toggle button:hover {
+  color: #f4f4f2;
+}
+.library-list.has-backdrop .view-toggle button.active {
+  background: rgba(255, 255, 255, 0.18);
+  color: #f4f4f2;
 }
 
 /* ---------- Playlist edit modal ---------- */

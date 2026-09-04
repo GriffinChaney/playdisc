@@ -1,8 +1,11 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import TrackItem from './TrackItem';
 import TagMenu from './TagMenu';
+import ShuffleIcon from './ShuffleIcon';
 import { useObjectUrl } from '../lib/useObjectUrl';
 import { useListSelection } from '../lib/useListSelection';
+import { useArtworkPalette, useDominantColor } from '../lib/useDominantColor';
+import { meshBackdropStyle } from '../lib/meshBackdrop';
 
 function formatTotal(seconds) {
   const mins = Math.round(seconds / 60);
@@ -74,6 +77,8 @@ function LibraryList({
   sortDir = 'desc',
   onSetSort,
   onReorderLibrary,
+  shuffleEnabled = false,
+  onSetShuffle,
   onSelectTrack,
   onPlayTrack,
   onAddTag,
@@ -95,6 +100,11 @@ function LibraryList({
   scrollPosRef
 }) {
   const playlistImageUrl = useObjectUrl(playlistImageBlob);
+  // cover-derived mesh backdrop — same hooks/helper FocusView uses, fed the
+  // playlist's own image. undefined when there's no playlist image.
+  const palette = useArtworkPalette(playlistImageBlob);
+  const dominantColor = useDominantColor(playlistImageBlob);
+  const backdropStyle = meshBackdropStyle(palette, dominantColor);
   const [query, setQuery] = useState('');
   const [activeTag, setActiveTag] = useState(null);
   const [bulkTagMenu, setBulkTagMenu] = useState(null); // 'add' | 'remove' | null
@@ -103,6 +113,10 @@ function LibraryList({
   const bulkAddRef = useRef(null);
   const bulkRemoveRef = useRef(null);
   const scrollRef = useRef(null);
+  // full header (state A) collapses toward compact height once the list is
+  // scrolled past a threshold. Boolean only — never store the scroll offset
+  // in state. 80/40 hysteresis so resting on the boundary doesn't flicker.
+  const [shrunk, setShrunk] = useState(false);
   // identity of the currently-shown list: changes on a list<->grid toggle,
   // a playlist switch, or a sort change; stays put across a fullscreen/mini
   // round-trip
@@ -115,6 +129,9 @@ function LibraryList({
   useLayoutEffect(() => {
     if (scrollRef.current && scrollPosRef?.current != null) {
       scrollRef.current.scrollTop = scrollPosRef.current;
+      // match the header to the restored offset so returning from
+      // fullscreen/mini onto a scrolled list doesn't flash the tall header
+      setShrunk(scrollPosRef.current > 80);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -125,9 +142,18 @@ function LibraryList({
     prevListKeyRef.current = listKey;
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
     if (scrollPosRef) scrollPosRef.current = 0;
+    // a switched-to view starts at scrollTop 0 — don't inherit the previous
+    // view's collapsed header
+    setShrunk(false);
   }, [listKey, scrollPosRef]);
   function handleScroll(e) {
     if (scrollPosRef) scrollPosRef.current = e.currentTarget.scrollTop;
+    const y = e.currentTarget.scrollTop;
+    setShrunk((prev) => {
+      if (!prev && y > 80) return true;
+      if (prev && y < 40) return false;
+      return prev;
+    });
   }
 
   const allTags = useMemo(() => {
@@ -324,7 +350,65 @@ function LibraryList({
     selectedInOrder().forEach((id) => onRemoveTag(id, tag));
   }
 
-  const showHero = isPlaylistView && (playlistImageBlob || playlistDescription);
+  // one header, three visual states:
+  //   FULL    — a playlist that has its own cover image (gradient + 160px cover)
+  //   COMPACT — Imported, or a playlist with no image (no gradient, no cover)
+  //   SHRUNK  — FULL after the list is scrolled past the threshold
+  const isFullHeader = isPlaylistView && !!playlistImageBlob;
+  const canPlayView = visibleTracks.length > 0;
+
+  function playView() {
+    if (!canPlayView) return;
+    onPlayTrack(visibleTracks[0].id);
+  }
+  function shuffleView() {
+    if (!canPlayView) return;
+    onSetShuffle?.(true);
+    const pick = visibleTracks[Math.floor(Math.random() * visibleTracks.length)];
+    onPlayTrack(pick.id);
+  }
+  function openHeaderMenu(e) {
+    const r = e.currentTarget.getBoundingClientRect();
+    onOpenMenu({
+      x: r.left,
+      y: r.bottom + 4,
+      items: [{ label: 'Edit playlist', onClick: onEditPlaylist }]
+    });
+  }
+
+  const controlRow = (
+    <div className="lib-controls">
+      <button
+        className="lib-play-btn"
+        onClick={playView}
+        disabled={!canPlayView}
+        aria-label="play"
+        title="play"
+      >
+        ▶
+      </button>
+      <button
+        className={`lib-shuffle-btn${shuffleEnabled ? ' active' : ''}`}
+        onClick={shuffleView}
+        disabled={!canPlayView}
+        aria-label="shuffle and play"
+        aria-pressed={shuffleEnabled}
+        title="shuffle"
+      >
+        <ShuffleIcon />
+      </button>
+      {onEditPlaylist && (
+        <button
+          className="lib-overflow-btn"
+          onClick={openHeaderMenu}
+          aria-label="more"
+          title="more"
+        >
+          ⋯
+        </button>
+      )}
+    </div>
+  );
 
   const viewToggle = (
     <div className="view-toggle">
@@ -401,46 +485,40 @@ function LibraryList({
   );
 
   return (
-    <div className="library-list">
-      {showHero ? (
-        <div className="playlist-hero">
-          {playlistImageUrl && (
-            <div
-              className="playlist-hero-cover"
-              style={{ backgroundImage: `url(${playlistImageUrl})` }}
-              role={onEditPlaylist ? 'button' : undefined}
-              onClick={onEditPlaylist}
-              title={onEditPlaylist ? 'edit playlist' : undefined}
-            />
-          )}
-          <div className="playlist-hero-text">
-            <h1 className="lib-title">{viewTitle}</h1>
-            {playlistDescription && (
-              <p className="playlist-hero-desc" title={playlistDescription}>
-                {playlistDescription}
-              </p>
-            )}
-            <p className="lib-subtitle">{subtitle}</p>
-          </div>
-          <div className="playlist-hero-actions">
-            {onEditPlaylist && (
-              <button className="playlist-hero-edit" onClick={onEditPlaylist}>
-                edit
-              </button>
-            )}
-            {sortControl}
-            {viewToggle}
-          </div>
-        </div>
-      ) : (
-        <div className="lib-header">
-          <div className="lib-title-block">
-            <h1 className="lib-title">{viewTitle}</h1>
-            <p className="lib-subtitle">{subtitle}</p>
-          </div>
-          {headerActions}
-        </div>
+    <div className={`library-list${backdropStyle ? ' has-backdrop' : ''}`}>
+      {backdropStyle && (
+        <div
+          className={`lib-backdrop${isFullHeader && shrunk ? ' shrunk' : ''}`}
+          style={backdropStyle}
+        />
       )}
+
+      <div
+        className={`lib-header${isFullHeader ? ' full' : ' compact'}${
+          isFullHeader && shrunk ? ' shrunk' : ''
+        }${backdropStyle ? ' has-backdrop' : ''}`}
+      >
+        {isFullHeader && (
+          <div
+            className="lib-header-cover"
+            style={playlistImageUrl ? { backgroundImage: `url(${playlistImageUrl})` } : undefined}
+            role={onEditPlaylist ? 'button' : undefined}
+            onClick={onEditPlaylist}
+            title={onEditPlaylist ? 'edit playlist' : undefined}
+          />
+        )}
+        <div className="lib-header-text">
+          <h1 className="lib-title">{viewTitle}</h1>
+          {isFullHeader && playlistDescription && (
+            <p className="playlist-hero-desc" title={playlistDescription}>
+              {playlistDescription}
+            </p>
+          )}
+          <p className="lib-subtitle">{subtitle}</p>
+          {controlRow}
+        </div>
+        {headerActions}
+      </div>
 
       <input
         ref={searchInputRef}

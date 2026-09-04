@@ -163,6 +163,9 @@ export default function App() {
     localStorage.setItem('shuffle', shuffleEnabled ? '1' : '0');
   }, [shuffleEnabled]);
   const handleToggleShuffle = useCallback(() => setShuffleEnabled((v) => !v), []);
+  // force shuffle to a specific state — the library header's shuffle button
+  // must reliably turn it ON, not flip it off when it's already on
+  const handleSetShuffle = useCallback((on) => setShuffleEnabled(!!on), []);
 
   // three-state repeat, cycled off -> all -> one -> off. `all` makes
   // auto-advance wrap to the top of the context instead of stopping at the
@@ -1836,6 +1839,8 @@ export default function App() {
             onSetSort={handleSetActiveSort}
             onReorderLibrary={handleReorderLibrary}
             scrollPosRef={libScrollRef}
+            shuffleEnabled={shuffleEnabled}
+            onSetShuffle={handleSetShuffle}
             onSelectTrack={handleViewTrack}
             onPlayTrack={handlePlayTrack}
             onAddTag={handleAddTag}
