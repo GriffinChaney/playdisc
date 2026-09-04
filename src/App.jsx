@@ -122,6 +122,13 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  // mirrored so the library header's play/pause handler stays referentially
+  // stable — it must not be recreated on every 200ms currentTime tick, or
+  // memo(LibraryList) re-renders through playback
+  const isPlayingRef = useRef(isPlaying);
+  const currentTimeRef = useRef(currentTime);
+  isPlayingRef.current = isPlaying;
+  currentTimeRef.current = currentTime;
 
   const waveformRef = useRef(null);
   const searchInputRef = useRef(null);
@@ -163,9 +170,8 @@ export default function App() {
     localStorage.setItem('shuffle', shuffleEnabled ? '1' : '0');
   }, [shuffleEnabled]);
   const handleToggleShuffle = useCallback(() => setShuffleEnabled((v) => !v), []);
-  // force shuffle to a specific state — the library header's shuffle button
-  // must reliably turn it ON, not flip it off when it's already on
-  const handleSetShuffle = useCallback((on) => setShuffleEnabled(!!on), []);
+  const shuffleEnabledRef = useRef(shuffleEnabled);
+  shuffleEnabledRef.current = shuffleEnabled;
 
   // three-state repeat, cycled off -> all -> one -> off. `all` makes
   // auto-advance wrap to the top of the context instead of stopping at the
@@ -630,6 +636,13 @@ export default function App() {
   // visualizer (null when the track has no artwork -> default heatmap colors)
   const playingPalette = useArtworkPalette(playingTrack?.artworkBlob);
   const isViewingPlayingTrack = currentTrackId === playingTrackId;
+  // is what's playing the active left-nav view's context? drives the library
+  // header's play button showing pause instead of play
+  const headerViewPlaying =
+    isPlaying &&
+    (activeView.type === 'playlist'
+      ? playbackContext.type === 'playlist' && playbackContext.id === activeView.id
+      : playbackContext.type === 'library');
   // in focus / mini the waveform sits on the cover-derived (dark) mesh
   // backdrop whenever there's cover art — so its played-region wash should
   // use the light value in both themes, not the library view's dark wash
@@ -660,6 +673,10 @@ export default function App() {
     }
     return sortLibrary(tracks, librarySort, librarySortDir, libraryOrder);
   }, [tracks, activePlaylist, librarySort, librarySortDir, libraryOrder]);
+  // the middle column's displayed order (pre search/tag filter) — the header
+  // play button starts here so "play" matches what the user sees
+  const shownTracksRef = useRef(shownTracks);
+  shownTracksRef.current = shownTracks;
 
   const dismissImportToast = useCallback(() => setImportToast(null), []);
 
@@ -763,16 +780,73 @@ export default function App() {
     handleAdoptAndPlay(id, { autoPlay: true });
   }, [handleAdoptAndPlay, contextFromActiveView]);
 
+  // pick the track a "play this whole thing" action should start on, honoring
+  // shuffle mode. `orderedIds` is the order to start from (a view's displayed
+  // order); callers without a view — the left nav — pass nothing and get the
+  // playlist's canonical order.
+  const startTrackFor = useCallback((orderedIds) => {
+    const resolvable = orderedIds.filter((tid) => tracksRef.current.some((t) => t.id === tid));
+    if (!resolvable.length) return null;
+    return shuffleEnabledRef.current
+      ? resolvable[Math.floor(Math.random() * resolvable.length)]
+      : resolvable[0];
+  }, []);
+
   const handlePlayPlaylist = useCallback(
-    (id) => {
+    (id, orderedIds) => {
       const pl = playlistsRef.current.find((p) => p.id === id);
-      const firstId = pl?.trackIds.find((tid) => tracks.some((t) => t.id === tid));
-      if (!firstId) return;
+      if (!pl) return;
+      const startId = startTrackFor(orderedIds && orderedIds.length ? orderedIds : pl.trackIds);
+      if (!startId) return;
       setPlaybackContext({ type: 'playlist', id });
-      handleAdoptAndPlay(firstId, { autoPlay: true });
+      handleAdoptAndPlay(startId, { autoPlay: true });
     },
-    [tracks, handleAdoptAndPlay]
+    [startTrackFor, handleAdoptAndPlay]
   );
+
+  // "play the whole library" — Imported view has no playlist id, so start from
+  // the full library in its current displayed sort order
+  const handlePlayLibrary = useCallback(() => {
+    const ordered = sortLibrary(
+      tracksRef.current,
+      librarySortRef.current,
+      librarySortDirRef.current,
+      libraryOrderRef.current
+    );
+    const startId = startTrackFor(ordered.map((t) => t.id));
+    if (!startId) return;
+    setPlaybackContext({
+      type: 'library',
+      sort: librarySortRef.current,
+      dir: librarySortDirRef.current
+    });
+    handleAdoptAndPlay(startId, { autoPlay: true });
+  }, [startTrackFor, handleAdoptAndPlay]);
+
+  // the library header's play/pause button. If this view's context is already
+  // what's playing (or paused mid-track), toggle the engine — resume must not
+  // restart or re-roll the shuffle pick. Otherwise start the view fresh.
+  const handleHeaderPlayPause = useCallback(() => {
+    const av = activeViewRef.current;
+    const ctx = playbackContextRef.current;
+    const sameCtx =
+      av.type === 'playlist'
+        ? ctx.type === 'playlist' && ctx.id === av.id
+        : ctx.type === 'library';
+    const started = isPlayingRef.current || currentTimeRef.current > 0;
+    if (sameCtx && started) {
+      waveformRef.current?.toggle();
+      return;
+    }
+    if (av.type === 'playlist') {
+      handlePlayPlaylist(
+        av.id,
+        shownTracksRef.current.map((t) => t.id)
+      );
+    } else {
+      handlePlayLibrary();
+    }
+  }, [handlePlayPlaylist, handlePlayLibrary]);
 
   // play/pause button: if browsing a track that isn't the one playing,
   // pressing play adopts it instead of toggling whatever's in the background
@@ -1840,7 +1914,9 @@ export default function App() {
             onReorderLibrary={handleReorderLibrary}
             scrollPosRef={libScrollRef}
             shuffleEnabled={shuffleEnabled}
-            onSetShuffle={handleSetShuffle}
+            onToggleShuffle={handleToggleShuffle}
+            isViewPlaying={headerViewPlaying}
+            onPlayPause={handleHeaderPlayPause}
             onSelectTrack={handleViewTrack}
             onPlayTrack={handlePlayTrack}
             onAddTag={handleAddTag}

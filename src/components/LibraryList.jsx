@@ -6,6 +6,7 @@ import { useObjectUrl } from '../lib/useObjectUrl';
 import { useListSelection } from '../lib/useListSelection';
 import { useArtworkPalette, useDominantColor } from '../lib/useDominantColor';
 import { meshBackdropStyle } from '../lib/meshBackdrop';
+import { usePlaylistMosaic } from '../lib/usePlaylistMosaic';
 
 function formatTotal(seconds) {
   const mins = Math.round(seconds / 60);
@@ -78,7 +79,9 @@ function LibraryList({
   onSetSort,
   onReorderLibrary,
   shuffleEnabled = false,
-  onSetShuffle,
+  onToggleShuffle,
+  isViewPlaying = false,
+  onPlayPause,
   onSelectTrack,
   onPlayTrack,
   onAddTag,
@@ -100,11 +103,50 @@ function LibraryList({
   scrollPosRef
 }) {
   const playlistImageUrl = useObjectUrl(playlistImageBlob);
-  // cover-derived mesh backdrop — same hooks/helper FocusView uses, fed the
-  // playlist's own image. undefined when there's no playlist image.
-  const palette = useArtworkPalette(playlistImageBlob);
-  const dominantColor = useDominantColor(playlistImageBlob);
+
+  // --- playlist cover: real image, else a 2x2 mosaic of track artwork ---
+  // canonical (trackIds) order so the cover never changes when the view sort
+  // does. Only computed for a playlist with no custom image.
+  const playlistTrackList = useMemo(() => {
+    if (!isPlaylistView || !playlistId || playlistImageBlob) return [];
+    const pl = playlists.find((p) => p.id === playlistId);
+    if (!pl) return [];
+    const byId = new Map(tracks.map((t) => [t.id, t]));
+    return pl.trackIds.map((id) => byId.get(id)).filter(Boolean);
+  }, [isPlaylistView, playlistId, playlistImageBlob, playlists, tracks]);
+
+  const firstArtworkBlob = useMemo(
+    () => playlistTrackList.find((t) => t.artworkBlob)?.artworkBlob || null,
+    [playlistTrackList]
+  );
+  const mosaic = usePlaylistMosaic(playlistTrackList); // { blobs: Blob[], pending }
+
+  // up to four DISTINCT cover URLs; while hashes resolve, hold the first cover
+  // as a single-image placeholder rather than flashing four identical tiles
+  const tileBlob0 = useObjectUrl(mosaic.blobs[0] || firstArtworkBlob || null);
+  const tileBlob1 = useObjectUrl(mosaic.blobs[1] || null);
+  const tileBlob2 = useObjectUrl(mosaic.blobs[2] || null);
+  const tileBlob3 = useObjectUrl(mosaic.blobs[3] || null);
+  const distinctUrls = [tileBlob0, tileBlob1, tileBlob2, tileBlob3];
+  const distinctCount = mosaic.blobs.length || (firstArtworkBlob ? 1 : 0);
+  // 2x2 tile layout, available images repeated to fill; null => single cover
+  const mosaicPattern =
+    playlistImageBlob || distinctCount < 2
+      ? null
+      : distinctCount >= 4
+        ? [0, 1, 2, 3]
+        : distinctCount === 3
+          ? [0, 1, 2, 0]
+          : [0, 1, 0, 1];
+  const singleCoverUrl = playlistImageBlob ? playlistImageUrl : distinctUrls[0];
+
+  // gradient source: the real cover, else the first track's art — a single
+  // stable blob, never a composite (extraction code is untouched)
+  const coverSourceBlob = playlistImageBlob || firstArtworkBlob;
+  const palette = useArtworkPalette(coverSourceBlob);
+  const dominantColor = useDominantColor(coverSourceBlob);
   const backdropStyle = meshBackdropStyle(palette, dominantColor);
+
   const [query, setQuery] = useState('');
   const [activeTag, setActiveTag] = useState(null);
   const [bulkTagMenu, setBulkTagMenu] = useState(null); // 'add' | 'remove' | null
@@ -351,22 +393,14 @@ function LibraryList({
   }
 
   // one header, three visual states:
-  //   FULL    — a playlist that has its own cover image (gradient + 160px cover)
-  //   COMPACT — Imported, or a playlist with no image (no gradient, no cover)
+  //   FULL    — a playlist with cover art (its own image, or a track mosaic)
+  //   COMPACT — Imported, or a playlist whose tracks have no artwork at all
   //   SHRUNK  — FULL after the list is scrolled past the threshold
-  const isFullHeader = isPlaylistView && !!playlistImageBlob;
-  const canPlayView = visibleTracks.length > 0;
+  const isFullHeader = isPlaylistView && (!!playlistImageBlob || distinctCount > 0);
+  // play is an action (needs tracks); shuffle is a mode (always available).
+  // "whole view" = the unfiltered list, so search / tags never affect playback.
+  const viewHasTracks = tracks.length > 0;
 
-  function playView() {
-    if (!canPlayView) return;
-    onPlayTrack(visibleTracks[0].id);
-  }
-  function shuffleView() {
-    if (!canPlayView) return;
-    onSetShuffle?.(true);
-    const pick = visibleTracks[Math.floor(Math.random() * visibleTracks.length)];
-    onPlayTrack(pick.id);
-  }
   function openHeaderMenu(e) {
     const r = e.currentTarget.getBoundingClientRect();
     onOpenMenu({
@@ -380,18 +414,17 @@ function LibraryList({
     <div className="lib-controls">
       <button
         className="lib-play-btn"
-        onClick={playView}
-        disabled={!canPlayView}
-        aria-label="play"
-        title="play"
+        onClick={onPlayPause}
+        disabled={!viewHasTracks}
+        aria-label={isViewPlaying ? 'pause' : 'play'}
+        title={isViewPlaying ? 'pause' : 'play'}
       >
-        ▶
+        {isViewPlaying ? '⏸' : '▶'}
       </button>
       <button
         className={`lib-shuffle-btn${shuffleEnabled ? ' active' : ''}`}
-        onClick={shuffleView}
-        disabled={!canPlayView}
-        aria-label="shuffle and play"
+        onClick={onToggleShuffle}
+        aria-label={shuffleEnabled ? 'shuffle on' : 'shuffle off'}
         aria-pressed={shuffleEnabled}
         title="shuffle"
       >
@@ -500,12 +533,27 @@ function LibraryList({
       >
         {isFullHeader && (
           <div
-            className="lib-header-cover"
-            style={playlistImageUrl ? { backgroundImage: `url(${playlistImageUrl})` } : undefined}
+            className={`lib-header-cover${mosaicPattern ? ' mosaic' : ''}`}
+            style={
+              !mosaicPattern && singleCoverUrl
+                ? { backgroundImage: `url(${singleCoverUrl})` }
+                : undefined
+            }
             role={onEditPlaylist ? 'button' : undefined}
             onClick={onEditPlaylist}
             title={onEditPlaylist ? 'edit playlist' : undefined}
-          />
+          >
+            {mosaicPattern &&
+              mosaicPattern.map((idx, i) => (
+                <div
+                  key={i}
+                  className="lib-cover-tile"
+                  style={
+                    distinctUrls[idx] ? { backgroundImage: `url(${distinctUrls[idx]})` } : undefined
+                  }
+                />
+              ))}
+          </div>
         )}
         <div className="lib-header-text">
           <h1 className="lib-title">{viewTitle}</h1>

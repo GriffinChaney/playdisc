@@ -1010,6 +1010,18 @@ body {
 .repeat-btn.active {
   color: var(--text-primary);
 }
+/* FocusView shuffle: filled circle when active (matches the library header),
+   but only over a backdrop — on an art-less focus view a white icon on the
+   plain light-theme background would vanish. MiniPlayer has no shuffle button. */
+.focus-view .shuffle-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+}
+.focus-view.has-backdrop .shuffle-btn.active {
+  background: rgba(255, 255, 255, 0.18);
+  color: #f4f4f2;
+}
 .transport button:disabled {
   opacity: 0.35;
   cursor: default;
@@ -2223,6 +2235,19 @@ body {
   width: 64px;
   height: 64px;
 }
+/* fallback cover: 2x2 mosaic of distinct track artwork (derived at runtime,
+   never persisted). Keeps the container's radius / shadow / click target. */
+.lib-header-cover.mosaic {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  overflow: hidden;
+}
+.lib-cover-tile {
+  background: var(--placeholder-bg) center / cover no-repeat;
+  min-width: 0;
+  min-height: 0;
+}
 
 .lib-title {
   margin: 0;
@@ -2327,6 +2352,11 @@ body {
   font-size: 16px;
   line-height: 1;
 }
+/* the shuffle toggle wears its state as a filled circle — white-on-grey icon
+   alone was too subtle to read at a glance */
+.lib-shuffle-btn {
+  border-radius: 50%;
+}
 .lib-shuffle-btn:hover,
 .lib-overflow-btn:hover {
   background: var(--surface-2);
@@ -2336,12 +2366,15 @@ body {
 .lib-overflow-btn:active {
   transform: scale(0.92);
 }
-/* header shuffle only — FocusView/MiniPlayer's .shuffle-btn is untouched */
+/* active toggle = filled circle. On the plain header it's the neutral surface
+   so a light-theme icon stays legible; over the mesh backdrop it's glass
+   (see the .has-backdrop override further down). FocusView keeps its own
+   .shuffle-btn rule; MiniPlayer has no shuffle button. */
 .lib-shuffle-btn.active {
+  background: var(--surface-2);
   color: var(--text-primary);
 }
-.lib-play-btn:disabled,
-.lib-shuffle-btn:disabled {
+.lib-play-btn:disabled {
   opacity: 0.4;
   cursor: default;
 }
@@ -2494,9 +2527,13 @@ body {
   color: rgba(244, 244, 242, 0.72);
   text-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
 }
-.lib-header.has-backdrop .lib-shuffle-btn,
 .lib-header.has-backdrop .lib-overflow-btn {
   color: rgba(244, 244, 242, 0.82);
+}
+/* inactive shuffle sits quieter than the other controls so the filled active
+   state reads as a clear change */
+.lib-header.has-backdrop .lib-shuffle-btn {
+  color: rgba(244, 244, 242, 0.6);
 }
 .lib-header.has-backdrop .lib-shuffle-btn:hover,
 .lib-header.has-backdrop .lib-overflow-btn:hover {
@@ -2504,6 +2541,7 @@ body {
   color: #f4f4f2;
 }
 .lib-header.has-backdrop .lib-shuffle-btn.active {
+  background: rgba(255, 255, 255, 0.18);
   color: #f4f4f2;
 }
 
