@@ -227,7 +227,9 @@ export default function App() {
   // target, so holding the key glides smoothly instead of jumping. Distinct
   // from d/u's instant track jump.
   const jkScrollRef = useRef({ el: null, target: 0, raf: 0 });
-  const nudgeLibraryScroll = useCallback((dir) => {
+  // `big` = d/u's fast scroll — same easing loop as j/k, just a larger jump
+  // per press (~half a viewport, vim ctrl-d/ctrl-u style) instead of 90px.
+  const nudgeLibraryScroll = useCallback((dir, big = false) => {
     const el = document.querySelector('.track-list, .track-grid');
     if (!el) return;
     const st = jkScrollRef.current;
@@ -236,7 +238,8 @@ export default function App() {
       st.el = el;
       st.target = el.scrollTop;
     }
-    st.target = Math.max(0, Math.min(max, st.target + dir * 90));
+    const step = big ? el.clientHeight * 0.5 : 90;
+    st.target = Math.max(0, Math.min(max, st.target + dir * step));
     if (!st.raf) {
       const tick = () => {
         const cur = st.el.scrollTop;
@@ -578,11 +581,33 @@ export default function App() {
     });
   }, []);
 
-  // while a row is zoomed (Z), keep the zoom on whatever track is now current
-  // — skip / prev / natural finish / clicking another row all move it along
-  useEffect(() => {
-    setExpandedTrackId((id) => (id == null ? null : currentTrackId));
-  }, [currentTrackId]);
+  // Z is the ONLY thing that ever scrolls the library list — nothing here
+  // auto-repositions on a track change or on playback starting. Target is
+  // the playing track if one is loaded, else whatever's browsed. Always
+  // centers it, synchronously (a direct DOM query/scrollIntoView, same
+  // pattern as nudgeLibraryScroll — no React effect round-trip needed).
+  // Expand/collapse only applies in list view, and only decides collapse
+  // when the track is already fully visible — otherwise repeated Z presses
+  // while scrolled away would alternate silently between "expand" (which
+  // scrolled) and "collapse" (which used to not scroll at all).
+  const handleExpandTrack = useCallback(() => {
+    const targetId = playingTrackId || currentTrackId;
+    if (!targetId) return;
+    const container = document.querySelector('.track-list, .track-grid');
+    const target = container?.querySelector(`[data-sel-id="${CSS.escape(targetId)}"]`);
+    if (container && target) {
+      const c = container.getBoundingClientRect();
+      const t = target.getBoundingClientRect();
+      const isVisible = t.top >= c.top && t.bottom <= c.bottom;
+      setExpandedTrackId((id) => {
+        if (libraryViewMode === 'grid') return id; // grid has no expand panel at all
+        if (id !== targetId) return targetId; // not expanded (on this track) -> expand
+        if (isVisible) return null; // expanded and already visible -> collapse
+        return id; // expanded but off-screen -> stay expanded, just center below
+      });
+    }
+    target?.scrollIntoView({ block: 'center' });
+  }, [playingTrackId, currentTrackId, libraryViewMode]);
 
   // if the active playlist is deleted elsewhere, fall back to Imported
   useEffect(() => {
@@ -1741,10 +1766,10 @@ export default function App() {
         // handleTogglePlay adopts the browsed track first, same as clicking
         // the play button does.
         handleTogglePlay();
-      } else if (keyStr === keybindings.next.key || keyStr === keybindings.nextAlt.key) {
+      } else if (keyStr === keybindings.next.key) {
         e.preventDefault();
         handleSkip(1);
-      } else if (keyStr === keybindings.prev.key || keyStr === keybindings.prevAlt.key) {
+      } else if (keyStr === keybindings.prev.key) {
         e.preventDefault();
         handleSkip(-1);
       } else if (keyStr === keybindings.fullscreen.key) {
@@ -1755,9 +1780,7 @@ export default function App() {
         setView((v) => (v === 'mini' ? 'sidebar' : 'mini'));
       } else if (keyStr === keybindings.expandTrack.key) {
         e.preventDefault();
-        // toggles "keep the current track zoomed" — while on, the zoom
-        // follows currentTrackId as you skip / browse (see effect below)
-        setExpandedTrackId((id) => (id == null ? currentTrackId : null));
+        handleExpandTrack();
       } else if (keyStr === keybindings.expandNotes.key) {
         // same as clicking the now-playing notes icon (only exists in the
         // general view)
@@ -1771,6 +1794,12 @@ export default function App() {
       } else if (keyStr === keybindings.scrollUp.key) {
         e.preventDefault();
         nudgeLibraryScroll(-1);
+      } else if (keyStr === keybindings.scrollDownFast.key) {
+        e.preventDefault();
+        nudgeLibraryScroll(1, true);
+      } else if (keyStr === keybindings.scrollUpFast.key) {
+        e.preventDefault();
+        nudgeLibraryScroll(-1, true);
       } else if (keyStr === keybindings.toggleLibraryView.key) {
         e.preventDefault();
         setView('sidebar');
@@ -1808,7 +1837,8 @@ export default function App() {
     handleTogglePlay,
     handleToggleShuffle,
     handleRestartTrack,
-    nudgeLibraryScroll
+    nudgeLibraryScroll,
+    handleExpandTrack
   ]);
 
   return (

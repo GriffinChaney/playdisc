@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useObjectUrl } from '../lib/useObjectUrl';
 import { qualityChips, qualityTier } from '../lib/audioQuality';
 import TagMenu from './TagMenu';
@@ -68,23 +68,12 @@ export default function TrackItem({
   multiTagCount = 0
 }) {
   const artworkUrl = useObjectUrl(track.artworkBlob);
-  const rowRef = useRef(null);
   const tagBtnRef = useRef(null);
   const [tagMenuOpen, setTagMenuOpen] = useState(false);
 
-  // when the zoom lands on this row (via Z, or following next/prev), keep it
-  // on screen
-  useEffect(() => {
-    if (!isExpanded) return;
-    // instant + 'nearest' — no-op when the row is already visible. A smooth
-    // scroll here would re-fire against a container whose height is changing
-    // (the row is growing) and could churn hard enough to lock the window.
-    const id = requestAnimationFrame(() => {
-      rowRef.current?.scrollIntoView({ block: 'nearest' });
-    });
-    return () => cancelAnimationFrame(id);
-  }, [isExpanded]);
-
+  // centering the expanded row on Z / follow-mode is handled centrally in
+  // LibraryList (it needs to coordinate with user-scroll suspension across
+  // both list and grid) — this row just renders the expanded state.
 
   // the parent (LibraryList) decides what "×" actually does — single track
   // vs. the whole highlighted selection, confirm wording, library-delete
@@ -96,7 +85,6 @@ export default function TrackItem({
 
   return (
     <div
-      ref={rowRef}
       className={`track-item${isActive ? ' active' : ''}${isExpanded ? ' expanded' : ''}${isSelected ? ' selected' : ''}`}
       onClick={(e) => onSelect(track.id, e)}
       onDoubleClick={() => onPlay(track.id)}

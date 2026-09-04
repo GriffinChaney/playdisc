@@ -29,6 +29,10 @@ function GridItem({
   onContextMenu
 }) {
   const artworkUrl = useObjectUrl(track.artworkBlob);
+  // Z / follow-mode centering is handled centrally in LibraryList (via
+  // data-sel-id, below) so it can coordinate user-scroll suspension the same
+  // way for both list and grid — this tile has no per-row logic of its own.
+
   return (
     <div
       className={`grid-item${isActive ? ' active' : ''}${isSelected ? ' selected' : ''}`}
@@ -159,11 +163,28 @@ function LibraryList({
   // scrolled past a threshold. Boolean only — never store the scroll offset
   // in state. 80/40 hysteresis so resting on the boundary doesn't flicker.
   const [shrunk, setShrunk] = useState(false);
-  // identity of the currently-shown list: changes on a list<->grid toggle,
-  // a playlist switch, or a sort change; stays put across a fullscreen/mini
-  // round-trip
-  const listKey = `${viewMode}|${isPlaylistView ? playlistId : 'imported'}|${sort}|${sortDir}`;
+  // identity of the currently-shown TRACK ORDER: changes on a playlist
+  // switch or a sort change, resetting scroll to top — but NOT on a
+  // list<->grid toggle, which shows the same tracks in the same order and
+  // should keep your place (see the viewMode-specific effect below instead).
+  const listKey = `${isPlaylistView ? playlistId : 'imported'}|${sort}|${sortDir}`;
   const prevListKeyRef = useRef(listKey);
+  // list rows and grid tiles have very different heights, so a raw scrollTop
+  // carried over from one to the other lands somewhere arbitrary. Captured
+  // here, during render, because by the time any effect for this commit runs
+  // the DOM has already been mutated to the new view's content — there's no
+  // post-commit hook (no getSnapshotBeforeUpdate for function components)
+  // that still sees the old content's scrollHeight.
+  const prevViewModeRef = useRef(viewMode);
+  const pendingScrollRatioRef = useRef(null);
+  if (viewMode !== prevViewModeRef.current) {
+    const el = scrollRef.current;
+    if (el) {
+      const max = el.scrollHeight - el.clientHeight;
+      pendingScrollRatioRef.current = max > 0 ? el.scrollTop / max : 0;
+    }
+    prevViewModeRef.current = viewMode;
+  }
 
   // App owns the saved position so it survives this component unmounting on a
   // fullscreen/mini toggle. Restore on mount, before paint. handleScroll
@@ -188,6 +209,28 @@ function LibraryList({
     // view's collapsed header
     setShrunk(false);
   }, [listKey, scrollPosRef]);
+  // a list<->grid toggle restores the PROPORTIONAL position captured above,
+  // before paint, so there's no visible jump. Deliberately does not touch
+  // `shrunk` — leaving it alone (rather than the listKey effect's hard
+  // setShrunk(false)) is what keeps the header correctly collapsed across
+  // the toggle; the native scroll event this triggers re-settles it through
+  // the normal handleScroll hysteresis if the new position warrants it.
+  useLayoutEffect(() => {
+    const ratio = pendingScrollRatioRef.current;
+    if (ratio == null) return;
+    pendingScrollRatioRef.current = null;
+    const el = scrollRef.current;
+    if (!el) return;
+    const max = el.scrollHeight - el.clientHeight;
+    el.scrollTop = max > 0 ? ratio * max : 0;
+    if (scrollPosRef) scrollPosRef.current = el.scrollTop;
+  }, [viewMode, scrollPosRef]);
+
+  // Z is the only thing that ever centers a track — App.jsx's
+  // handleExpandTrack does that scroll directly (a synchronous DOM query +
+  // scrollIntoView, not a React effect), so nothing here needs to watch
+  // expandedTrackId for scrolling. This component only needs expandedTrackId
+  // to tell TrackItem which row to render expanded.
   function handleScroll(e) {
     if (scrollPosRef) scrollPosRef.current = e.currentTarget.scrollTop;
     const y = e.currentTarget.scrollTop;

@@ -357,26 +357,49 @@ persisted to `localStorage.navWidth`) / `1fr` / `var(--np-width)` (fixed 278px).
   resets volume to its default — `handleReady` re-applies `volumeRef.current` on every
   new track load.
 - `keybindings`: loaded/saved via `src/lib/keybindings.js`, editable in
-  `SettingsModal`. Next/prev track each have a second rebindable binding —
-  `nextAlt` / `prevAlt` (default `→` / `←`) — so `d`/`u` and the arrow keys are
-  both real, listed, user-rebindable shortcuts that call `handleSkip(±1)`. (This
-  replaced an earlier hardcoded `e.key === 'ArrowRight'` alias that never showed
-  in Settings.) The App.jsx keydown handler ORs `next`/`nextAlt` (and
-  `prev`/`prevAlt`) into one branch.
+  `SettingsModal`. Next/prev track (`handleSkip(±1)`) are bound to the arrow
+  keys only — `next`/`prev`'s own default key, no separate alt action. `d`/`u`
+  are `scrollDownFast`/`scrollUpFast` (fast library scroll, same
+  `nudgeLibraryScroll` mechanism as `j`/`k`, ~half a viewport per press).
+  (There used to be a second `nextAlt`/`prevAlt` action pair so the arrows
+  could double as next/prev alongside `d`/`u`'s primary binding — removed
+  when `d`/`u` were repointed to fast-scroll, since the alt actions were then
+  fully redundant with `next`/`prev` itself. `loadKeybindings()` runs a
+  one-time versioned migration, `migrateKeybindings()`, for installs with a
+  saved `d`/`u` next/prev override or a customized `nextAlt`/`prevAlt` from
+  before this change.)
 - `theme`: `'dark' | 'light'`, persisted to `localStorage`, applied as
   `document.documentElement.dataset.theme`.
 - `expandedTrackId`: which track row is "zoomed" (Z key / `expandTrack`),
-  Cubase-track-height style. Z is a **follow-mode toggle**, not a per-row toggle: once
-  on, an effect keyed on `currentTrackId` keeps the zoom on whatever track you skip /
-  browse / finish onto; press Z again to turn it off. The zoomed row shows an info
-  strip (a quality badge + chips from `src/lib/audioQuality.js` — codec / sample rate
-  / bit depth or bitrate — then size, date added, duration, tag count;
-  `.track-expanded-info` in `TrackItem.jsx`) and auto-scrolls into view. This depth
-  is **only** in the zoom — the user explicitly wanted the right-hand NowPlaying
-  column kept to just title + artist. **That scroll must stay instant**
-  (`scrollIntoView({ block: 'nearest' })`, no `behavior: 'smooth'`) — a smooth scroll
-  re-targets against the row's own growing height and hard-froze the renderer on
-  rapid track changes.
+  Cubase-track-height style, list view only. **Z is the only thing in the whole
+  app that ever scrolls the library list** — nothing auto-repositions it on a
+  track change, a skip, or playback starting; that was tried (an effect
+  following `currentTrackId`) and it fought the user's own scrolling badly
+  enough to make the list unusable. `handleExpandTrack` in `App.jsx` does the
+  scroll itself, synchronously, with a direct DOM query + `scrollIntoView`
+  (same pattern as `nudgeLibraryScroll`) — not a React effect keyed on state,
+  so there's no timing window for something else to fight it.
+  - Target: `playingTrackId` if a track is loaded, else the browsed
+    `currentTrackId`.
+  - Pressing Z **always** centers the target, in both list and grid — this is
+    unconditional, checked first, before any expand/collapse decision.
+  - Expand/collapse (list view only; grid has no info panel and never touches
+    `expandedTrackId`) only toggles OFF when the target is already expanded
+    **and fully visible**. If it's expanded but scrolled out of view, Z
+    re-centers it and leaves it expanded — it does not collapse. This
+    distinction matters: an earlier version toggled unconditionally, so a Z
+    press while scrolled away would sometimes silently collapse (no scroll at
+    all) instead of bringing the track back, alternating between "jumps" and
+    "does nothing" depending on parity.
+  - The zoomed row shows an info strip (a quality badge + chips from
+    `src/lib/audioQuality.js` — codec / sample rate / bit depth or bitrate —
+    then size, date added, duration, tag count; `.track-expanded-info` in
+    `TrackItem.jsx`). This depth is **only** in the zoom — the user explicitly
+    wanted the right-hand NowPlaying column kept to just title + artist.
+  - **The centering scroll must stay instant** (`scrollIntoView({ block:
+    'center' })`, no `behavior: 'smooth'`) — a smooth scroll re-targets
+    against the row's own growing height (list view) and hard-froze the
+    renderer on rapid track changes.
 
 ### Track record shape (see `src/lib/db.js`)
 
