@@ -17,14 +17,30 @@ const EQ_UPDATE_INTERVAL_MS = 90;
 const FREQ_FFT_SIZE = 2048;
 // Rough band boundaries (Hz) — frequency bands, not instrument separation.
 // Bass guitar and kick drum overlap here; that's an inherent limit of this
-// technique, not a bug.
-const FREQ_BAND_LOW = [20, 250];
-const FREQ_BAND_MID = [250, 4000];
-const FREQ_BAND_HIGH = [4000, 16000];
-// Spectrum magnitudes aren't pre-normalized to 0..1 for typical broadband
-// music (energy spread across many bins) — this empirical scale + perceptual
-// curve brings them into a usable range. Tune by ear if bands read too hot/cold.
-const FREQ_BAND_GAIN = 9;
+// technique, not a bug. Tightened 2026-09-04 (LOW was 20-250, MID 250-4000,
+// HIGH 4000-16000) — LOW in particular was wide enough to capture most of a
+// track's low-mid energy and barely vary; narrowed to the kick/bass
+// fundamental range so it actually tracks individual hits instead of
+// staying near-constant.
+const FREQ_BAND_LOW = [20, 160];
+const FREQ_BAND_MID = [300, 2000];
+const FREQ_BAND_HIGH = [6000, 16000];
+// Per-band envelope normalization (2026-09-04, replaced a fixed empirical
+// gain constant): raw FFT magnitude varies enormously between tracks and
+// between sections of one track, so mapping
+// it directly to motion meant a quiet/compressed track barely moved and a
+// loud one slammed. Each band is instead compared against a slow-moving
+// running average of ITS OWN recent level — what drives the motion is
+// "louder than this track's normal right now," not an absolute magnitude.
+// ENVELOPE_TAU_MS: how many ms of recent history the "normal" average
+// covers (several seconds, deliberately much slower than the visual
+// attack/release smoothing in useGradientDrift.js).
+// ENVELOPE_REACTIVE_RANGE: how far above "normal" (as a ratio, e.g. 0.75 =
+// 75% louder than the envelope) maps to a full-strength 1.0 reactive value.
+// Tune by ear — smaller = more sensitive/twitchy, larger = needs a bigger
+// hit to register.
+const ENVELOPE_TAU_MS = 5000;
+const ENVELOPE_REACTIVE_RANGE = 0.75;
 
 // Default coloring: louder bars run hot (red/orange), quieter run cool
 // (teal/green) — a loudness heatmap. When the playing track has cover art,
@@ -130,6 +146,13 @@ const Waveform = forwardRef(function Waveform(
   // rebuilt if the sample rate actually changes between tracks
   const fftRef = useRef(null);
   const fftBufferRef = useRef(new Float32Array(FREQ_FFT_SIZE));
+  // per-band running "normal level" envelope (raw magnitude units, pre-gain,
+  // pre-normalization) + last-call timestamp for the EMA dt; reset per track
+  // in the 'ready' handler below so a new song starts from a fresh baseline
+  // rather than carrying over the previous track's loudness
+  const bandEnvelopeRef = useRef({ low: 0, mid: 0, high: 0 });
+  const bandEnvelopeInitRef = useRef(false);
+  const bandEnvelopeLastTsRef = useRef(0);
 
   useEffect(() => {
     if (!containerRef.current || !audioUrl) return;
@@ -170,6 +193,10 @@ const Waveform = forwardRef(function Waveform(
         }
         trackPeakRef.current = max || 1;
       }
+      // fresh envelope baseline for the new track — see bandEnvelopeRef above
+      bandEnvelopeRef.current = { low: 0, mid: 0, high: 0 };
+      bandEnvelopeInitRef.current = false;
+      bandEnvelopeLastTsRef.current = 0;
     });
     ws.on('finish', () => onFinish?.());
     ws.on('audioprocess', (currentTime) => onTimeUpdate?.(currentTime));
@@ -336,12 +363,42 @@ const Waveform = forwardRef(function Waveform(
         }
         return n ? sum / n : 0;
       };
-      const norm = (x) => Math.min(1, Math.pow(x * FREQ_BAND_GAIN, 0.5));
+      const raw = {
+        low: bandLevel(FREQ_BAND_LOW),
+        mid: bandLevel(FREQ_BAND_MID),
+        high: bandLevel([FREQ_BAND_HIGH[0], Math.min(FREQ_BAND_HIGH[1], sampleRate / 2)])
+      };
+
+      // Update each band's running "normal level" envelope, then express
+      // this instant's level as how far ABOVE that normal it is — see
+      // ENVELOPE_TAU_MS / ENVELOPE_REACTIVE_RANGE above. First call after a
+      // track loads snaps the envelope straight to the current raw level
+      // instead of climbing from 0, so the very first frames of a song
+      // don't read as "infinitely louder than normal."
+      const env = bandEnvelopeRef.current;
+      const now = performance.now();
+      if (!bandEnvelopeInitRef.current) {
+        env.low = raw.low;
+        env.mid = raw.mid;
+        env.high = raw.high;
+        bandEnvelopeInitRef.current = true;
+      } else {
+        const dt = now - bandEnvelopeLastTsRef.current;
+        const alpha = 1 - Math.exp(-dt / ENVELOPE_TAU_MS);
+        env.low += (raw.low - env.low) * alpha;
+        env.mid += (raw.mid - env.mid) * alpha;
+        env.high += (raw.high - env.high) * alpha;
+      }
+      bandEnvelopeLastTsRef.current = now;
+
+      const EPSILON = 1e-6;
+      const reactive = (band) =>
+        Math.max(0, Math.min(1, (raw[band] / Math.max(env[band], EPSILON) - 1) / ENVELOPE_REACTIVE_RANGE));
 
       return {
-        low: norm(bandLevel(FREQ_BAND_LOW)),
-        mid: norm(bandLevel(FREQ_BAND_MID)),
-        high: norm(bandLevel([FREQ_BAND_HIGH[0], Math.min(FREQ_BAND_HIGH[1], sampleRate / 2)]))
+        low: reactive('low'),
+        mid: reactive('mid'),
+        high: reactive('high')
       };
     }
   }));

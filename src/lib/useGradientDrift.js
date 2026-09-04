@@ -18,10 +18,13 @@ import { useLayoutEffect, useRef } from 'react';
 // MAX_SCALE_SWING      ceiling on low-band scale breathing at intensity 100, +/- fraction of gradient stop
 // MAX_HIGH_PULSE       ceiling on high-band pulse (smallest blob only) at intensity 100, +/- fraction, additive
 // MID_SPEED_MAX        ceiling on mid-band orbit speed-up at intensity 100, e.g. 0.4 = up to +40% tempo
-// ATTACK_MS            EMA time constant while a band is rising (snappy)
+// ATTACK_MS            EMA time constant while a band is rising (fast, so a kick can snap)
 // RELEASE_MS           EMA time constant while a band is falling (slower, reads more musical)
 // ANALYSIS_INTERVAL_MS how often getFrequencyBands() is actually called; visuals still update every rAF frame, interpolated between samples
-// FREQ_BAND_LOW/MID/HIGH and FREQ_BAND_GAIN live in Waveform.jsx, next to getFrequencyBands()
+// FREQ_BAND_LOW/MID/HIGH and the per-band envelope normalization live in Waveform.jsx,
+//   next to getFrequencyBands() — that's also where "louder than this track's own recent
+//   level" is computed, before smoothing happens here
+// DEBUG_ISOLATE_AUDIO_REACTION  TEMPORARY tuning toggle, see note below — must be false to ship
 // -----------------------------------------------------------------------
 const BASE_BLOB_POS = [
   [22, 24],
@@ -34,31 +37,46 @@ function withAlpha(rgb, a) {
   return rgb.replace('rgb(', 'rgba(').replace(')', `, ${a})`);
 }
 
-// Prime-second periods per blob per axis. Primes in the 20-40s range mean
-// every pairwise ratio is irreducible to a simple fraction, so the combined
-// 8-oscillator pattern doesn't visibly repeat within any real viewing
-// session (the LCM of these numbers is on the order of tens of billions of
-// seconds). Pairing each blob with two DIFFERENT primes (one per axis) traces
-// an elliptical/lissajous path rather than back-and-forth linear motion.
-const ORBIT_PERIODS_X = [23, 29, 31, 37, 41];
-const ORBIT_PERIODS_Y = [29, 37, 23, 41, 31];
+// Prime-ish-second periods per blob per axis, halved from the original
+// 20-40s range down to ~10-20s (2026-09-04: original speed was too slow to
+// read as motion even at larger amplitudes). Scaling every period by the
+// same factor preserves the irrational-feeling ratios between them, so the
+// combined 8-oscillator pattern still doesn't visibly repeat within any real
+// viewing session.
+const ORBIT_PERIODS_X = [11.5, 14.5, 15.5, 18.5, 20.5];
+const ORBIT_PERIODS_Y = [14.5, 18.5, 11.5, 20.5, 15.5];
 
 // Ceilings — maximums at intensity 1 (slider 100), not targets. Position and
-// scale are the ONLY things ever modulated.
-const MAX_POSITION_DRIFT_PCT = 3; // +/- % of viewport
-const MAX_SCALE_SWING = 0.08; // +/- fraction of the blob's radial-gradient stop
-const MAX_HIGH_PULSE = 0.03; // +/- fraction, smallest blob only, additive
-const MID_SPEED_MAX = 0.4; // up to +40% orbit tempo at full mid energy
+// scale are the ONLY things ever modulated. Roughly tripled from the first
+// pass (2026-09-04: the original ceilings were technically animating but
+// too subtle to confidently perceive — "working, just under-tuned"). These
+// are a deliberately-large first pass to get into visible range; dial back
+// from here once they're confirmed not to break the composition.
+const MAX_POSITION_DRIFT_PCT = 9; // +/- % of viewport (was 3)
+const MAX_SCALE_SWING = 0.2; // +/- fraction of the blob's radial-gradient stop (was 0.08)
+const MAX_HIGH_PULSE = 0.08; // +/- fraction, smallest blob only, additive (was 0.03)
+const MID_SPEED_MAX = 0.4; // up to +40% orbit tempo at full mid energy (unchanged)
 
-// EMA time constants — attack faster than release so bands swell in and
-// settle back out rather than twitching symmetrically.
-const ATTACK_MS = 180;
-const RELEASE_MS = 320;
+// EMA time constants. Attack is now MUCH faster than the original 180ms —
+// that was smearing individual kick hits into a constant level, which reads
+// as "no reaction." Release stays slow so the motion settles rather than
+// twitching back down between hits.
+const ATTACK_MS = 50; // was 180 — fast enough for a kick to snap
+const RELEASE_MS = 350; // was 320 — slightly slower, settles smoothly
 
 // FFT analysis is throttled well below 60fps (an FFT per frame isn't free);
 // the visual smoothing above still advances every rAF frame regardless, so
 // motion interpolates smoothly between analysis samples instead of stepping.
 const ANALYSIS_INTERVAL_MS = 33; // ~30Hz
+
+// TEMPORARY TUNING SCAFFOLDING — not a feature, remove once the audio
+// reaction numbers are settled. When true: baseline orbital drift is
+// disabled entirely (blobs stay at their base position, no movement from
+// ORBIT_PERIODS at all) so only the audio-reactive scale breathing/pulse is
+// visible, making it possible to see whether kicks are actually snapping
+// blob scale without the baseline motion masking it. Scale reaction still
+// respects the intensity slider. Flip back to false before shipping/committing final tuning.
+const DEBUG_ISOLATE_AUDIO_REACTION = false;
 
 function emaStep(current, target, dtMs, tauMs) {
   const alpha = 1 - Math.exp(-dtMs / tauMs);
@@ -159,7 +177,9 @@ export function useGradientDrift({ elRef, palette, backdropStyle, intensity, isP
       const speedMultiplier = 1 + intensityFraction * MID_SPEED_MAX * s.mid;
       state.effectiveTime += (dt / 1000) * speedMultiplier;
 
-      const amp = intensityFraction * MAX_POSITION_DRIFT_PCT;
+      // TEMPORARY: see DEBUG_ISOLATE_AUDIO_REACTION above — forces position
+      // amplitude to 0 so only audio-reactive scale is visible, for tuning.
+      const amp = DEBUG_ISOLATE_AUDIO_REACTION ? 0 : intensityFraction * MAX_POSITION_DRIFT_PCT;
 
       const layers = colors.map((c, i) => {
         const [baseX, baseY] = BASE_BLOB_POS[i % BASE_BLOB_POS.length];
