@@ -1336,11 +1336,21 @@ body {
   padding: 24px;
   animation: view-enter 260ms cubic-bezier(0.16, 1, 0.3, 1);
   /* ambient mesh backdrop (colors sampled from the current cover art, see
-     FocusView's useArtworkPalette) crossfades on track switch. background-
-     color always interpolates; the gradient layers interpolate too when the
-     new cover yields the same number of blobs, otherwise they cut — fine. */
+     FocusView's useArtworkPalette) crossfades on track switch via
+     background-color; background-image intentionally has NO transition
+     (see below) — the gradient layers just cut on track switch, which is
+     fine (this was already the documented fallback for a differing blob
+     count). background-color always interpolates. */
   background-color: var(--bg);
-  transition: background-color 0.6s ease, background-image 0.6s ease;
+  transition: background-color 0.6s ease;
+  /* useGradientDrift.js writes background-image directly every animation
+     frame (position drift / scale breathing). A transition on
+     background-image would restart on every one of those writes — each
+     ~16ms apart, versus a 600ms duration — so it would never get more than
+     a sliver of the way to any target before being superseded again. That
+     compounding damping crushes the already-small drift amplitudes down to
+     effectively invisible. Do not add background-image back to the
+     transition list above without re-solving that. */
 }
 /* dial the cover-derived mesh backdrop back a touch so title/artist stay
    readable over bright covers — a light uniform wash keeps the gradient's
