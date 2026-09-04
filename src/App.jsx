@@ -150,6 +150,14 @@ export default function App() {
   // filePaths of active versions whose file is missing from disk
   const [missingPaths, setMissingPaths] = useState(() => new Set());
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
+  // 0-100: fullscreen background drift/audio-reaction intensity (see
+  // useGradientDrift). Default 50 — noticeably alive at first sight without
+  // starting at the (deliberately subtle) full ceiling; easy to feel out
+  // from there in either direction.
+  const [backgroundMovement, setBackgroundMovement] = useState(() => {
+    const saved = parseFloat(localStorage.getItem('backgroundMovement'));
+    return Number.isFinite(saved) ? saved : 50;
+  });
   const [keybindings, setKeybindingsState] = useState(() => loadKeybindings());
   const [volume, setVolume] = useState(() => {
     const saved = parseFloat(localStorage.getItem('volume'));
@@ -620,6 +628,10 @@ export default function App() {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem('theme', theme);
   }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem('backgroundMovement', String(backgroundMovement));
+  }, [backgroundMovement]);
 
   useEffect(() => {
     volumeRef.current = volume;
@@ -1897,6 +1909,8 @@ export default function App() {
           onTogglePlay={() => waveformRef.current?.toggle()}
           onSkip={handleSkip}
           onExit={() => setView('sidebar')}
+          movementIntensity={backgroundMovement}
+          getFrequencyBands={() => waveformRef.current?.getFrequencyBands()}
         />
       ) : view === 'sidebar' ? (
         <>
@@ -2018,6 +2032,8 @@ export default function App() {
           onToggleShuffle={handleToggleShuffle}
           repeatMode={repeatMode}
           onCycleRepeat={handleCycleRepeat}
+          movementIntensity={backgroundMovement}
+          getFrequencyBands={() => waveformRef.current?.getFrequencyBands()}
         />
       )}
       {playingTrack && !isViewingPlayingTrack && view !== 'mini' && (
@@ -2070,6 +2086,8 @@ export default function App() {
         <SettingsModal
           theme={theme}
           onSetTheme={setTheme}
+          backgroundMovement={backgroundMovement}
+          onSetBackgroundMovement={setBackgroundMovement}
           keybindings={keybindings}
           onSetKeybindings={handleSetKeybinding}
           onResetKeybindings={handleResetKeybindings}

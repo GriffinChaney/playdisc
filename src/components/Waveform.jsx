@@ -1,11 +1,56 @@
 import { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import WaveSurfer from 'wavesurfer.js';
+import FFT from 'wavesurfer.js/dist/fft.js';
 import { makeAmplitudeScale } from '../lib/dominantColor';
 
 const EQ_BAR_COUNT = 24;
 // throttled well below 60fps so bars snap between heights instead of
 // smoothly interpolating — reads as chunky pixel-art rather than a wobble
 const EQ_UPDATE_INTERVAL_MS = 90;
+
+// getFrequencyBands(): a window of already-decoded PCM around the playhead,
+// run through wavesurfer's own bundled FFT (imported nowhere else in the
+// app before this). No AudioContext, no createMediaElementSource, no touch
+// of the audio output path at all — see the gradient-drift investigation.
+// Power of 2, required by FFT.calculateSpectrum. 2048 samples is cheap
+// (sub-millisecond) and gives ~21Hz bins at 44.1kHz, plenty for 3 broad bands.
+const FREQ_FFT_SIZE = 2048;
+// Rough band boundaries (Hz) — frequency bands, not instrument separation.
+// Bass guitar and kick drum overlap here; that's an inherent limit of this
+// technique, not a bug. Tightened 2026-09-04 (LOW was 20-250, MID 250-4000,
+// HIGH 4000-16000) — LOW in particular was wide enough to capture most of a
+// track's low-mid energy and barely vary; narrowed to the kick/bass
+// fundamental range so it actually tracks individual hits instead of
+// staying near-constant.
+const FREQ_BAND_LOW = [20, 160];
+const FREQ_BAND_MID = [300, 2000];
+const FREQ_BAND_HIGH = [6000, 16000];
+// Per-band envelope normalization (2026-09-04, replaced a fixed empirical
+// gain constant): raw FFT magnitude varies enormously between tracks and
+// between sections of one track, so mapping it directly to motion meant a
+// quiet/compressed track barely moved and a loud one slammed. Each band is
+// instead compared against a running average of ITS OWN recent level — what
+// drives the motion is "louder than this track's normal right now," not an
+// absolute magnitude.
+//
+// ENVELOPE_TAU_MS: how many ms of recent history the "normal" average
+// covers. Lowered from 5000ms to 1500ms (2026-09-04) — 5s was smoothing
+// across whole musical phrases (bridge-to-chorus level), not tracking the
+// current moment, which is too slow a reference for per-kick reaction.
+//
+// Mapping raw-vs-envelope to a 0..1 reactive value: originally a hard
+// linear clamp — (ratio-1)/RANGE, clamped to [0,1] — which meant any hit
+// louder than RANGE-above-normal pegged at a flat 1.0. On percussive
+// material where MANY hits clear that bar, most frames would sit pegged at
+// the ceiling rather than varying, which reads as "constant," i.e. exactly
+// the flatness being chased. Replaced with an exponential saturation curve
+// (1 - e^-(excess/RANGE)) — asymptotic rather than hard-clamped, so
+// even hits well above "normal" still produce visibly different output
+// instead of all landing on the same plateau. ENVELOPE_REACTIVE_RANGE is
+// now the excess-ratio (raw/envelope - 1) that produces ~63% of full
+// strength; smaller = more sensitive.
+const ENVELOPE_TAU_MS = 1500;
+const ENVELOPE_REACTIVE_RANGE = 0.6;
 
 // Default coloring: louder bars run hot (red/orange), quieter run cool
 // (teal/green) — a loudness heatmap. When the playing track has cover art,
@@ -106,6 +151,18 @@ const Waveform = forwardRef(function Waveform(
   const eqRafRef = useRef(null);
   // amplitude -> color; swapped to a cover-palette scale when one is available
   const colorFnRef = useRef(amplitudeColor);
+  // reused across calls/tracks so getFrequencyBands() doesn't reallocate the
+  // FFT's internal sin/cos tables or the sample buffer on every call; only
+  // rebuilt if the sample rate actually changes between tracks
+  const fftRef = useRef(null);
+  const fftBufferRef = useRef(new Float32Array(FREQ_FFT_SIZE));
+  // per-band running "normal level" envelope (raw magnitude units, pre-gain,
+  // pre-normalization) + last-call timestamp for the EMA dt; reset per track
+  // in the 'ready' handler below so a new song starts from a fresh baseline
+  // rather than carrying over the previous track's loudness
+  const bandEnvelopeRef = useRef({ low: 0, mid: 0, high: 0 });
+  const bandEnvelopeInitRef = useRef(false);
+  const bandEnvelopeLastTsRef = useRef(0);
 
   useEffect(() => {
     if (!containerRef.current || !audioUrl) return;
@@ -146,6 +203,10 @@ const Waveform = forwardRef(function Waveform(
         }
         trackPeakRef.current = max || 1;
       }
+      // fresh envelope baseline for the new track — see bandEnvelopeRef above
+      bandEnvelopeRef.current = { low: 0, mid: 0, high: 0 };
+      bandEnvelopeInitRef.current = false;
+      bandEnvelopeLastTsRef.current = 0;
     });
     ws.on('finish', () => onFinish?.());
     ws.on('audioprocess', (currentTime) => onTimeUpdate?.(currentTime));
@@ -268,6 +329,93 @@ const Waveform = forwardRef(function Waveform(
         if (v > peak) peak = v;
       }
       return Math.min(1, Math.pow(peak / trackPeakRef.current, 0.6));
+    },
+    // { low, mid, high }, each ~0..1 — an FFT over a window of already-decoded
+    // PCM around the playhead, split into three broad bands. For decorative
+    // audio-reactive UI (the fullscreen gradient drift); not audio-precise,
+    // frequency bands rather than instrument separation.
+    getFrequencyBands: () => {
+      const channel = decodedChannelRef.current;
+      const ws = wsRef.current;
+      const zero = { low: 0, mid: 0, high: 0 };
+      if (!channel || !ws) return zero;
+
+      const sampleRate = sampleRateRef.current;
+      if (!fftRef.current || fftRef.current.sampleRate !== sampleRate) {
+        fftRef.current = new FFT(FREQ_FFT_SIZE, sampleRate, 'hann');
+      }
+      const fft = fftRef.current;
+      const buffer = fftBufferRef.current;
+
+      const centerSample = Math.floor(ws.getCurrentTime() * sampleRate);
+      const start = Math.max(0, Math.min(channel.length - FREQ_FFT_SIZE, centerSample - FREQ_FFT_SIZE / 2));
+      for (let i = 0; i < FREQ_FFT_SIZE; i++) {
+        const s = start + i;
+        buffer[i] = s < channel.length ? channel[s] : 0;
+      }
+
+      let spectrum;
+      try {
+        spectrum = fft.calculateSpectrum(buffer);
+      } catch {
+        return zero; // e.g. a track shorter than one FFT window
+      }
+
+      const binWidth = sampleRate / FREQ_FFT_SIZE;
+      const bandLevel = ([loHz, hiHz]) => {
+        const i0 = Math.max(0, Math.floor(loHz / binWidth));
+        const i1 = Math.min(spectrum.length - 1, Math.ceil(hiHz / binWidth));
+        let sum = 0;
+        let n = 0;
+        for (let i = i0; i <= i1; i++) {
+          sum += spectrum[i];
+          n++;
+        }
+        return n ? sum / n : 0;
+      };
+      const raw = {
+        low: bandLevel(FREQ_BAND_LOW),
+        mid: bandLevel(FREQ_BAND_MID),
+        high: bandLevel([FREQ_BAND_HIGH[0], Math.min(FREQ_BAND_HIGH[1], sampleRate / 2)])
+      };
+
+      // Update each band's running "normal level" envelope, then express
+      // this instant's level as how far ABOVE that normal it is — see
+      // ENVELOPE_TAU_MS / ENVELOPE_REACTIVE_RANGE above. First call after a
+      // track loads snaps the envelope straight to the current raw level
+      // instead of climbing from 0, so the very first frames of a song
+      // don't read as "infinitely louder than normal."
+      const env = bandEnvelopeRef.current;
+      const now = performance.now();
+      if (!bandEnvelopeInitRef.current) {
+        env.low = raw.low;
+        env.mid = raw.mid;
+        env.high = raw.high;
+        bandEnvelopeInitRef.current = true;
+      } else {
+        const dt = now - bandEnvelopeLastTsRef.current;
+        const alpha = 1 - Math.exp(-dt / ENVELOPE_TAU_MS);
+        env.low += (raw.low - env.low) * alpha;
+        env.mid += (raw.mid - env.mid) * alpha;
+        env.high += (raw.high - env.high) * alpha;
+      }
+      bandEnvelopeLastTsRef.current = now;
+
+      const EPSILON = 1e-6;
+      // excess = how far above "normal" this instant is, as a ratio (0 =
+      // exactly normal or quieter, 1 = twice normal, etc) — unclamped going
+      // in, so a big transient doesn't get thrown away before the curve
+      // below has a chance to differentiate it from a merely-loud one.
+      const reactive = (band) => {
+        const excess = Math.max(0, raw[band] / Math.max(env[band], EPSILON) - 1);
+        return 1 - Math.exp(-excess / ENVELOPE_REACTIVE_RANGE);
+      };
+
+      return {
+        low: reactive('low'),
+        mid: reactive('mid'),
+        high: reactive('high')
+      };
     }
   }));
 

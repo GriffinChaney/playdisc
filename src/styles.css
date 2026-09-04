@@ -1336,11 +1336,21 @@ body {
   padding: 24px;
   animation: view-enter 260ms cubic-bezier(0.16, 1, 0.3, 1);
   /* ambient mesh backdrop (colors sampled from the current cover art, see
-     FocusView's useArtworkPalette) crossfades on track switch. background-
-     color always interpolates; the gradient layers interpolate too when the
-     new cover yields the same number of blobs, otherwise they cut — fine. */
+     FocusView's useArtworkPalette) crossfades on track switch via
+     background-color; background-image intentionally has NO transition
+     (see below) — the gradient layers just cut on track switch, which is
+     fine (this was already the documented fallback for a differing blob
+     count). background-color always interpolates. */
   background-color: var(--bg);
-  transition: background-color 0.6s ease, background-image 0.6s ease;
+  transition: background-color 0.6s ease;
+  /* useGradientDrift.js writes background-image directly every animation
+     frame (position drift / scale breathing). A transition on
+     background-image would restart on every one of those writes — each
+     ~16ms apart, versus a 600ms duration — so it would never get more than
+     a sliver of the way to any target before being superseded again. That
+     compounding damping crushes the already-small drift amplitudes down to
+     effectively invisible. Do not add background-image back to the
+     transition list above without re-solving that. */
 }
 /* dial the cover-derived mesh backdrop back a touch so title/artist stay
    readable over bright covers — a light uniform wash keeps the gradient's
@@ -1623,6 +1633,28 @@ body {
   color: var(--bg);
 }
 
+.settings-slider-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+/* .volume-slider's track fill is already themed via --vol-pct; the thumb is
+   hidden-until-hover there (tuned for the minimal now-playing transport) —
+   in a settings row it should just always be visible and a bit wider. */
+.settings-slider {
+  width: 120px;
+}
+.settings-slider::-webkit-slider-thumb {
+  opacity: 1;
+}
+.settings-slider-value {
+  width: 24px;
+  text-align: right;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 .keybind-row {
   display: flex;
   align-items: center;
@@ -1744,8 +1776,14 @@ body {
   gap: 4px;
   z-index: 60;
   animation: view-enter 260ms cubic-bezier(0.16, 1, 0.3, 1);
-  /* crossfade the cover-derived backdrop on track change, same as focus view */
-  transition: background-color 0.5s ease, background-image 0.5s ease;
+  /* crossfade the cover-derived backdrop on track change, same as focus
+     view — background-image intentionally excluded from the transition
+     (2026-09-05, same fix as .focus-view/dc07b60): useGradientDrift.js
+     writes background-image directly every animation frame, and a
+     transition on it would restart on every one of those writes, damping
+     the already-small drift/breathing amplitudes down to invisible. A hard
+     cut on track switch is an acceptable fallback, same as focus view. */
+  transition: background-color 0.5s ease;
   /* traffic lights are hidden in mini mode (see enterMiniMode), so the
      whole card is the only way to grab and drag the window around —
      interactive children opt back out below */
