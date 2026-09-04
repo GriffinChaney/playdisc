@@ -2615,11 +2615,19 @@ body {
     rgba(0, 0, 0, 0) 100%
   );
 }
-/* everything after .lib-backdrop sits above the wash */
+/* everything after .lib-backdrop sits above the wash. .bulk-bar is
+   deliberately NOT in this list — it has its own position: absolute (see
+   its rule above, and the comment there) so it stays out of document flow
+   when the selection goes 0 -> 1+; a shared `position: relative` here would
+   silently override that (higher specificity than the bare `.bulk-bar`
+   selector) and put it back in flow, which is exactly the "list jumps when
+   you select a track" bug this was already fixed for once (2026-08-27,
+   f391f8c5) and regressed by this rule (2026-09-04, b7686be) before this
+   comment. .bulk-bar's own z-index: 20 already stacks it above the wash
+   (z-index: 1 here) without needing to join this rule. */
 .library-list > .lib-header,
 .library-list > .search-input,
 .library-list > .tag-filter,
-.library-list > .bulk-bar,
 .library-list > .track-list,
 .library-list > .track-grid {
   position: relative;
