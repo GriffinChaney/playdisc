@@ -1909,6 +1909,8 @@ export default function App() {
           onTogglePlay={() => waveformRef.current?.toggle()}
           onSkip={handleSkip}
           onExit={() => setView('sidebar')}
+          movementIntensity={backgroundMovement}
+          getFrequencyBands={() => waveformRef.current?.getFrequencyBands()}
         />
       ) : view === 'sidebar' ? (
         <>

@@ -1776,8 +1776,14 @@ body {
   gap: 4px;
   z-index: 60;
   animation: view-enter 260ms cubic-bezier(0.16, 1, 0.3, 1);
-  /* crossfade the cover-derived backdrop on track change, same as focus view */
-  transition: background-color 0.5s ease, background-image 0.5s ease;
+  /* crossfade the cover-derived backdrop on track change, same as focus
+     view — background-image intentionally excluded from the transition
+     (2026-09-05, same fix as .focus-view/dc07b60): useGradientDrift.js
+     writes background-image directly every animation frame, and a
+     transition on it would restart on every one of those writes, damping
+     the already-small drift/breathing amplitudes down to invisible. A hard
+     cut on track switch is an acceptable fallback, same as focus view. */
+  transition: background-color 0.5s ease;
   /* traffic lights are hidden in mini mode (see enterMiniMode), so the
      whole card is the only way to grab and drag the window around —
      interactive children opt back out below */

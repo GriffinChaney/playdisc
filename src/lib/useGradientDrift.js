@@ -1,8 +1,13 @@
 import { useLayoutEffect, useRef } from 'react';
 
-// Ambient audio-reactive motion for FocusView's cover-derived mesh backdrop.
-// Position + scale ONLY — never color/opacity/blob count, so the composition
-// stays unmistakably the same image, just alive (same colors/blur/feel —
+// Ambient audio-reactive motion for the cover-derived mesh backdrop, shared
+// by FocusView (fullscreen) and MiniPlayer (2026-09-05: extended to
+// MiniPlayer — same hook, same slider, see isMini/MINI_INTENSITY_SCALE
+// below; FocusView and MiniPlayer are mutually exclusive views in App.jsx's
+// `view` state, so only one instance of this hook is ever actively
+// animating at a time — no shared/throttled analysis needed). Position +
+// scale ONLY — never color/opacity/blob count, so the composition stays
+// unmistakably the same image, just alive (same colors/blur/feel —
 // 2026-09-04: the "blobs never leave their home zone" constraint was
 // explicitly relaxed, position amplitude is now large enough that blobs
 // travel across the frame; see MAX_POSITION_DRIFT_PCT below). See CLAUDE.md
@@ -31,6 +36,9 @@ import { useLayoutEffect, useRef } from 'react';
 //   next to getFrequencyBands() — that's also where "louder than this track's own recent
 //   level" is computed, before smoothing happens here
 // DEBUG_ISOLATE_AUDIO_REACTION  TEMPORARY tuning toggle, see note below — must be false to ship
+// MINI_INTENSITY_SCALE multiplies the WHOLE effect for MiniPlayer only (isMini: true callers);
+//                       1.0 = identical to fullscreen at the same slider value. Single knob to
+//                       turn if the mini-player reads as too busy once seen live.
 // -----------------------------------------------------------------------
 const BASE_BLOB_POS = [
   [22, 24],
@@ -115,25 +123,33 @@ const ANALYSIS_INTERVAL_MS = 33; // ~30Hz
 // logging here if another tuning pass needs to read live numbers again.)
 const DEBUG_ISOLATE_AUDIO_REACTION = false;
 
+// 2026-09-05: same drift, applied to MiniPlayer too, gated by this single
+// multiplier so it can be dialed back independently of fullscreen without
+// a second set of tuning constants. 1.0 = no difference from fullscreen at
+// the same slider value.
+const MINI_INTENSITY_SCALE = 1.0;
+
 function emaStep(current, target, dtMs, tauMs) {
   const alpha = 1 - Math.exp(-dtMs / tauMs);
   return current + (target - current) * alpha;
 }
 
 /**
- * Drives FocusView's backdrop blob positions/scale directly via DOM
- * mutation (el.style.backgroundImage), bypassing React's render cycle so a
- * 60fps loop never fights React's own re-renders of the same element.
+ * Drives the mesh backdrop's blob positions/scale directly via DOM mutation
+ * (el.style.backgroundImage), bypassing React's render cycle so a 60fps
+ * loop never fights React's own re-renders of the same element. Shared by
+ * FocusView and MiniPlayer (isMini).
  *
  * @param {object} opts
- * @param {React.RefObject<HTMLElement>} opts.elRef - the .focus-view node
+ * @param {React.RefObject<HTMLElement>} opts.elRef - the .focus-view or .mini-player node
  * @param {{colors: string[], base: string}|null} opts.palette - from useArtworkPalette; drift is a no-op without one (single-ellipse fallback and no-artwork cases are left entirely alone)
  * @param {object|undefined} opts.backdropStyle - meshBackdropStyle(palette, dominantColor)'s own output, read fresh every frame via ref (never a hook dependency) so its byte-for-byte string is always available for the intensity-0 fallback
  * @param {number} opts.intensity - 0-100, read fresh every frame via ref
  * @param {boolean} opts.isPlaying - read fresh every frame via ref
  * @param {() => {low:number, mid:number, high:number}} [opts.getFrequencyBands] - read fresh every frame via ref
+ * @param {boolean} [opts.isMini] - true for the MiniPlayer caller; scales the whole effect by MINI_INTENSITY_SCALE. Static per mount, doesn't need a ref.
  */
-export function useGradientDrift({ elRef, palette, backdropStyle, intensity, isPlaying, getFrequencyBands }) {
+export function useGradientDrift({ elRef, palette, backdropStyle, intensity, isPlaying, getFrequencyBands, isMini = false }) {
   // Frequently-changing values are read through refs, updated on every
   // render below, and deliberately kept OUT of the effect's dependency
   // array. currentTime ticks every 200ms and would otherwise re-run this
@@ -180,7 +196,21 @@ export function useGradientDrift({ elRef, palette, backdropStyle, intensity, isP
     function tick(ts) {
       rafRef.current = requestAnimationFrame(tick);
 
-      const intensityFraction = Math.max(0, Math.min(1, intensityRef.current / 100));
+      // Don't do any work — no analysis, no DOM write — while the window is
+      // hidden or minimized. rAF is already throttled by the browser when
+      // document.hidden, but MiniPlayer is a real, possibly always-on-top
+      // OS window (see enterMiniMode in electron/main.js) that can be
+      // minimized independently of the rest of the app, so this is an
+      // explicit guarantee rather than relying on that throttling alone.
+      // Also don't advance the clock while hidden, so becoming visible
+      // again resumes cleanly instead of jumping through the elapsed time.
+      if (document.hidden) {
+        state.lastTs = 0;
+        return;
+      }
+
+      const intensityFraction =
+        Math.max(0, Math.min(1, intensityRef.current / 100)) * (isMini ? MINI_INTENSITY_SCALE : 1);
       if (intensityFraction <= 0) {
         renderStatic();
         // don't advance the clock while off, so turning it back up resumes
