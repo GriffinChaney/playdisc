@@ -89,6 +89,7 @@ function LibraryList({
   onPrompt,
   onAddVersion,
   onOpenVersions,
+  onEditCover,
   missingPaths,
   searchInputRef,
   scrollPosRef
@@ -248,6 +249,7 @@ function LibraryList({
     if (!many && onAddVersion) {
       items.push({ label: 'Add version…', onClick: () => onAddVersion(trackId) });
       items.push({ label: 'Versions & notes…', onClick: () => onOpenVersions(trackId) });
+      if (onEditCover) items.push({ label: 'Edit cover…', onClick: () => onEditCover(trackId) });
       items.push({ separator: true });
     }
     items.push({

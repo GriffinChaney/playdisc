@@ -16,6 +16,7 @@ import VolumeIcon from './components/VolumeIcon';
 import ImportOverlay from './components/ImportOverlay';
 import ImportToast from './components/ImportToast';
 import VersionsModal from './components/VersionsModal';
+import CoverEditModal from './components/CoverEditModal';
 import ChoiceModal from './components/ChoiceModal';
 import {
   addTrack,
@@ -135,6 +136,7 @@ export default function App() {
   const [importProgress, setImportProgress] = useState(null); // { done, total } | { done, total, label }
   const [importToast, setImportToast] = useState(null); // { id, count } | { id, error }
   const [versionsModalTrackId, setVersionsModalTrackId] = useState(null);
+  const [coverEditTrackId, setCoverEditTrackId] = useState(null);
   // multi-choice confirm (e.g. merge / copy / cancel when adding a version
   // from a file that's already its own track). null when nothing to ask.
   const [choiceConfig, setChoiceConfig] = useState(null);
@@ -1554,6 +1556,15 @@ export default function App() {
     [patchTrack]
   );
 
+  // cover art edit — CoverEditModal captures `originalArtworkBlob` lazily and
+  // hands back the full pair to persist
+  const handleSaveCover = useCallback(
+    (trackId, { artworkBlob, originalArtworkBlob }) => {
+      patchTrack(trackId, { artworkBlob, originalArtworkBlob });
+    },
+    [patchTrack]
+  );
+
   const handleDeleteTrack = useCallback(async (id) => {
     const t = tracksRef.current.find((x) => x.id === id);
     (t?.versions || []).forEach((v) => v.filePath && window.electronAPI?.mediaDelete(v.filePath));
@@ -1840,6 +1851,7 @@ export default function App() {
             onPrompt={setPromptConfig}
             onAddVersion={handleAddVersion}
             onOpenVersions={setVersionsModalTrackId}
+            onEditCover={setCoverEditTrackId}
             missingPaths={missingPaths}
             searchInputRef={searchInputRef}
           />
@@ -1976,6 +1988,11 @@ export default function App() {
         onDeleteNote={handleDeleteNote}
         onToggleNotePriority={handleToggleNotePriority}
         onReorderNote={handleReorderNote}
+      />
+      <CoverEditModal
+        track={tracks.find((t) => t.id === coverEditTrackId) || null}
+        onClose={() => setCoverEditTrackId(null)}
+        onSave={handleSaveCover}
       />
     </div>
   );
