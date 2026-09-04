@@ -10,7 +10,8 @@
     "build": "vite build",
     "electron:dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron .\"",
     "electron:build": "vite build && electron-builder",
-    "backup": "bash scripts/backup.sh"
+    "backup": "bash scripts/backup.sh",
+    "postinstall": "node scripts/sign-dev-electron.cjs"
   },
   "dependencies": {
     "buffer": "^5.7.1",
