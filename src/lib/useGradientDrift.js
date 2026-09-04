@@ -107,11 +107,12 @@ const ANALYSIS_INTERVAL_MS = 33; // ~30Hz
 // ORBIT_PERIODS at all) so only the audio-reactive scale breathing/pulse is
 // visible, making it possible to see whether kicks are actually snapping
 // blob scale without the baseline motion masking it. Scale reaction still
-// respects the intensity slider. Also turns on periodic console logging
-// (~1/sec) of the smoothed band values and resulting scale offsets, so the
-// reaction's actual magnitude can be read from the console without relying
-// on eyeballing subtle motion. Flip back to false before shipping/committing
-// final tuning — this must be false in any committed/shipped build.
+// respects the intensity slider. Flip back to false before shipping/
+// committing final tuning — this must be false in any committed/shipped
+// build. (2026-09-04: this used to also drive periodic console logging of
+// band values/blob offsets for a specific diagnostic pass; that logging
+// was removed once it had served its purpose — re-add similar temporary
+// logging here if another tuning pass needs to read live numbers again.)
 const DEBUG_ISOLATE_AUDIO_REACTION = false;
 
 function emaStep(current, target, dtMs, tauMs) {
@@ -166,8 +167,6 @@ export function useGradientDrift({ elRef, palette, backdropStyle, intensity, isP
       targets: { low: 0, mid: 0, high: 0 }
     };
     const smallestIdx = colors.length - 1;
-    // TEMP DEBUG (DEBUG_ISOLATE_AUDIO_REACTION tuning pass) — remove with the flag above
-    let debugFrameCount = 0;
 
     function renderStatic() {
       // intensity 0 must be pixel-identical to the un-animated backdrop —
@@ -193,7 +192,6 @@ export function useGradientDrift({ elRef, palette, backdropStyle, intensity, isP
       if (!state.lastTs) state.lastTs = ts;
       const dt = ts - state.lastTs;
       state.lastTs = ts;
-      debugFrameCount++;
 
       // Refresh analysis targets at a throttled rate; every-frame work below
       // just smooths toward whatever the latest targets are. No audio (or
@@ -225,9 +223,6 @@ export function useGradientDrift({ elRef, palette, backdropStyle, intensity, isP
       // amplitude to 0 so only audio-reactive scale is visible, for tuning.
       const amp = DEBUG_ISOLATE_AUDIO_REACTION ? 0 : intensityFraction * MAX_POSITION_DRIFT_PCT;
 
-      // TEMP DEBUG (DEBUG_ISOLATE_AUDIO_REACTION tuning pass) — remove with the flag above
-      const debugBlobs = DEBUG_ISOLATE_AUDIO_REACTION ? [] : null;
-
       const layers = colors.map((c, i) => {
         const [baseX, baseY] = BASE_BLOB_POS[i % BASE_BLOB_POS.length];
         const periodX = ORBIT_PERIODS_X[i % ORBIT_PERIODS_X.length];
@@ -244,23 +239,10 @@ export function useGradientDrift({ elRef, palette, backdropStyle, intensity, isP
         scaleOffset = Math.max(-MAX_SCALE_SWING, Math.min(MAX_SCALE_SWING, scaleOffset));
         const stopPct = 60 * (1 + scaleOffset);
 
-        // TEMP DEBUG (DEBUG_ISOLATE_AUDIO_REACTION tuning pass) — remove with the flag above
-        if (debugBlobs) debugBlobs.push({ i, x: +x.toFixed(1), y: +y.toFixed(1), scaleOffset: +scaleOffset.toFixed(3) });
-
         return `radial-gradient(circle at ${x.toFixed(2)}% ${y.toFixed(2)}%, ${withAlpha(c, 0.85)} 0%, transparent ${stopPct.toFixed(2)}%)`;
       });
 
       el.style.backgroundImage = layers.join(', ');
-
-      // TEMP DEBUG (DEBUG_ISOLATE_AUDIO_REACTION tuning pass) — remove with the flag above
-      if (DEBUG_ISOLATE_AUDIO_REACTION && debugFrameCount % 30 === 0) {
-        console.log('[GRADIENT-TUNE] smoothed bands (post-gain) + blobs', {
-          raw: { low: +t.low.toFixed(3), mid: +t.mid.toFixed(3), high: +t.high.toFixed(3) },
-          smoothed: { low: +s.low.toFixed(3), mid: +s.mid.toFixed(3), high: +s.high.toFixed(3) },
-          gained: { low: +gLow.toFixed(3), mid: +gMid.toFixed(3), high: +gHigh.toFixed(3) },
-          blobs: debugBlobs
-        });
-      }
     }
 
     // seed synchronously (before paint) so there's no flash between React's
