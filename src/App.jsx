@@ -1964,6 +1964,7 @@ export default function App() {
             onSetQuery={setLibrarySearchQuery}
             activeTag={libraryActiveTag}
             onSetActiveTag={setLibraryActiveTag}
+            onUpdatePlaylist={handleUpdatePlaylist}
             sort={activeSort}
             sortDir={activeSortDir}
             onSetSort={handleSetActiveSort}

@@ -1,6 +1,10 @@
 // Flat inline gear for the Settings button. 15px, stroke = currentColor,
-// matching the other UI glyphs (VolumeIcon, transport icons).
+// matching the other UI glyphs (VolumeIcon, transport icons). Simple
+// 8-tooth Apple-style gearshape (rounded ring + rounded tooth nubs) rather
+// than a detailed cog — 2026-09-05: replaced an asterisk/starburst shape
+// that didn't read as a gear.
 export default function GearIcon() {
+  const teeth = [0, 45, 90, 135, 180, 225, 270, 315];
   return (
     <svg
       width="15"
@@ -8,13 +12,22 @@ export default function GearIcon() {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
       aria-hidden="true"
     >
-      <circle cx="12" cy="12" r="3.2" />
-      <path d="M12 2.6v2.4M12 19v2.4M4.2 4.2l1.7 1.7M18.1 18.1l1.7 1.7M2.6 12h2.4M19 12h2.4M4.2 19.8l1.7-1.7M18.1 5.9l1.7-1.7" />
+      <circle cx="12" cy="12" r="5.6" strokeWidth="1.8" />
+      {teeth.map((deg) => (
+        <rect
+          key={deg}
+          x="10.8"
+          y="1.8"
+          width="2.4"
+          height="3.6"
+          rx="1.1"
+          fill="currentColor"
+          stroke="none"
+          transform={`rotate(${deg} 12 12)`}
+        />
+      ))}
     </svg>
   );
 }

@@ -124,7 +124,8 @@ function LibraryList({
   query,
   onSetQuery,
   activeTag,
-  onSetActiveTag
+  onSetActiveTag,
+  onUpdatePlaylist
 }) {
   const playlistImageUrl = useObjectUrl(playlistImageBlob);
 
@@ -176,6 +177,63 @@ function LibraryList({
   // fullscreen/mini round trip — same reason scrollPosRef is lifted, see
   // the scroll-restore effect below.
   const [bulkTagMenu, setBulkTagMenu] = useState(null); // 'add' | 'remove' | null
+
+  // inline playlist-title rename (playlists only — "Imported" isn't a
+  // playlist and stays non-editable). Saves through onUpdatePlaylist, the
+  // same App.jsx handler PlaylistEditModal uses, so this is never a second
+  // save path — just a different entry point that supplies the current
+  // description/imageBlob unchanged alongside the new name.
+  const [renamingTitle, setRenamingTitle] = useState(false);
+  const [renameDraft, setRenameDraft] = useState('');
+  const renameCancelledRef = useRef(false);
+  const renameInputRef = useRef(null);
+
+  useEffect(() => {
+    if (renamingTitle) {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    }
+  }, [renamingTitle]);
+
+  function startRenaming() {
+    if (!isPlaylistView || !onUpdatePlaylist) return;
+    renameCancelledRef.current = false;
+    setRenameDraft(viewTitle);
+    setRenamingTitle(true);
+  }
+
+  // the single place that decides whether to save or revert — reached via
+  // blur, whether that blur was caused by Enter, Escape, or genuinely
+  // clicking/tabbing away, so there's exactly one commit path (see
+  // handleTitleKeyDown below, which never saves/cancels directly, only
+  // sets the cancelled flag and blurs)
+  function commitOrCancelRename() {
+    setRenamingTitle(false);
+    if (renameCancelledRef.current) return;
+    const trimmed = renameDraft.trim();
+    // empty or unchanged -> revert without writing (no nameless playlist,
+    // no no-op persist call)
+    if (!trimmed || trimmed === viewTitle) return;
+    onUpdatePlaylist(playlistId, {
+      name: trimmed,
+      description: playlistDescription,
+      imageBlob: playlistImageBlob
+    });
+  }
+
+  function handleTitleKeyDown(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      e.stopPropagation();
+      e.currentTarget.blur(); // -> commitOrCancelRename via onBlur
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      renameCancelledRef.current = true;
+      e.currentTarget.blur(); // -> commitOrCancelRename sees the cancel flag
+    }
+  }
+
   const [dropIndex, setDropIndex] = useState(null);
   const dragIndexRef = useRef(null);
   const bulkAddRef = useRef(null);
@@ -324,6 +382,14 @@ function LibraryList({
   // pick lands on every selected track, otherwise just that one
   function handleRowAddTag(trackId, tag) {
     menuTargets(trackId).forEach((id) => onAddTag(id, tag));
+  }
+
+  // the row's "+" queue button — same "whole selection vs. just this row"
+  // logic as menuTargets above: queues every selected track (in displayed
+  // order, since menuTargets/visibleTracks preserve that) if the clicked
+  // row is part of the current selection, otherwise just that one row.
+  function handleRowAddToQueue(trackId) {
+    menuTargets(trackId).forEach((id) => onAddToQueue(id));
   }
 
   // the row's "×" button — same "whole selection vs. just this row" logic
@@ -621,7 +687,26 @@ function LibraryList({
           </div>
         )}
         <div className="lib-header-text">
-          <h1 className="lib-title">{viewTitle}</h1>
+          {renamingTitle ? (
+            <input
+              ref={renameInputRef}
+              className="lib-title lib-title-input"
+              value={renameDraft}
+              onChange={(e) => setRenameDraft(e.target.value)}
+              onKeyDown={handleTitleKeyDown}
+              onBlur={commitOrCancelRename}
+              onClick={(e) => e.stopPropagation()}
+              maxLength={200}
+            />
+          ) : (
+            <h1
+              className={`lib-title${isPlaylistView ? ' lib-title-editable' : ''}`}
+              onClick={isPlaylistView ? startRenaming : undefined}
+              title={isPlaylistView ? 'click to rename' : undefined}
+            >
+              {viewTitle}
+            </h1>
+          )}
           {isFullHeader && playlistDescription && (
             <p className="playlist-hero-desc" title={playlistDescription}>
               {playlistDescription}
@@ -646,6 +731,11 @@ function LibraryList({
             e.stopPropagation();
             if (query) onSetQuery('');
             else e.currentTarget.blur();
+          } else if (e.key === 'Enter') {
+            // not "submit", not "clear" — just "I'm done typing," so
+            // shortcuts (j/k/d/u/z etc.) work again without clicking away.
+            // The query itself is untouched.
+            e.currentTarget.blur();
           }
         }}
       />
@@ -844,7 +934,7 @@ function LibraryList({
                 }
                 onRowAction={handleRowDelete}
                 inPlaylist={isPlaylistView}
-                onAddToQueue={onAddToQueue}
+                onAddToQueue={handleRowAddToQueue}
               />
               {reorderEnabled && index === visibleTracks.length - 1 && dropIndex === visibleTracks.length && (
                 <div className="lib-drop-line bottom" />

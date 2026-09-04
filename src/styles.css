@@ -6,11 +6,18 @@
   --text-primary: #f0f0ec;
   --text-secondary: #9a9a94;
   --text-muted: #6b6b66;
-  --accent: #7f77dd;
-  --accent-dim: #3c3489;
+  /* baby blue, matching --playing (2026-09-05: was purple #7f77dd/#3c3489 —
+     changed so nothing in the app's neutral chrome reads as purple). Not
+     used by the waveform/artwork gradients — those are computed in JS
+     (dominantColor.js/meshBackdrop.js) as literal rgb() strings from the
+     cover art, never through this token. --accent-dim is a darker/less
+     saturated version of --accent at the same hue (same ratio the old
+     purple pair had). */
+  --accent: #8ec5e8;
+  --accent-dim: #34739b;
   /* macOS-style selection blue — used only for multi-select highlighting,
-     kept separate from --accent (which stays purple, reserved for the
-     waveform/artwork surfaces) since neutral chrome shouldn't use purple */
+     kept as its own token (not --accent) so the two can be tuned
+     independently even though they're both blue now */
   --selection: #0a84ff;
   --selection-bg: rgba(10, 132, 255, 0.16);
   /* list-view now-playing indicator (row number color / EQ bars) — its own
@@ -35,6 +42,8 @@
   --text-muted: #8c8c86;
   --selection: #0a84ff;
   --selection-bg: rgba(10, 132, 255, 0.12);
+  --accent: #3d8fc4;
+  --accent-dim: #2b4d64;
   --playing: #3d8fc4;
   --placeholder-bg: #dedede;
   --queue-hover: #ffffff;
@@ -2391,6 +2400,30 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.lib-title-editable {
+  cursor: text;
+}
+.lib-title-editable:hover {
+  opacity: 0.82;
+}
+/* inline playlist rename — .lib-title-input keeps the .lib-title class too,
+   so it inherits font-size/weight from the rules above (including the
+   full/compact/shrunk variants) without duplicating them; only resets the
+   <input> chrome so swapping <h1> for <input> doesn't jump in size. */
+.lib-title-input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  padding: 0;
+  font-family: inherit;
+  border-bottom: 1.5px solid var(--border);
+}
+.lib-title-input:focus {
+  border-bottom-color: var(--accent);
 }
 .lib-subtitle {
   margin: 3px 0 0;
