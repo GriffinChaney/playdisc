@@ -216,6 +216,42 @@ track pauses what's playing." Root-caused and fixed by:
 it under some condition, use the overlay pattern — never make `<WaveformSlot>`'s
 presence conditional.**
 
+> **Correction (2026-09-04): rule 1 above is stale and the code no longer follows
+> it.** The top-level view switch in `App.jsx` is a real ternary —
+> `view === 'mini' ? <MiniPlayer/> : view === 'sidebar' ? (<>...<NowPlaying/></>) :
+> <FocusView/>` — and `MiniPlayer`/`NowPlaying`/`FocusView` each render their **own**
+> `<WaveformSlot>`, not one shared always-mounted instance hidden via CSS as this
+> section describes. Only the actual `<Waveform>` component (the one holding the live
+> WaveSurfer instance) is genuinely always-mounted, via the unconditional
+> `createPortal(<Waveform/>, waveformHostRef.current)` outside that ternary.
+> `WaveformSlot` itself is not — exactly one of the three is mounted at a time, so
+> switching `view` between any of `mini`/`sidebar`/`focus` unmounts the old
+> `WaveformSlot` and mounts a new one, which does the exact `removeChild`-then-
+> `appendChild` dance this section warns against, on **every** view transition, not
+> just mini's. (Likely drifted in during a later mini-player/fullscreen rework that
+> didn't get this doc updated.)
+>
+> In practice this has mostly gotten away with it: `WaveformSlot`'s reattachment
+> effect (`containerRef.current.appendChild(host)`) runs fast enough after a lone,
+> cheap `setView` that the detach window is too brief to matter — confirmed silent
+> for the mini-exit-button and the mini-toggle keybinding. But it's a **race, not a
+> guarantee**, and it's latent for any future feature that adds more synchronous work
+> to the same commit as a view change. That's exactly what surfaced it: opening
+> Settings from mini bundled a comparatively heavy mount (a `useMemo`-built settings
+> search index, IPC calls, and a synchronous native `.focus()` from `autoFocus`,
+> applied during commit) into the same commit as the `mini` → `sidebar` swap, which
+> reliably delayed the reattachment long enough for the browser to actually pause
+> playback (see `handleOpenSettings` in `App.jsx`, which now sequences around this
+> by deferring `setSettingsOpen(true)` to a separate commit via an effect keyed on
+> `view`, rather than fixing the underlying hazard).
+>
+> The real fix is restoring rule 1 — all three always mounted, hidden via the overlay
+> pattern, so there's no detach/reattach at all — but that's a deliberate, separate
+> restructuring, not done as part of the mini-settings fix. Until then, treat this
+> race as real: don't add expensive work (heavy mounts, big `useMemo`s, synchronous
+> `autoFocus`) to the same state update as a `view` change without deferring it to a
+> later tick, the same way `handleOpenSettings` does.
+
 ### Library view = 3 columns (`view === 'sidebar'`)
 
 The `'sidebar'` view (the name is now historical — it's the normal/general view)
@@ -552,7 +588,10 @@ All of this lives in `src/components/Waveform.jsx`.
 
 1. **`<WaveformSlot>` must never be conditionally unmounted** while playback might be
    happening. Hide it with CSS overlays, not conditional rendering. (See "Single
-   shared WaveSurfer instance" above.)
+   shared WaveSurfer instance" above.) **This rule is currently violated** — see the
+   2026-09-04 correction in that section: the mini/sidebar/focus switch conditionally
+   mounts one `WaveformSlot` per view today. Fixing that for real (restoring
+   always-mounted + overlay) is a deliberate future task, not yet scheduled.
 2. **`window.Buffer` polyfill in `src/main.jsx`** — removing it silently breaks all
    metadata/artwork parsing with no visible error.
 3. **`electron/preload.cjs` must stay `.cjs`**, and `electron/main.js` must reference
