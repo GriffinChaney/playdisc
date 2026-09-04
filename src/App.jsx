@@ -1935,6 +1935,7 @@ export default function App() {
             playlists={playlists}
             currentTrackId={currentTrackId}
             playingTrackId={playingTrackId}
+            isPlaying={isPlaying}
             expandedTrackId={expandedTrackId}
             viewMode={libraryViewMode}
             onSetViewMode={setLibraryViewMode}

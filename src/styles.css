@@ -13,6 +13,10 @@
      waveform/artwork surfaces) since neutral chrome shouldn't use purple */
   --selection: #0a84ff;
   --selection-bg: rgba(10, 132, 255, 0.16);
+  /* list-view now-playing indicator (row number color / EQ bars) — its own
+     dedicated color, deliberately not --accent (waveform purple) or
+     --selection (multi-select blue) */
+  --playing: #8ec5e8;
   --placeholder-bg: #333336;
   /* queue-row hover: the queue panel is itself --surface-2, so its rows need
      a hover fill lighter than that to read (library rows sit on --surface,
@@ -31,6 +35,7 @@
   --text-muted: #8c8c86;
   --selection: #0a84ff;
   --selection-bg: rgba(10, 132, 255, 0.12);
+  --playing: #3d8fc4;
   --placeholder-bg: #dedede;
   --queue-hover: #ffffff;
   color-scheme: light;
@@ -355,6 +360,97 @@ body {
 }
 .track-item.active {
   background: var(--surface-2);
+}
+/* Spotify-style now-playing indicator: the row number itself turns
+   var(--playing) when this track is loaded (paused or playing), replaced by
+   three small animated bars while it's actively playing. Same slot, same
+   22px width as the plain number — .track-index's own box is untouched, only
+   its content/color change, so the row never shifts. Specificity matches
+   (three classes) the .active/:hover rules above and wins on source order,
+   so the playing color always takes over regardless of hover/browse state. */
+.track-item .track-index.track-index-playing {
+  color: var(--playing);
+}
+.track-eq {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 3px;
+  height: 12px;
+}
+.track-eq-bar {
+  width: 2px;
+  border-radius: 1px;
+  background: var(--playing);
+  height: 25%;
+  animation: track-eq-bounce 0.9s ease-in-out infinite;
+}
+.track-eq-bar:nth-child(1) {
+  animation-duration: 0.9s;
+  animation-delay: 0s;
+}
+.track-eq-bar:nth-child(2) {
+  animation-duration: 1.1s;
+  animation-delay: 0.15s;
+}
+.track-eq-bar:nth-child(3) {
+  animation-duration: 0.7s;
+  animation-delay: 0.3s;
+}
+/* grid view only: the track is loaded but paused. List view tints its row
+   number instead (it has no bars there); grid has no number to repurpose, so
+   the bars themselves stay put — frozen at varied heights, independent of
+   the reduced-motion setting (a paused track isn't "in motion" either way). */
+.track-eq.track-eq-paused .track-eq-bar {
+  animation: none;
+}
+.track-eq.track-eq-paused .track-eq-bar:nth-child(1) {
+  height: 55%;
+}
+.track-eq.track-eq-paused .track-eq-bar:nth-child(2) {
+  height: 95%;
+}
+.track-eq.track-eq-paused .track-eq-bar:nth-child(3) {
+  height: 40%;
+}
+@keyframes track-eq-bounce {
+  0%,
+  100% {
+    height: 20%;
+  }
+  50% {
+    height: 100%;
+  }
+}
+/* A 12px equalizer flicker isn't the kind of motion this setting exists to
+   suppress — no parallax, no large-area movement. So under reduced motion we
+   don't stop the loop, just calm it: a smaller height swing and a slower
+   cycle, both scaled down from the normal-motion keyframe/durations rather
+   than frozen. animation-delay / -timing-function / -iteration-count are
+   left as set by the base rule + nth-child selectors above — only the name
+   (which keyframe) and duration (how slow) are overridden here. */
+@keyframes track-eq-bounce-reduced {
+  0%,
+  100% {
+    height: 45%;
+  }
+  50% {
+    height: 75%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .track-eq-bar {
+    animation-name: track-eq-bounce-reduced;
+  }
+  .track-eq-bar:nth-child(1) {
+    animation-duration: 1.6s;
+  }
+  .track-eq-bar:nth-child(2) {
+    animation-duration: 2s;
+  }
+  .track-eq-bar:nth-child(3) {
+    animation-duration: 1.3s;
+  }
 }
 .track-item.expanded {
   padding: 26px 12px;
@@ -1715,16 +1811,6 @@ body {
 }
 
 /* ---------- Now-playing indicator + browsing placeholder ---------- */
-
-.now-playing-dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #4ade80;
-  margin-right: 6px;
-  box-shadow: 0 0 4px rgba(74, 222, 128, 0.7);
-}
 
 .waveform-inner {
   position: relative;
@@ -3146,6 +3232,20 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* the now-playing bars, inline before the title — only rendered on the
+   current track's tile (see GridItem), so non-playing tiles get no reserved
+   space at all: title stays flush left, aligned with the artist line below.
+   The title shifts right on the one tile that's actually playing/paused;
+   that's an accepted tradeoff over reserving space on every tile. */
+.grid-title .track-eq {
+  /* the shared .track-eq is display:flex (a block box) — it needs to be
+     inline-flex here specifically to sit inside .grid-title's nowrap text
+     flow instead of breaking it; list view never needs this override since
+     .track-eq is the sole content of its own flex-item wrapper there */
+  display: inline-flex;
+  vertical-align: -1px;
+  margin-right: 5px;
 }
 .grid-artist {
   margin: 2px 0 0;

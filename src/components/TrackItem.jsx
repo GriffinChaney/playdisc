@@ -49,6 +49,7 @@ export default function TrackItem({
   track,
   isActive,
   isPlayingTrack,
+  isPlaying,
   isExpanded,
   isSelected,
   onSelect,
@@ -91,15 +92,31 @@ export default function TrackItem({
       onContextMenu={(e) => onContextMenuTrack?.(e, track.id)}
       onMouseDown={(e) => onMouseDownTrack(track.id, e)}
     >
-      {position != null && <span className="track-index">{position}</span>}
+      {position != null && (
+        // Spotify-style indicator, in the number's own slot so the row never
+        // shifts: plain number when not the loaded track; the number in
+        // var(--playing) when loaded but paused; three animated bars in
+        // var(--playing) while actually playing.
+        <span
+          className={`track-index${isPlayingTrack ? ' track-index-playing' : ''}`}
+          aria-label={isPlayingTrack && isPlaying ? 'now playing' : undefined}
+        >
+          {isPlayingTrack && isPlaying ? (
+            <span className="track-eq" aria-hidden="true">
+              <span className="track-eq-bar" />
+              <span className="track-eq-bar" />
+              <span className="track-eq-bar" />
+            </span>
+          ) : (
+            position
+          )}
+        </span>
+      )}
       <div className="track-thumb" style={artworkUrl ? { backgroundImage: `url(${artworkUrl})` } : undefined}>
         {!artworkUrl && <span className="thumb-fallback">♪</span>}
       </div>
       <div className="track-meta">
-        <p className="track-title">
-          {isPlayingTrack && <span className="now-playing-dot" aria-label="now playing" />}
-          {track.title}
-        </p>
+        <p className="track-title">{track.title}</p>
         <p className="track-artist">{track.artist}</p>
         {isExpanded && (
           <div className="track-expanded-info">

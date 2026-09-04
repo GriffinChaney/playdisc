@@ -21,6 +21,7 @@ function GridItem({
   index = 0,
   isActive,
   isPlayingTrack,
+  isPlaying,
   isSelected,
   onSelect,
   onMouseDownItem,
@@ -53,7 +54,21 @@ function GridItem({
         {!artworkUrl && <span className="thumb-fallback">♪</span>}
       </div>
       <p className="grid-title">
-        {isPlayingTrack && <span className="now-playing-dot" aria-label="now playing" />}
+        {/* only rendered on the current track's tile — same bars markup list
+            view uses. Playing: animated. Loaded but paused: static, varied
+            heights (grid has no row number to tint instead). Non-playing
+            tiles get nothing here, same as before this feature, so their
+            title stays flush left and aligned with the artist line beneath. */}
+        {isPlayingTrack && (
+          <span
+            className={`track-eq${isPlaying ? '' : ' track-eq-paused'}`}
+            aria-label={isPlaying ? 'now playing' : 'paused'}
+          >
+            <span className="track-eq-bar" aria-hidden="true" />
+            <span className="track-eq-bar" aria-hidden="true" />
+            <span className="track-eq-bar" aria-hidden="true" />
+          </span>
+        )}
         {track.title}
       </p>
       <p className="grid-artist">{track.artist}</p>
@@ -75,6 +90,7 @@ function LibraryList({
   playlists,
   currentTrackId,
   playingTrackId,
+  isPlaying,
   expandedTrackId,
   viewMode,
   onSetViewMode,
@@ -755,6 +771,7 @@ function LibraryList({
               track={track}
               isActive={track.id === currentTrackId}
               isPlayingTrack={track.id === playingTrackId}
+              isPlaying={isPlaying}
               isSelected={selectedIds.has(track.id)}
               onSelect={handleClick}
               onMouseDownItem={onItemMouseDown}
@@ -806,6 +823,7 @@ function LibraryList({
                 position={index + 1}
                 isActive={track.id === currentTrackId}
                 isPlayingTrack={track.id === playingTrackId}
+                isPlaying={isPlaying}
                 isExpanded={track.id === expandedTrackId}
                 isSelected={selectedIds.has(track.id)}
                 onSelect={handleClick}
