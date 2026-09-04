@@ -605,9 +605,17 @@ export default function App() {
   // when the track is already fully visible — otherwise repeated Z presses
   // while scrolled away would alternate silently between "expand" (which
   // scrolled) and "collapse" (which used to not scroll at all).
+  //
+  // Also pulls the target back into being the DISPLAYED track (setCurrentTrackId)
+  // — 2026-09-05: previously Z only scrolled/expanded without touching what's
+  // browsed, so it could center the playing track while NowPlaying kept
+  // showing something else you'd clicked over to. Now Z always ends with the
+  // playing track (or, if nothing's playing, whatever's browsed) both
+  // centered AND displayed.
   const handleExpandTrack = useCallback(() => {
     const targetId = playingTrackId || currentTrackId;
     if (!targetId) return;
+    setCurrentTrackId(targetId);
     const container = document.querySelector('.track-list, .track-grid');
     const target = container?.querySelector(`[data-sel-id="${CSS.escape(targetId)}"]`);
     if (container && target) {
@@ -665,6 +673,29 @@ export default function App() {
 
   // native menu "Settings…" / Cmd+, (electron/main.js) opens the same modal
   useEffect(() => window.electronAPI?.onOpenSettings?.(() => setSettingsOpen(true)), []);
+
+  // Cmd+W / the native close button (electron/main.js): report whenever any
+  // of these three modals is open so main can gate the window's real close
+  // event on it, and close whichever one is open when asked to instead of
+  // letting the window close. One coordination point here rather than
+  // touching PlaylistEditModal/VersionsModal/CoverEditModal individually —
+  // they already each expose a plain onClose prop wired to these setters.
+  const anyModalOpen = !!(editingPlaylistId || versionsModalTrackId || coverEditTrackId);
+  const modalStateRef = useRef({ editingPlaylistId, versionsModalTrackId, coverEditTrackId });
+  modalStateRef.current = { editingPlaylistId, versionsModalTrackId, coverEditTrackId };
+  useEffect(() => {
+    window.electronAPI?.setModalOpen?.(anyModalOpen);
+  }, [anyModalOpen]);
+  useEffect(
+    () =>
+      window.electronAPI?.onCloseActiveModal?.(() => {
+        const m = modalStateRef.current;
+        if (m.coverEditTrackId) setCoverEditTrackId(null);
+        else if (m.versionsModalTrackId) setVersionsModalTrackId(null);
+        else if (m.editingPlaylistId) setEditingPlaylistId(null);
+      }),
+    []
+  );
 
   const currentTrack = tracks.find((t) => t.id === currentTrackId) || null;
   const playingTrack = tracks.find((t) => t.id === playingTrackId) || null;

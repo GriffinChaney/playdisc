@@ -33,5 +33,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const listener = () => cb();
     ipcRenderer.on('open-settings', listener);
     return () => ipcRenderer.removeListener('open-settings', listener);
+  },
+  // Cmd+W / the native close button: tell main whether a modal is currently
+  // open (it gates the window's real close event on this), and listen for
+  // main asking us to close whichever one is open instead of the window.
+  setModalOpen: (isOpen) => ipcRenderer.send('set-modal-open', isOpen),
+  onCloseActiveModal: (cb) => {
+    const listener = () => cb();
+    ipcRenderer.on('close-active-modal', listener);
+    return () => ipcRenderer.removeListener('close-active-modal', listener);
   }
 });
