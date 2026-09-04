@@ -1768,6 +1768,25 @@ export default function App() {
     function handleKeyDown(e) {
       if (settingsOpen) return; // the settings modal owns key handling while open
 
+      // Cmd/Ctrl+W: the main window has no Cmd+W of its own — buildAppMenu()
+      // replaces the File menu (no role: 'close') and role: 'windowMenu' on
+      // macOS doesn't include one either, so this only ever arrives here as a
+      // plain DOM keydown, same as SettingsModal's own Cmd+W-mirrors-Escape
+      // handler (that handler now stops propagation on its dismiss branch, so
+      // this one never even runs while Settings is open — see SettingsModal
+      // for why that used to leak through). With one of the three modals
+      // open, close it (same priority as the old close-active-modal IPC
+      // path). Cmd+W is intentionally NEVER allowed to close or quit the app
+      // window — with nothing open it's a deliberate no-op, just swallowed.
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'w') {
+        e.preventDefault();
+        const m = modalStateRef.current;
+        if (m.coverEditTrackId) setCoverEditTrackId(null);
+        else if (m.versionsModalTrackId) setVersionsModalTrackId(null);
+        else if (m.editingPlaylistId) setEditingPlaylistId(null);
+        return;
+      }
+
       const target = e.target;
       // exclude the volume <input type="range"> — if it happens to have
       // focus, arrow keys should still drive our own volume handler below

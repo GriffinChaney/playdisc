@@ -202,6 +202,12 @@ export default function SettingsModal({
 
       if (isDismiss) {
         e.preventDefault();
+        // Unlike the listeningFor/captureMode branches above, this one used
+        // to skip stopPropagation() — so Cmd+W closed Settings here and then
+        // kept bubbling to App.jsx's own document-level Cmd+W handler on the
+        // very same keypress, which (with nothing else open) went on to
+        // close the app window. Stop it here, same as the other branches.
+        e.stopPropagation();
         if (query || capturedKey) {
           setQuery('');
           setCapturedKey(null);
