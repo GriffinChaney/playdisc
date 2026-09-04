@@ -27,20 +27,30 @@ const FREQ_BAND_MID = [300, 2000];
 const FREQ_BAND_HIGH = [6000, 16000];
 // Per-band envelope normalization (2026-09-04, replaced a fixed empirical
 // gain constant): raw FFT magnitude varies enormously between tracks and
-// between sections of one track, so mapping
-// it directly to motion meant a quiet/compressed track barely moved and a
-// loud one slammed. Each band is instead compared against a slow-moving
-// running average of ITS OWN recent level — what drives the motion is
-// "louder than this track's normal right now," not an absolute magnitude.
+// between sections of one track, so mapping it directly to motion meant a
+// quiet/compressed track barely moved and a loud one slammed. Each band is
+// instead compared against a running average of ITS OWN recent level — what
+// drives the motion is "louder than this track's normal right now," not an
+// absolute magnitude.
+//
 // ENVELOPE_TAU_MS: how many ms of recent history the "normal" average
-// covers (several seconds, deliberately much slower than the visual
-// attack/release smoothing in useGradientDrift.js).
-// ENVELOPE_REACTIVE_RANGE: how far above "normal" (as a ratio, e.g. 0.75 =
-// 75% louder than the envelope) maps to a full-strength 1.0 reactive value.
-// Tune by ear — smaller = more sensitive/twitchy, larger = needs a bigger
-// hit to register.
-const ENVELOPE_TAU_MS = 5000;
-const ENVELOPE_REACTIVE_RANGE = 0.75;
+// covers. Lowered from 5000ms to 1500ms (2026-09-04) — 5s was smoothing
+// across whole musical phrases (bridge-to-chorus level), not tracking the
+// current moment, which is too slow a reference for per-kick reaction.
+//
+// Mapping raw-vs-envelope to a 0..1 reactive value: originally a hard
+// linear clamp — (ratio-1)/RANGE, clamped to [0,1] — which meant any hit
+// louder than RANGE-above-normal pegged at a flat 1.0. On percussive
+// material where MANY hits clear that bar, most frames would sit pegged at
+// the ceiling rather than varying, which reads as "constant," i.e. exactly
+// the flatness being chased. Replaced with an exponential saturation curve
+// (1 - e^-(excess/RANGE)) — asymptotic rather than hard-clamped, so
+// even hits well above "normal" still produce visibly different output
+// instead of all landing on the same plateau. ENVELOPE_REACTIVE_RANGE is
+// now the excess-ratio (raw/envelope - 1) that produces ~63% of full
+// strength; smaller = more sensitive.
+const ENVELOPE_TAU_MS = 1500;
+const ENVELOPE_REACTIVE_RANGE = 0.6;
 
 // Default coloring: louder bars run hot (red/orange), quieter run cool
 // (teal/green) — a loudness heatmap. When the playing track has cover art,
@@ -392,8 +402,14 @@ const Waveform = forwardRef(function Waveform(
       bandEnvelopeLastTsRef.current = now;
 
       const EPSILON = 1e-6;
-      const reactive = (band) =>
-        Math.max(0, Math.min(1, (raw[band] / Math.max(env[band], EPSILON) - 1) / ENVELOPE_REACTIVE_RANGE));
+      // excess = how far above "normal" this instant is, as a ratio (0 =
+      // exactly normal or quieter, 1 = twice normal, etc) — unclamped going
+      // in, so a big transient doesn't get thrown away before the curve
+      // below has a chance to differentiate it from a merely-loud one.
+      const reactive = (band) => {
+        const excess = Math.max(0, raw[band] / Math.max(env[band], EPSILON) - 1);
+        return 1 - Math.exp(-excess / ENVELOPE_REACTIVE_RANGE);
+      };
 
       return {
         low: reactive('low'),

@@ -2,8 +2,11 @@ import { useLayoutEffect, useRef } from 'react';
 
 // Ambient audio-reactive motion for FocusView's cover-derived mesh backdrop.
 // Position + scale ONLY — never color/opacity/blob count, so the composition
-// stays unmistakably the same image, just alive. See CLAUDE.md / the
-// gradient-drift work for the full design rationale.
+// stays unmistakably the same image, just alive (same colors/blur/feel —
+// 2026-09-04: the "blobs never leave their home zone" constraint was
+// explicitly relaxed, position amplitude is now large enough that blobs
+// travel across the frame; see MAX_POSITION_DRIFT_PCT below). See CLAUDE.md
+// / the gradient-drift work for the full design rationale.
 //
 // NOTE ON DUPLICATION: BLOB_POS and withAlpha below are copied by hand from
 // src/lib/meshBackdrop.js, which is deliberately off-limits for this feature
@@ -18,6 +21,9 @@ import { useLayoutEffect, useRef } from 'react';
 // MAX_SCALE_SWING      ceiling on low-band scale breathing at intensity 100, +/- fraction of gradient stop
 // MAX_HIGH_PULSE       ceiling on high-band pulse (smallest blob only) at intensity 100, +/- fraction, additive
 // MID_SPEED_MAX        ceiling on mid-band orbit speed-up at intensity 100, e.g. 0.4 = up to +40% tempo
+// AUDIO_REACTION_GAIN  post-smoothing multiplier on the low/mid/high band values before they're
+//                       applied to scale/speed — separate from the ceilings above, which cap the
+//                       final amount of movement; this controls how easily a band reaches that cap
 // ATTACK_MS            EMA time constant while a band is rising (fast, so a kick can snap)
 // RELEASE_MS           EMA time constant while a band is falling (slower, reads more musical)
 // ANALYSIS_INTERVAL_MS how often getFrequencyBands() is actually called; visuals still update every rAF frame, interpolated between samples
@@ -37,36 +43,62 @@ function withAlpha(rgb, a) {
   return rgb.replace('rgb(', 'rgba(').replace(')', `, ${a})`);
 }
 
-// Prime-ish-second periods per blob per axis, halved from the original
-// 20-40s range down to ~10-20s (2026-09-04: original speed was too slow to
-// read as motion even at larger amplitudes). Scaling every period by the
-// same factor preserves the irrational-feeling ratios between them, so the
-// combined 8-oscillator pattern still doesn't visibly repeat within any real
-// viewing session.
-const ORBIT_PERIODS_X = [11.5, 14.5, 15.5, 18.5, 20.5];
-const ORBIT_PERIODS_Y = [14.5, 18.5, 11.5, 20.5, 15.5];
+// Prime-ish-second periods per blob per axis. Halved once already (original
+// 20-40s -> 10-20s), now roughly halved again to ~6-12s (2026-09-04: still
+// read as too slow to perceive even at larger amplitude). Every period is
+// scaled by the same factor from the original prime set, so the
+// irrational-feeling ratios between them are preserved exactly — the
+// combined 8-oscillator pattern still doesn't visibly repeat.
+const ORBIT_PERIODS_X = [6.9, 8.7, 9.3, 11.1, 12.3];
+const ORBIT_PERIODS_Y = [8.7, 11.1, 6.9, 12.3, 9.3];
 
 // Ceilings — maximums at intensity 1 (slider 100), not targets. Position and
-// scale are the ONLY things ever modulated. Roughly tripled from the first
-// pass (2026-09-04: the original ceilings were technically animating but
-// too subtle to confidently perceive — "working, just under-tuned"). These
-// are a deliberately-large first pass to get into visible range; dial back
-// from here once they're confirmed not to break the composition.
-const MAX_POSITION_DRIFT_PCT = 9; // +/- % of viewport (was 3)
-const MAX_SCALE_SWING = 0.2; // +/- fraction of the blob's radial-gradient stop (was 0.08)
-const MAX_HIGH_PULSE = 0.08; // +/- fraction, smallest blob only, additive (was 0.03)
-const MID_SPEED_MAX = 0.4; // up to +40% orbit tempo at full mid energy (unchanged)
+// scale are the ONLY things ever modulated. Raised twice now (2026-09-04):
+// first pass ~3x, still reported "too subtle" both for baseline drift and
+// for the audio reaction, so this pass is deliberately aggressive rather
+// than incremental — meant to overshoot and get dialed back rather than
+// undershoot a third time.
+//
+// MAX_POSITION_DRIFT_PCT in particular is now large enough that blobs are
+// NOT clamped to stay inside the viewport or away from each other — at full
+// amplitude + adverse phase alignment, a blob whose base position is near an
+// edge (e.g. BASE_BLOB_POS's [80, 18] or [16, 82]) can legitimately animate
+// past 0%/100% (off-canvas) or close enough to a neighboring blob's base
+// position to blend into it. This is intentional per instruction ("tell me
+// what value that happened at rather than silently clamping") — nothing
+// here clamps x/y, only scaleOffset is clamped (to its own ceiling, not to
+// keep blobs apart).
+const MAX_POSITION_DRIFT_PCT = 25; // +/- % of viewport (was 9, before that 3)
+const MAX_SCALE_SWING = 0.4; // +/- fraction of the blob's radial-gradient stop (was 0.2, before that 0.08)
+const MAX_HIGH_PULSE = 0.15; // +/- fraction, smallest blob only, additive (was 0.08, before that 0.03)
+const MID_SPEED_MAX = 0.4; // up to +40% orbit tempo at full mid energy (unchanged so far)
 
-// EMA time constants. Attack is now MUCH faster than the original 180ms —
-// that was smearing individual kick hits into a constant level, which reads
-// as "no reaction." Release stays slow so the motion settles rather than
-// twitching back down between hits.
-const ATTACK_MS = 50; // was 180 — fast enough for a kick to snap
-const RELEASE_MS = 350; // was 320 — slightly slower, settles smoothly
+// Applied to the SMOOTHED low/mid/high values (below) before they scale
+// position/scale/speed — separate lever from the ceilings above. Doubling
+// this means a band only needs to reach half its previous "loudness" to
+// produce full-ceiling movement; the final amount of movement is still
+// capped by MAX_SCALE_SWING/MAX_HIGH_PULSE (scaleOffset is clamped to
+// those). No clamp is applied to the gained value itself before use, so
+// gain > 1 mostly just means the ceiling gets hit more easily/often, not
+// that motion exceeds the ceiling.
+const AUDIO_REACTION_GAIN = 2; // was implicitly 1 (no gain stage existed before)
+
+// EMA time constants. Attack is much faster than the original 180ms — that
+// was smearing individual kick hits into a constant level. Release stays
+// slow so the motion settles rather than twitching back down between hits.
+const ATTACK_MS = 50;
+const RELEASE_MS = 350;
 
 // FFT analysis is throttled well below 60fps (an FFT per frame isn't free);
 // the visual smoothing above still advances every rAF frame regardless, so
 // motion interpolates smoothly between analysis samples instead of stepping.
+// This is the ONLY smoothing/interpolation applied to band values between
+// getFrequencyBands() and the final rendered position — audited 2026-09-04
+// in response to "is anything applying additional smoothing after the EMA":
+// no CSS transition on background-image (removed earlier, see styles.css),
+// no other lerp/interpolation layer anywhere in this file or in
+// getFrequencyBands() besides its own envelope normalization (a separate,
+// much slower — 1.5s — process; see Waveform.jsx).
 const ANALYSIS_INTERVAL_MS = 33; // ~30Hz
 
 // TEMPORARY TUNING SCAFFOLDING — not a feature, remove once the audio
@@ -75,7 +107,11 @@ const ANALYSIS_INTERVAL_MS = 33; // ~30Hz
 // ORBIT_PERIODS at all) so only the audio-reactive scale breathing/pulse is
 // visible, making it possible to see whether kicks are actually snapping
 // blob scale without the baseline motion masking it. Scale reaction still
-// respects the intensity slider. Flip back to false before shipping/committing final tuning.
+// respects the intensity slider. Also turns on periodic console logging
+// (~1/sec) of the smoothed band values and resulting scale offsets, so the
+// reaction's actual magnitude can be read from the console without relying
+// on eyeballing subtle motion. Flip back to false before shipping/committing
+// final tuning — this must be false in any committed/shipped build.
 const DEBUG_ISOLATE_AUDIO_REACTION = false;
 
 function emaStep(current, target, dtMs, tauMs) {
@@ -130,6 +166,8 @@ export function useGradientDrift({ elRef, palette, backdropStyle, intensity, isP
       targets: { low: 0, mid: 0, high: 0 }
     };
     const smallestIdx = colors.length - 1;
+    // TEMP DEBUG (DEBUG_ISOLATE_AUDIO_REACTION tuning pass) — remove with the flag above
+    let debugFrameCount = 0;
 
     function renderStatic() {
       // intensity 0 must be pixel-identical to the un-animated backdrop —
@@ -155,6 +193,7 @@ export function useGradientDrift({ elRef, palette, backdropStyle, intensity, isP
       if (!state.lastTs) state.lastTs = ts;
       const dt = ts - state.lastTs;
       state.lastTs = ts;
+      debugFrameCount++;
 
       // Refresh analysis targets at a throttled rate; every-frame work below
       // just smooths toward whatever the latest targets are. No audio (or
@@ -172,14 +211,22 @@ export function useGradientDrift({ elRef, palette, backdropStyle, intensity, isP
       s.mid = emaStep(s.mid, t.mid, dt, s.mid < t.mid ? ATTACK_MS : RELEASE_MS);
       s.high = emaStep(s.high, t.high, dt, s.high < t.high ? ATTACK_MS : RELEASE_MS);
 
+      // gain applied post-smoothing, pre-use — see AUDIO_REACTION_GAIN above
+      const gLow = s.low * AUDIO_REACTION_GAIN;
+      const gMid = s.mid * AUDIO_REACTION_GAIN;
+      const gHigh = s.high * AUDIO_REACTION_GAIN;
+
       // mid band nudges TEMPO, not position — integrate speed over real
       // elapsed time so a changing multiplier never pops the orbit phase
-      const speedMultiplier = 1 + intensityFraction * MID_SPEED_MAX * s.mid;
+      const speedMultiplier = 1 + intensityFraction * MID_SPEED_MAX * gMid;
       state.effectiveTime += (dt / 1000) * speedMultiplier;
 
       // TEMPORARY: see DEBUG_ISOLATE_AUDIO_REACTION above — forces position
       // amplitude to 0 so only audio-reactive scale is visible, for tuning.
       const amp = DEBUG_ISOLATE_AUDIO_REACTION ? 0 : intensityFraction * MAX_POSITION_DRIFT_PCT;
+
+      // TEMP DEBUG (DEBUG_ISOLATE_AUDIO_REACTION tuning pass) — remove with the flag above
+      const debugBlobs = DEBUG_ISOLATE_AUDIO_REACTION ? [] : null;
 
       const layers = colors.map((c, i) => {
         const [baseX, baseY] = BASE_BLOB_POS[i % BASE_BLOB_POS.length];
@@ -192,15 +239,28 @@ export function useGradientDrift({ elRef, palette, backdropStyle, intensity, isP
 
         // low band breathes the LOWER blobs' scale; high band adds a small
         // extra pulse on the smallest (least-dominant) blob only
-        let scaleOffset = baseY > 50 ? intensityFraction * MAX_SCALE_SWING * s.low : 0;
-        if (i === smallestIdx) scaleOffset += intensityFraction * MAX_HIGH_PULSE * s.high;
+        let scaleOffset = baseY > 50 ? intensityFraction * MAX_SCALE_SWING * gLow : 0;
+        if (i === smallestIdx) scaleOffset += intensityFraction * MAX_HIGH_PULSE * gHigh;
         scaleOffset = Math.max(-MAX_SCALE_SWING, Math.min(MAX_SCALE_SWING, scaleOffset));
         const stopPct = 60 * (1 + scaleOffset);
+
+        // TEMP DEBUG (DEBUG_ISOLATE_AUDIO_REACTION tuning pass) — remove with the flag above
+        if (debugBlobs) debugBlobs.push({ i, x: +x.toFixed(1), y: +y.toFixed(1), scaleOffset: +scaleOffset.toFixed(3) });
 
         return `radial-gradient(circle at ${x.toFixed(2)}% ${y.toFixed(2)}%, ${withAlpha(c, 0.85)} 0%, transparent ${stopPct.toFixed(2)}%)`;
       });
 
       el.style.backgroundImage = layers.join(', ');
+
+      // TEMP DEBUG (DEBUG_ISOLATE_AUDIO_REACTION tuning pass) — remove with the flag above
+      if (DEBUG_ISOLATE_AUDIO_REACTION && debugFrameCount % 30 === 0) {
+        console.log('[GRADIENT-TUNE] smoothed bands (post-gain) + blobs', {
+          raw: { low: +t.low.toFixed(3), mid: +t.mid.toFixed(3), high: +t.high.toFixed(3) },
+          smoothed: { low: +s.low.toFixed(3), mid: +s.mid.toFixed(3), high: +s.high.toFixed(3) },
+          gained: { low: +gLow.toFixed(3), mid: +gMid.toFixed(3), high: +gHigh.toFixed(3) },
+          blobs: debugBlobs
+        });
+      }
     }
 
     // seed synchronously (before paint) so there's no flash between React's
