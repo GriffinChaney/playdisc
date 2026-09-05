@@ -1952,38 +1952,66 @@ body {
   -webkit-app-region: no-drag;
 }
 
-/* thin vertical volume bar, entirely outside .mini-artwork (see MiniPlayer.jsx
-   for why — the cover is the click target for exiting mini mode). Hidden by
-   default, faded in on hovering the whole mini-player window, not just the
-   bar itself. Right edge chosen for consistency with the app's own
-   .volume-control, which also sits bottom-right; the ~30px gutter on either
-   side of the 168px-wide artwork column leaves comfortable room either way. */
-.mini-volume {
+/* Mini mode's volume control (2026-09-05 rework): a real control of its own
+   (not the app's shared .volume-control reused via CSS rotation — rotating
+   that whole pill to get a vertical bar also rotated the speaker icon
+   sideways, since there's no way to rotate just the track without rotating
+   its children). Bottom-right corner of the WHOLE window, well clear of
+   .mini-artwork (the cover is the click target for exiting mini mode, so
+   nothing may sit on top of it or compete for that click). Hidden until
+   .mini-hovering, set via JS mouseenter/mouseleave on .mini-player rather
+   than a plain CSS :hover — the whole card carries -webkit-app-region: drag
+   for window-dragging, which made a CSS-only :hover unreliable (it only lit
+   up over specific sub-regions instead of the whole card). */
+.mini-volume-control {
   position: absolute;
-  top: 14px;
-  bottom: 6px;
-  right: 8px;
-  width: 5px;
-  border-radius: 3px;
-  background: var(--border);
-  cursor: pointer;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  backdrop-filter: blur(20px) saturate(1.6);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  border: 0.5px solid var(--border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
   opacity: 0;
   pointer-events: none;
   transition: opacity 150ms ease;
   -webkit-app-region: no-drag;
-  z-index: 5;
+  z-index: 65;
 }
-.mini-player:hover .mini-volume {
+.mini-player.mini-hovering .mini-volume-control {
   opacity: 1;
   pointer-events: auto;
 }
-.mini-volume-fill {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  border-radius: 3px;
+.mini-volume-icon {
+  flex-shrink: 0;
+}
+/* Same thumb/track language as .volume-slider, just vertical via the
+   -webkit-appearance keyword instead of a rotate() transform — the icon
+   above stays upright since nothing here rotates the pill itself. */
+.mini-volume-slider {
+  -webkit-appearance: slider-vertical;
+  appearance: slider-vertical;
+  width: 4px;
+  height: 56px;
+  background: var(--border);
+  border-radius: 2px;
+  cursor: pointer;
+  outline: none;
+}
+.mini-volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
   background: var(--text-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
 }
 
 .mini-title {
@@ -2013,6 +2041,33 @@ body {
 }
 .mini-transport button:hover {
   transform: scale(1.15);
+}
+/* Replaces the old right-click "Shuffle" context menu on the cover
+   (2026-09-05) — same hover-to-reveal as .mini-volume-control, driven by
+   the same JS .mini-hovering class rather than plain CSS :hover (see the
+   comment on .mini-volume-control for why plain :hover is unreliable here).
+   Kept in the flex flow (not display:none) so it doesn't shift the other
+   transport buttons when it fades in/out. */
+.mini-shuffle-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease, transform 0.12s ease;
+}
+.mini-player.mini-hovering .mini-shuffle-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+/* filled-circle active state, same treatment as the focus view's shuffle
+   button over a backdrop */
+.mini-player.has-backdrop .mini-shuffle-btn.active {
+  background: rgba(255, 255, 255, 0.18);
+  color: #f4f4f2;
 }
 .mini-transport .play-btn {
   width: 28px;

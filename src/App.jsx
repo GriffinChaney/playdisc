@@ -2564,7 +2564,6 @@ export default function App() {
         onSetVolume={handleSetVolume}
         shuffleEnabled={shuffleEnabled}
         onToggleShuffle={handleToggleShuffle}
-        onOpenMenu={setContextMenu}
         movementIntensity={backgroundMovement}
         getFrequencyBands={() => waveformRef.current?.getFrequencyBands()}
       />
