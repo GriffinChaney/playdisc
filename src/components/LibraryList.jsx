@@ -243,6 +243,26 @@ function LibraryList({
   // scrolled past a threshold. Boolean only — never store the scroll offset
   // in state. 80/40 hysteresis so resting on the boundary doesn't flicker.
   const [shrunk, setShrunk] = useState(false);
+  // How many px the FULL header (hero-cover playlists only — see .lib-header
+  // in styles.css, `shrunk` only ever combines with `.full`) loses when it
+  // collapses: cover 200px -> 64px (.lib-header-cover / .lib-header.shrunk
+  // .lib-header-cover) is 136px of it, the rest is the title's font-size
+  // drop (40px -> 20px, .lib-header.full .lib-title /
+  // .lib-header.full.shrunk .lib-title) plus the description collapsing to
+  // nothing (.lib-header.full.shrunk .playlist-hero-desc). Rounded up for
+  // safety margin. `.track-list` is `flex: 1` in the same flex column as
+  // `.lib-header`, so this whole delta becomes extra clientHeight on the
+  // list the instant the header shrinks — see the guard in handleScroll
+  // below for why that number matters here specifically. If those CSS rules
+  // are ever retuned, bump this to match, or the guard below under/over-
+  // corrects. (Measuring it live was considered instead of hardcoding it:
+  // rejected because the very first shrink of a session has nothing to
+  // measure yet — the shrunk height isn't known until a shrink has already
+  // happened once — so a hardcoded fallback would be needed regardless, and
+  // the header's box model is otherwise fixed pixel values, not
+  // content-dependent, so a hardcoded constant isn't fighting real runtime
+  // variability the way it might elsewhere.)
+  const HEADER_SHRINK_DELTA = 180;
   // identity of the currently-shown TRACK ORDER: changes on a playlist
   // switch or a sort change, resetting scroll to top — but NOT on a
   // list<->grid toggle, which shows the same tracks in the same order and
@@ -313,9 +333,29 @@ function LibraryList({
   // to tell TrackItem which row to render expanded.
   function handleScroll(e) {
     if (scrollPosRef) scrollPosRef.current = e.currentTarget.scrollTop;
-    const y = e.currentTarget.scrollTop;
+    const el = e.currentTarget;
+    const y = el.scrollTop;
     setShrunk((prev) => {
-      if (!prev && y > 80) return true;
+      if (!prev && y > 80) {
+        // Would shrinking right now immediately clamp scrollTop back below
+        // the un-shrink threshold? `.track-list` is `flex: 1` alongside
+        // `.lib-header` (see HEADER_SHRINK_DELTA above), so a shrink hands
+        // the list HEADER_SHRINK_DELTA more clientHeight — shrinking the
+        // browser's own max scrollTop (scrollHeight - clientHeight) by the
+        // same amount. If that would already put the new max below 40, the
+        // browser force-clamps scrollTop there the instant we shrink, which
+        // immediately re-triggers the un-shrink branch below, which undoes
+        // the clientHeight change, which lets the very next scroll tick
+        // cross 80 again — a rapid, sustained oscillation between the two
+        // states. Refuse the shrink here instead: it was never going to
+        // hold at this scroll position anyway. Re-evaluated fresh on every
+        // scroll event (nothing here is "sticky"), so scrolling on to a
+        // position with enough room shrinks it normally on the very next
+        // event — this never permanently disables shrinking for the list.
+        const maxIfShrunk = el.scrollHeight - (el.clientHeight + HEADER_SHRINK_DELTA);
+        if (maxIfShrunk < 40) return prev;
+        return true;
+      }
       if (prev && y < 40) return false;
       return prev;
     });
