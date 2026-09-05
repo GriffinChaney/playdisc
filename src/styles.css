@@ -1958,20 +1958,22 @@ body {
    sideways, since there's no way to rotate just the track without rotating
    its children). Bottom-right corner of the WHOLE window, well clear of
    .mini-artwork (the cover is the click target for exiting mini mode, so
-   nothing may sit on top of it or compete for that click). Hidden until
-   .mini-hovering, set via JS mouseenter/mouseleave on .mini-player rather
-   than a plain CSS :hover — the whole card carries -webkit-app-region: drag
-   for window-dragging, which made a CSS-only :hover unreliable (it only lit
-   up over specific sub-regions instead of the whole card). */
+   nothing may sit on top of it or compete for that click) — width and
+   `right` tuned so it clears the cover's own edge (168px, centered in the
+   240px window) with a small gap on both sides, not just narrower but also
+   not flush against the window edge. Hidden until .mini-hovering, set via a
+   JS mouseenter/mouseleave pair on `document` (see the effect above) rather
+   than a plain CSS :hover or a listener on this element itself — see that
+   effect's comment for why. */
 .mini-volume-control {
   position: absolute;
-  right: 10px;
+  right: 6px;
   bottom: 10px;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  padding: 10px 7px;
+  padding: 10px 5px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--surface) 70%, transparent);
   backdrop-filter: blur(20px) saturate(1.6);
@@ -1991,16 +1993,33 @@ body {
 .mini-volume-icon {
   flex-shrink: 0;
 }
-/* Same thumb/track language as .volume-slider, just vertical via the
-   -webkit-appearance keyword instead of a rotate() transform — the icon
-   above stays upright since nothing here rotates the pill itself. */
+/* Same thumb/gradient-fill language as .volume-slider (`--vol-pct`, same
+   colors — no purple here, see below), vertical via `writing-mode` +
+   `direction: rtl` rather than `-webkit-appearance: slider-vertical`. That
+   native keyword LOOKED right but painted its own fill using the OS's
+   accent color (purple on this Mac) instead of respecting the
+   `background`/`--vol-pct` gradient below — the exact same reason every
+   other slider in the app uses `appearance: none` and draws its own fill:
+   only fully suppressing native chrome stops native accent-color painting
+   from taking over. `writing-mode: vertical-lr` gives a real vertical
+   layout box (width = thickness, height = length) with no rotate()
+   transform, so unlike a rotated horizontal slider there's no
+   rotated-footprint size mismatch to fight (the box's own width/height are
+   already what's on screen). `direction: rtl` keeps min at the bottom /
+   max at the top, matching the old hand-rolled bar's convention. */
 .mini-volume-slider {
-  -webkit-appearance: slider-vertical;
-  appearance: slider-vertical;
+  -webkit-appearance: none;
+  appearance: none;
+  writing-mode: vertical-lr;
+  direction: rtl;
   width: 4px;
   height: 56px;
-  background: var(--border);
   border-radius: 2px;
+  background: linear-gradient(
+    to top,
+    var(--text-primary) var(--vol-pct, 100%),
+    var(--border) var(--vol-pct, 100%)
+  );
   cursor: pointer;
   outline: none;
 }
@@ -2026,6 +2045,7 @@ body {
 }
 
 .mini-transport {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -2046,9 +2066,26 @@ body {
    (2026-09-05) — same hover-to-reveal as .mini-volume-control, driven by
    the same JS .mini-hovering class rather than plain CSS :hover (see the
    comment on .mini-volume-control for why plain :hover is unreliable here).
-   Kept in the flex flow (not display:none) so it doesn't shift the other
-   transport buttons when it fades in/out. */
+   Taken OUT of .mini-transport's flex flow via absolute positioning
+   (2026-09-05, was a plain flex child): the row is centered under the
+   cover by the parent `.mini-player`'s own `align-items: center`, which
+   centers based on the row's rendered width — a normal flex child, even
+   one that's only opacity-hidden rather than display:none, still counts
+   toward that width, so prev/play/next ended up off-center by roughly half
+   this button's own width whenever it was in flow. Positioning it relative
+   to `.mini-transport` (now `position: relative`) instead means the
+   centered row's width is exactly prev+play+next, same as before shuffle
+   existed, in every state (hidden, fading, fully shown). `right: 100%`
+   parks its own right edge flush with the transport row's left edge; the
+   added px is the gap, matching the row's own button gap. The hover
+   scale-up from `.mini-transport button:hover` above would otherwise fight
+   this button's own vertical centering (both set `transform`), so its
+   hover rule folds `translateY` back in alongside the scale. */
 .mini-shuffle-btn {
+  position: absolute;
+  right: calc(100% + 14px);
+  top: 50%;
+  transform: translateY(-50%);
   width: 22px;
   height: 22px;
   border-radius: 50%;
@@ -2058,6 +2095,12 @@ body {
   opacity: 0;
   pointer-events: none;
   transition: opacity 150ms ease, transform 0.12s ease;
+}
+/* higher specificity than the generic ".mini-transport button:hover" above
+   (needed since that rule would otherwise win and drop the translateY,
+   snapping the button out of vertical-center on hover) */
+.mini-transport button.mini-shuffle-btn:hover {
+  transform: translateY(-50%) scale(1.15);
 }
 .mini-player.mini-hovering .mini-shuffle-btn {
   opacity: 1;
