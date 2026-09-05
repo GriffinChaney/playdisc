@@ -2095,6 +2095,14 @@ body {
   opacity: 0;
   pointer-events: none;
   transition: opacity 150ms ease, transform 0.12s ease;
+  /* Every other mini-mode control sets this on its OWN element (.mini-artwork,
+     .mini-transport, .mini-volume-control) rather than relying on inheriting
+     it from an ancestor — this one was the exception, and being absolutely
+     positioned makes it matter even more: it paints outside .mini-transport's
+     own box (to its left, over what's otherwise just .mini-player's plain
+     "drag" background), so without its own explicit no-drag its clicks were
+     being read as window-drag gestures instead of button clicks. */
+  -webkit-app-region: no-drag;
 }
 /* higher specificity than the generic ".mini-transport button:hover" above
    (needed since that rule would otherwise win and drop the translateY,
