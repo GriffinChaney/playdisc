@@ -42,5 +42,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const listener = () => cb();
     ipcRenderer.on('close-active-modal', listener);
     return () => ipcRenderer.removeListener('close-active-modal', listener);
+  },
+  // OS-level media keys — literal F7/F8/F9 and the Media* keys, registered
+  // always (launch to quit) in main.js via globalShortcut. Payload is one of
+  // 'playpause' | 'previous' | 'next'. Returns an unsubscribe fn.
+  onMediaKey: (cb) => {
+    const listener = (_event, action) => cb(action);
+    ipcRenderer.on('media-key', listener);
+    return () => ipcRenderer.removeListener('media-key', listener);
   }
 });

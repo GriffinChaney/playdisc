@@ -1495,6 +1495,22 @@ export default function App() {
     handleAdoptAndPlay(sorted[nextIdx].id, { autoPlay: true });
   }, [tracks, playingTrackId, currentTrackId, handleAdoptAndPlay, queue, shuffleEnabled, repeatMode, goToHistory, stepHistory, orderedContextTracks]);
 
+  // OS-level media keys — literal F7/F8/F9 and the Media* keys, registered
+  // always for the app's whole lifetime (electron/main.js, via
+  // globalShortcut) — forwarded over IPC and routed into the exact same
+  // handlers the in-app transport buttons and playPause/next/prev
+  // keybindings use, not a parallel playback path. Declared after
+  // handleTogglePlay/handleSkip since it closes over both.
+  useEffect(
+    () =>
+      window.electronAPI?.onMediaKey?.((action) => {
+        if (action === 'playpause') handleTogglePlay();
+        else if (action === 'previous') handleSkip(-1);
+        else if (action === 'next') handleSkip(1);
+      }),
+    [handleTogglePlay, handleSkip]
+  );
+
   // audioprocess fires many times a second — updating currentTime state on
   // every tick meant the whole app re-rendered constantly during playback,
   // which was very likely why clicks (like browsing to another track) felt
@@ -2236,6 +2252,11 @@ export default function App() {
         onTogglePlay={() => waveformRef.current?.toggle()}
         onSkip={handleSkip}
         onExit={() => setView('sidebar')}
+        volume={volume}
+        onSetVolume={handleSetVolume}
+        shuffleEnabled={shuffleEnabled}
+        onToggleShuffle={handleToggleShuffle}
+        onOpenMenu={setContextMenu}
         movementIntensity={backgroundMovement}
         getFrequencyBands={() => waveformRef.current?.getFrequencyBands()}
       />

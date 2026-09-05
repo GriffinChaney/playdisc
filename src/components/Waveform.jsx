@@ -219,6 +219,16 @@ const Waveform = forwardRef(function Waveform(
       onPlayStateChange?.(false);
       stopEqualizerLoop();
     });
+    // A decode/network failure doesn't reliably fire 'pause' on every
+    // platform, which would leave isPlaying stuck true — and downstream,
+    // main.js's global media keys stuck registered (see App.jsx's
+    // setPlaybackActive effect, which is keyed on isPlaying). Treat any
+    // wavesurfer error as an explicit stop.
+    ws.on('error', (err) => {
+      console.error('[waveform] playback error:', err);
+      onPlayStateChange?.(false);
+      stopEqualizerLoop();
+    });
 
     // Drives the little pixel-bar equalizer strip independently of
     // wavesurfer's own event cadence, sampling a window of decoded audio

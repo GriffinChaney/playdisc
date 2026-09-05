@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { eventToKeyString, formatKeyLabel } from '../lib/keybindings';
+import { useWheelSlider } from '../lib/useWheelSlider';
 
 // Settings surface: a sidebar of sections + a content pane, with a search
 // bar across the top that filters settings from every section into a flat
@@ -20,40 +21,6 @@ const SECTIONS = [
 ];
 
 const MODIFIER_KEYS = new Set(['Shift', 'Meta', 'Control', 'Alt']);
-
-// Scroll-wheel support for a range slider — 2026-09-05. React's own onWheel
-// prop is silently useless for this: React registers its delegated wheel
-// listener as passive, so e.preventDefault() inside a JSX onWheel handler
-// throws "Unable to preventDefault inside passive event listener
-// invocation." and does nothing, letting the scroll fall through to
-// whatever's behind the slider. A real, non-delegated addEventListener with
-// {passive:false} is the only way to actually claim the wheel event. Value/
-// onChange are read through refs (updated every render) so the listener
-// itself only needs to be (re)attached when the DOM node changes identity
-// (mount/unmount — e.g. switching Settings sections), not every render.
-// Reusable for any other slider that wants the same behavior.
-function useWheelSlider(value, onChange, step) {
-  const valueRef = useRef(value);
-  valueRef.current = value;
-  const onChangeRef = useRef(onChange);
-  onChangeRef.current = onChange;
-  const cleanupRef = useRef(null);
-
-  return (el) => {
-    if (cleanupRef.current) {
-      cleanupRef.current();
-      cleanupRef.current = null;
-    }
-    if (!el) return;
-    function onWheel(e) {
-      e.preventDefault();
-      const delta = e.deltaY < 0 ? step : -step;
-      onChangeRef.current(Math.min(100, Math.max(0, valueRef.current + delta)));
-    }
-    el.addEventListener('wheel', onWheel, { passive: false });
-    cleanupRef.current = () => el.removeEventListener('wheel', onWheel);
-  };
-}
 
 function KeyboardGlyph() {
   return (

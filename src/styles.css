@@ -1864,6 +1864,40 @@ body {
   -webkit-app-region: no-drag;
 }
 
+/* thin vertical volume bar, entirely outside .mini-artwork (see MiniPlayer.jsx
+   for why — the cover is the click target for exiting mini mode). Hidden by
+   default, faded in on hovering the whole mini-player window, not just the
+   bar itself. Right edge chosen for consistency with the app's own
+   .volume-control, which also sits bottom-right; the ~30px gutter on either
+   side of the 168px-wide artwork column leaves comfortable room either way. */
+.mini-volume {
+  position: absolute;
+  top: 14px;
+  bottom: 6px;
+  right: 8px;
+  width: 5px;
+  border-radius: 3px;
+  background: var(--border);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease;
+  -webkit-app-region: no-drag;
+  z-index: 5;
+}
+.mini-player:hover .mini-volume {
+  opacity: 1;
+  pointer-events: auto;
+}
+.mini-volume-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 3px;
+  background: var(--text-primary);
+}
+
 .mini-title {
   font-size: 12px;
   font-weight: 500;
