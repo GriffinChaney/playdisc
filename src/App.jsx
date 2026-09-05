@@ -197,12 +197,12 @@ export default function App() {
   const [missingPaths, setMissingPaths] = useState(() => new Set());
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
   // 0-100: fullscreen background drift/audio-reaction intensity (see
-  // useGradientDrift). Default 50 — noticeably alive at first sight without
-  // starting at the (deliberately subtle) full ceiling; easy to feel out
-  // from there in either direction.
+  // useGradientDrift). Default 61 (2026-09-05, was 50 — retuned by feel;
+  // existing saved values are untouched, this only changes what a fresh
+  // install or a reset lands on).
   const [backgroundMovement, setBackgroundMovement] = useState(() => {
     const saved = parseFloat(localStorage.getItem('backgroundMovement'));
-    return Number.isFinite(saved) ? saved : 50;
+    return Number.isFinite(saved) ? saved : 61;
   });
   const [keybindings, setKeybindingsState] = useState(() => loadKeybindings());
   const [volume, setVolume] = useState(() => {

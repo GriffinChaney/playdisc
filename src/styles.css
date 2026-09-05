@@ -1782,6 +1782,22 @@ body {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
+.settings-slider-value-editable {
+  cursor: text;
+  border-radius: 4px;
+}
+.settings-slider-value-editable:hover {
+  color: var(--text-primary);
+  background: var(--surface-2);
+}
+.settings-slider-value-input {
+  border: none;
+  outline: none;
+  background: var(--surface-2);
+  border-radius: 4px;
+  padding: 0;
+  font-family: inherit;
+}
 
 .keybind-row {
   display: flex;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { eventToKeyString, formatKeyLabel } from '../lib/keybindings';
 import { useWheelSlider } from '../lib/useWheelSlider';
@@ -63,6 +63,52 @@ export default function SettingsModal({
   // 5 points/notch — a few points, not 1 (too fine to feel) and not 20 (too
   // coarse). See useWheelSlider above for why this can't just be onWheel.
   const bgMovementWheelRef = useWheelSlider(backgroundMovement, onSetBackgroundMovement, 5);
+
+  // the number next to the slider is click-to-edit (2026-09-05) — same
+  // commit/cancel shape as the playlist-title inline rename in
+  // LibraryList.jsx: a single blur handler is the one place that decides
+  // whether to save or revert, reached whether the blur was caused by
+  // Enter, Escape, or genuinely clicking away, so there's exactly one commit
+  // path rather than one per trigger.
+  const [editingBgValue, setEditingBgValue] = useState(false);
+  const [bgValueDraft, setBgValueDraft] = useState('');
+  const bgValueCancelledRef = useRef(false);
+  const bgValueInputRef = useRef(null);
+
+  useEffect(() => {
+    if (editingBgValue) {
+      bgValueInputRef.current?.focus();
+      bgValueInputRef.current?.select();
+    }
+  }, [editingBgValue]);
+
+  function startEditingBgValue() {
+    bgValueCancelledRef.current = false;
+    setBgValueDraft(String(Math.round(backgroundMovement)));
+    setEditingBgValue(true);
+  }
+
+  function commitOrCancelBgValue() {
+    setEditingBgValue(false);
+    if (bgValueCancelledRef.current) return;
+    const n = Number(bgValueDraft.trim());
+    // garbage input (empty, non-numeric, NaN) -> quietly revert rather than
+    // clamping something meaningless to 0 or breaking
+    if (!Number.isFinite(n)) return;
+    onSetBackgroundMovement(Math.min(100, Math.max(0, Math.round(n))));
+  }
+
+  // Escape is handled up in the capture-phase handleKeyDown effect below,
+  // not here — it has to run before this ever would (capture always
+  // precedes an input's own bubble-phase onKeyDown), since without that,
+  // Escape fell through to closing the whole Settings modal instead of just
+  // this edit. Only Enter is this handler's to own.
+  function handleBgValueKeyDown(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      e.currentTarget.blur(); // -> commitOrCancelBgValue via onBlur
+    }
+  }
 
   useEffect(() => {
     window.electronAPI?.mediaLibraryDir?.().then(setLibDir).catch(() => {});
@@ -167,6 +213,25 @@ export default function SettingsModal({
         return; // stay in capture mode
       }
 
+      // 2026-09-05: the background-movement value's inline edit is a
+      // sub-mode too, same shape as listeningFor/captureMode above — without
+      // this, this handler's own capture-phase Escape (below) fired FIRST
+      // (capture always precedes the input's own bubble-phase onKeyDown) and
+      // closed the whole Settings modal out from under the edit instead of
+      // just cancelling it. bgValueCancelledRef (read in
+      // commitOrCancelBgValue) still needs to be set here: removing the
+      // <input> by flipping editingBgValue false fires a native blur as it
+      // unmounts, which would otherwise commit the (to-be-discarded) draft.
+      if (editingBgValue) {
+        if (isDismiss) {
+          e.preventDefault();
+          e.stopPropagation();
+          bgValueCancelledRef.current = true;
+          setEditingBgValue(false);
+        }
+        return;
+      }
+
       if (isDismiss) {
         e.preventDefault();
         // Unlike the listeningFor/captureMode branches above, this one used
@@ -185,7 +250,7 @@ export default function SettingsModal({
     }
     document.addEventListener('keydown', handleKeyDown, true);
     return () => document.removeEventListener('keydown', handleKeyDown, true);
-  }, [listeningFor, captureMode, query, capturedKey, onClose, onSetKeybindings]);
+  }, [listeningFor, captureMode, editingBgValue, query, capturedKey, onClose, onSetKeybindings]);
 
   function goToSection(id) {
     setQuery('');
@@ -264,7 +329,26 @@ export default function SettingsModal({
                 style={{ '--vol-pct': `${backgroundMovement}%` }}
                 aria-label="background movement"
               />
-              <span className="settings-slider-value">{Math.round(backgroundMovement)}</span>
+              {editingBgValue ? (
+                <input
+                  ref={bgValueInputRef}
+                  className="settings-slider-value settings-slider-value-input"
+                  value={bgValueDraft}
+                  onChange={(e) => setBgValueDraft(e.target.value)}
+                  onKeyDown={handleBgValueKeyDown}
+                  onBlur={commitOrCancelBgValue}
+                  inputMode="numeric"
+                  maxLength={4}
+                />
+              ) : (
+                <span
+                  className="settings-slider-value settings-slider-value-editable"
+                  onClick={startEditingBgValue}
+                  title="click to type an exact value"
+                >
+                  {Math.round(backgroundMovement)}
+                </span>
+              )}
             </div>
           </div>
         );
