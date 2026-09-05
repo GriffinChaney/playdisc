@@ -3,9 +3,13 @@ import { useLayoutEffect, useRef } from 'react';
 // Ambient audio-reactive motion for the cover-derived mesh backdrop, shared
 // by FocusView (fullscreen) and MiniPlayer (2026-09-05: extended to
 // MiniPlayer — same hook, same slider, see isMini/MINI_INTENSITY_SCALE
-// below; FocusView and MiniPlayer are mutually exclusive views in App.jsx's
-// `view` state, so only one instance of this hook is ever actively
-// animating at a time — no shared/throttled analysis needed). Position +
+// below). FocusView and MiniPlayer are BOTH always mounted now (App.jsx
+// hides the inactive view with CSS rather than unmounting it — see the
+// always-mounted WaveformSlot rework), so "only one instance animating at a
+// time" is no longer a free consequence of the view switch: it's enforced
+// explicitly by the `active` option below. An inactive caller runs no rAF
+// loop at all — not a throttled one, none — so a hidden view never burns a
+// frame budget and there is never more than one loop alive. Position +
 // scale ONLY — never color/opacity/blob count, so the composition stays
 // unmistakably the same image, just alive (same colors/blur/feel —
 // 2026-09-04: the "blobs never leave their home zone" constraint was
@@ -148,8 +152,18 @@ function emaStep(current, target, dtMs, tauMs) {
  * @param {boolean} opts.isPlaying - read fresh every frame via ref
  * @param {() => {low:number, mid:number, high:number}} [opts.getFrequencyBands] - read fresh every frame via ref
  * @param {boolean} [opts.isMini] - true for the MiniPlayer caller; scales the whole effect by MINI_INTENSITY_SCALE. Static per mount, doesn't need a ref.
+ * @param {boolean} [opts.active] - false while the calling view is hidden (App.jsx keeps every view mounted and CSS-hides the inactive ones). An inactive caller runs NO rAF loop; going active starts a fresh one, easing in from the static baseline exactly like a palette change does. A real dependency, not a ref: toggling it must start/stop the loop.
  */
-export function useGradientDrift({ elRef, palette, backdropStyle, intensity, isPlaying, getFrequencyBands, isMini = false }) {
+export function useGradientDrift({
+  elRef,
+  palette,
+  backdropStyle,
+  intensity,
+  isPlaying,
+  getFrequencyBands,
+  isMini = false,
+  active = true
+}) {
   // Frequently-changing values are read through refs, updated on every
   // render below, and deliberately kept OUT of the effect's dependency
   // array. currentTime ticks every 200ms and would otherwise re-run this
@@ -167,6 +181,9 @@ export function useGradientDrift({ elRef, palette, backdropStyle, intensity, isP
   const rafRef = useRef(0);
 
   useLayoutEffect(() => {
+    // hidden view: no loop at all. The cleanup from the previous run (below)
+    // has already cancelled any frame, so this is a hard stop, not a pause.
+    if (!active) return;
     const el = elRef.current;
     const colors = palette?.colors;
     if (!el || !colors || !colors.length) return; // nothing to animate
@@ -280,6 +297,7 @@ export function useGradientDrift({ elRef, palette, backdropStyle, intensity, isP
     renderStatic();
     rafRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafRef.current);
+    // `active` is a deliberate dependency: it must start/stop the loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [elRef, palette]);
+  }, [elRef, palette, active]);
 }

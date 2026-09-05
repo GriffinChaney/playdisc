@@ -34,11 +34,23 @@ export default function FocusView({
   repeatMode,
   onCycleRepeat,
   movementIntensity = 0,
-  getFrequencyBands
+  getFrequencyBands,
+  // Always mounted — App.jsx CSS-hides this view (`view-hidden`) instead of
+  // unmounting it, so the shared waveform host node is never detached from
+  // the document on a view switch. See the always-mounted WaveformSlot rework.
+  active = true
 }) {
   const artworkUrl = useObjectUrl(track?.artworkBlob);
-  const dominantColor = useDominantColor(track?.artworkBlob);
-  const palette = useArtworkPalette(track?.artworkBlob);
+  // Freeze the blob the palette hooks see while hidden, so a hidden focus
+  // view never re-samples a cover for track changes it isn't showing
+  // (palette extraction has no cache — see dominantColor.js). On show it
+  // catches up once; if the track didn't change while hidden the blob is
+  // identical and nothing re-runs.
+  const heldBlobRef = useRef(track?.artworkBlob ?? null);
+  if (active) heldBlobRef.current = track?.artworkBlob ?? null;
+  const paletteBlob = heldBlobRef.current;
+  const dominantColor = useDominantColor(paletteBlob);
+  const palette = useArtworkPalette(paletteBlob);
   // Cover-derived mesh backdrop (see meshBackdrop.js). undefined when the
   // track has no artwork — then the view keeps the plain theme background
   // and `has-backdrop` is off so the CSS doesn't force light-on-dark text.
@@ -49,20 +61,21 @@ export default function FocusView({
   // A no-op without a multi-blob palette (the single-ellipse dominantColor
   // fallback and the no-artwork case are left completely alone); at
   // intensity 0 it renders backdropStyle verbatim, pixel-identical to before
-  // this feature existed.
+  // this feature existed. `active` gates the rAF loop entirely while hidden.
   useGradientDrift({
     elRef: focusRef,
     palette,
     backdropStyle,
     intensity: movementIntensity,
     isPlaying,
-    getFrequencyBands
+    getFrequencyBands,
+    active
   });
 
   return (
     <div
       ref={focusRef}
-      className={`focus-view${backdropStyle ? ' has-backdrop' : ''}`}
+      className={`focus-view${backdropStyle ? ' has-backdrop' : ''}${active ? '' : ' view-hidden'}`}
       style={palette ? { backgroundColor: backdropStyle.backgroundColor } : backdropStyle}
     >
       <button className="back-btn" onClick={onExitFocus}>
@@ -88,7 +101,7 @@ export default function FocusView({
 
       <div className="focus-waveform-wrap">
         <div className="waveform-inner">
-          <WaveformSlot host={waveformHost} />
+          <WaveformSlot host={waveformHost} active={active} />
           {!isCurrentlyPlayingTrack && (
             <div className="waveform-placeholder-overlay">press play to switch playback to this track</div>
           )}

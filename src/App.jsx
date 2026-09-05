@@ -74,6 +74,8 @@ export default function App() {
   const [currentTrackId, setCurrentTrackId] = useState(null);
   const [playingTrackId, setPlayingTrackId] = useState(null);
   const [view, setView] = useState('sidebar'); // 'sidebar' | 'focus' | 'mini'
+  const viewRef = useRef(view);
+  viewRef.current = view;
 
   // playlists + which left-nav item the middle column is showing
   const [playlists, setPlaylists] = useState([]);
@@ -143,6 +145,13 @@ export default function App() {
   const [pendingFocusSearch, setPendingFocusSearch] = useState(false);
   const [expandedTrackId, setExpandedTrackId] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // true while Settings was opened from mini mode, so closing it returns
+  // there instead of leaving the window in the normal view. Transient by
+  // design — doesn't need to survive a restart. Opening from the normal
+  // view or fullscreen doesn't touch `view` at all (see handleOpenSettings),
+  // so those cases need no equivalent flag: closing just leaves `view`
+  // wherever it already was, which is already the desired behavior.
+  const [returnToMiniAfterSettings, setReturnToMiniAfterSettings] = useState(false);
   // now-playing notes panel open state — lifted here so the "n" shortcut and
   // the icon click drive the same thing
   const [notesPanelOpen, setNotesPanelOpen] = useState(false);
@@ -676,7 +685,42 @@ export default function App() {
   }, []);
 
   // native menu "Settings…" / Cmd+, (electron/main.js) opens the same modal
-  useEffect(() => window.electronAPI?.onOpenSettings?.(() => setSettingsOpen(true)), []);
+  // everywhere. Mini mode is a real, physically tiny OS window (see the
+  // enterMiniMode/exitMiniMode effect below) that the normal-sized settings
+  // modal can't usefully render inside — so opening from mini first returns
+  // to the normal view. Opening from 'sidebar' or 'focus' deliberately does
+  // NOT touch `view` — both are already full-size windows, Settings just
+  // overlays on top, and closing leaves you exactly where you were. That's
+  // already correct for focus today, so mini reuses the same "don't touch
+  // view unless you have to" principle rather than adding a second,
+  // parallel mechanism.
+  //
+  // History, so nobody re-derives it: this path used to pause playback.
+  // Not because of Settings — diagnostics showed the shared <audio> node had
+  // already been detached and re-attached, and had fired its own native
+  // 'pause', before SettingsModal ever mounted. The cause was the view
+  // switch itself: MiniPlayer/NowPlaying/FocusView each mounted their own
+  // <WaveformSlot> behind a ternary, so mini -> sidebar removed the host
+  // node from the document for ~14ms, and browsers pause a media element
+  // that leaves the document. Fixed at the root by keeping all three views
+  // mounted (see the render below and CLAUDE.md "Single shared WaveSurfer
+  // instance", tag `waveformslot-fixed`) — this handler needs no special
+  // sequencing; a plain setView + setSettingsOpen in one update is correct.
+  const handleOpenSettings = useCallback(() => {
+    if (viewRef.current === 'mini') {
+      setReturnToMiniAfterSettings(true);
+      setView('sidebar');
+    }
+    setSettingsOpen(true);
+  }, []);
+  const handleCloseSettings = useCallback(() => {
+    setSettingsOpen(false);
+    if (returnToMiniAfterSettings) {
+      setView('mini');
+      setReturnToMiniAfterSettings(false);
+    }
+  }, [returnToMiniAfterSettings]);
+  useEffect(() => window.electronAPI?.onOpenSettings?.(handleOpenSettings), [handleOpenSettings]);
 
   // Cmd+W / the native close button (electron/main.js): report whenever any
   // of these three modals is open so main can gate the window's real close
@@ -1978,25 +2022,27 @@ export default function App() {
       {view === 'sidebar' && (
         <button
           className="settings-gear"
-          onClick={() => setSettingsOpen(true)}
+          onClick={handleOpenSettings}
           aria-label="settings"
           title="settings"
         >
           <GearIcon />
         </button>
       )}
-      {view === 'mini' ? (
-        <MiniPlayer
-          track={playingTrack}
-          waveformHost={waveformHostRef.current}
-          isPlaying={isPlaying}
-          onTogglePlay={() => waveformRef.current?.toggle()}
-          onSkip={handleSkip}
-          onExit={() => setView('sidebar')}
-          movementIntensity={backgroundMovement}
-          getFrequencyBands={() => waveformRef.current?.getFrequencyBands()}
-        />
-      ) : view === 'sidebar' ? (
+      {/* The three views that can show the waveform — NowPlaying, FocusView,
+          MiniPlayer — are ALL always mounted; `active` CSS-hides the two that
+          aren't current (display:none via `view-hidden`). They must never be
+          swapped by a ternary: that unmounts the old view's WaveformSlot,
+          detaching the shared <audio> host node from the document, and the
+          browser pauses a detached media element (measured, asynchronously,
+          ~1.4ms after the reattach). Keeping all three mounted means a view
+          switch moves the host between two containers that are both already
+          in the document — one appendChild, never detached, never paused.
+          PlaylistNav/LibraryList hold no audio and stay conditional.
+          DOM order matters: .now-playing has no explicit grid-column and
+          lands in column 3 by auto-placement after nav + list; the hidden
+          focus/mini views generate no grid box (display:none / fixed). */}
+      {view === 'sidebar' && (
         <>
           <PlaylistNav
             playlists={playlists}
@@ -2070,61 +2116,73 @@ export default function App() {
             missingPaths={missingPaths}
             searchInputRef={searchInputRef}
           />
-          <NowPlaying
-            onResizeStart={startResizeNp}
-            track={currentTrack}
-            waveformHost={waveformHostRef.current}
-            isCurrentlyPlayingTrack={isViewingPlayingTrack}
-            isPlaying={isPlaying && isViewingPlayingTrack}
-            currentTime={currentTime}
-            duration={duration}
-            onTogglePlay={handleTogglePlay}
-            onSkip={handleSkip}
-            onRestart={handleRestartTrack}
-            canRestart={!!playingTrack}
-            onEnterFocus={() => setView('focus')}
-            shuffleEnabled={shuffleEnabled}
-            onToggleShuffle={handleToggleShuffle}
-            repeatMode={repeatMode}
-            onCycleRepeat={handleCycleRepeat}
-            mediaMissing={currentMissing}
-            onRelocate={() => {
-              const v = activeVersion(currentTrack);
-              if (v) handleRelocateVersion(currentTrack.id, v.id);
-            }}
-            onAddNote={handleAddNote}
-            onToggleNote={handleToggleNote}
-            onEditNote={handleEditNote}
-            onDeleteNote={handleDeleteNote}
-            onToggleNotePriority={handleToggleNotePriority}
-            onReorderNote={handleReorderNote}
-            onOpenMenu={setContextMenu}
-            onOpenVersions={setVersionsModalTrackId}
-            notesPanelOpen={notesPanelOpen}
-            onNotesPanelOpenChange={setNotesPanelOpen}
-          />
         </>
-      ) : (
-        <FocusView
-          track={currentTrack}
-          waveformHost={waveformHostRef.current}
-          isCurrentlyPlayingTrack={isViewingPlayingTrack}
-          isPlaying={isPlaying && isViewingPlayingTrack}
-          currentTime={currentTime}
-          duration={duration}
-          onTogglePlay={handleTogglePlay}
-          onSkip={handleSkip}
-          onRestart={handleRestartTrack}
-          canRestart={!!playingTrack}
-          onExitFocus={() => setView('sidebar')}
-          shuffleEnabled={shuffleEnabled}
-          onToggleShuffle={handleToggleShuffle}
-          repeatMode={repeatMode}
-          onCycleRepeat={handleCycleRepeat}
-          movementIntensity={backgroundMovement}
-          getFrequencyBands={() => waveformRef.current?.getFrequencyBands()}
-        />
       )}
+      <NowPlaying
+        active={view === 'sidebar'}
+        onResizeStart={startResizeNp}
+        track={currentTrack}
+        waveformHost={waveformHostRef.current}
+        isCurrentlyPlayingTrack={isViewingPlayingTrack}
+        isPlaying={isPlaying && isViewingPlayingTrack}
+        currentTime={currentTime}
+        duration={duration}
+        onTogglePlay={handleTogglePlay}
+        onSkip={handleSkip}
+        onRestart={handleRestartTrack}
+        canRestart={!!playingTrack}
+        onEnterFocus={() => setView('focus')}
+        shuffleEnabled={shuffleEnabled}
+        onToggleShuffle={handleToggleShuffle}
+        repeatMode={repeatMode}
+        onCycleRepeat={handleCycleRepeat}
+        mediaMissing={currentMissing}
+        onRelocate={() => {
+          const v = activeVersion(currentTrack);
+          if (v) handleRelocateVersion(currentTrack.id, v.id);
+        }}
+        onAddNote={handleAddNote}
+        onToggleNote={handleToggleNote}
+        onEditNote={handleEditNote}
+        onDeleteNote={handleDeleteNote}
+        onToggleNotePriority={handleToggleNotePriority}
+        onReorderNote={handleReorderNote}
+        onOpenMenu={setContextMenu}
+        onOpenVersions={setVersionsModalTrackId}
+        notesPanelOpen={notesPanelOpen}
+        onNotesPanelOpenChange={setNotesPanelOpen}
+      />
+      <FocusView
+        active={view === 'focus'}
+        track={currentTrack}
+        waveformHost={waveformHostRef.current}
+        isCurrentlyPlayingTrack={isViewingPlayingTrack}
+        isPlaying={isPlaying && isViewingPlayingTrack}
+        currentTime={currentTime}
+        duration={duration}
+        onTogglePlay={handleTogglePlay}
+        onSkip={handleSkip}
+        onRestart={handleRestartTrack}
+        canRestart={!!playingTrack}
+        onExitFocus={() => setView('sidebar')}
+        shuffleEnabled={shuffleEnabled}
+        onToggleShuffle={handleToggleShuffle}
+        repeatMode={repeatMode}
+        onCycleRepeat={handleCycleRepeat}
+        movementIntensity={backgroundMovement}
+        getFrequencyBands={() => waveformRef.current?.getFrequencyBands()}
+      />
+      <MiniPlayer
+        active={view === 'mini'}
+        track={playingTrack}
+        waveformHost={waveformHostRef.current}
+        isPlaying={isPlaying}
+        onTogglePlay={() => waveformRef.current?.toggle()}
+        onSkip={handleSkip}
+        onExit={() => setView('sidebar')}
+        movementIntensity={backgroundMovement}
+        getFrequencyBands={() => waveformRef.current?.getFrequencyBands()}
+      />
       {playingTrack && !isViewingPlayingTrack && view !== 'mini' && (
         <BackgroundPlayBar
           track={playingTrack}
@@ -2181,7 +2239,7 @@ export default function App() {
           onSetKeybindings={handleSetKeybinding}
           onResetKeybindings={handleResetKeybindings}
           trackCount={tracks.length}
-          onClose={() => setSettingsOpen(false)}
+          onClose={handleCloseSettings}
         />
       )}
       <ContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} />

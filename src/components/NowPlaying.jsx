@@ -42,16 +42,21 @@ export default function NowPlaying({
   onOpenMenu,
   onOpenVersions,
   notesPanelOpen,
-  onNotesPanelOpenChange
+  onNotesPanelOpenChange,
+  // Always mounted — App.jsx CSS-hides this view (`view-hidden`) instead of
+  // unmounting it, so the shared waveform host node is never detached from
+  // the document on a view switch. See the always-mounted WaveformSlot rework.
+  active = true
 }) {
   const artworkUrl = useObjectUrl(track?.artworkBlob);
 
   // WaveformSlot must never unmount while something might be playing — the
-  // underlying <audio> element pauses the instant it's detached from the
-  // document, so "not viewing the playing track" is shown as an overlay
-  // on top of it instead of swapping it out for other content.
+  // underlying <audio> element pauses when it's detached from the document,
+  // so "not viewing the playing track" is shown as an overlay on top of it
+  // instead of swapping it out for other content, and this whole view is
+  // hidden with CSS (never unmounted) when it isn't the active one.
   return (
-    <div className={`now-playing${!track ? ' empty' : ''}`}>
+    <div className={`now-playing${!track ? ' empty' : ''}${active ? '' : ' view-hidden'}`}>
       {onResizeStart && <div className="np-resize-handle" onMouseDown={onResizeStart} />}
       {!track ? (
         <p className="empty-state">select a track to start listening.</p>
@@ -78,7 +83,7 @@ export default function NowPlaying({
 
       <div className="waveform-wrap" style={!track ? { display: 'none' } : undefined}>
         <div className="waveform-inner">
-          <WaveformSlot host={waveformHost} />
+          <WaveformSlot host={waveformHost} active={active} />
           {mediaMissing ? (
             <div className="waveform-placeholder-overlay missing">
               <span>audio file missing</span>
