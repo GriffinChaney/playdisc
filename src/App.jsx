@@ -239,7 +239,24 @@ export default function App() {
   const isResizingNpRef = useRef(false);
   const navWidthRef = useRef(navWidth);
   navWidthRef.current = navWidth;
+  // read by the mini-mode effect below to snapshot the pre-mini column
+  // widths without a stale closure
+  const npWidthRef = useRef(npWidth);
+  npWidthRef.current = npWidth;
   const appRef = useRef(null);
+  // snapshot of {navWidth, npWidth} taken the instant mini mode is entered,
+  // force-restored the instant it's exited — see the mini-mode effect below
+  // for why this exists (a real BrowserWindow resize happens for mini mode,
+  // and the resize-driven clamp a few lines down can't tell that transient
+  // 240px/garbage-px window from a real narrow sidebar, so it silently
+  // ratchets both columns down and, being Math.min-only, can never grow them
+  // back on its own).
+  const preMiniLayoutRef = useRef(null);
+  // previous `view`, so the mini-mode effect only fires enter/exit IPC (and
+  // the column-width restore) on a genuine mini transition, not on every
+  // view change that merely isn't 'mini' (e.g. a plain sidebar<->focus swap
+  // used to re-invoke exitMiniMode() every time, harmlessly but pointlessly)
+  const prevViewRef = useRef(view);
   // last width computed mid-drag; committed to React state + localStorage on
   // mouseup only. During the drag we write the CSS var straight to the DOM so
   // there's no per-frame re-render (that was the "resize feels laggy").
@@ -344,17 +361,29 @@ export default function App() {
   // ratcheted the saved width down with no way back up, which is exactly
   // what made the layout look "too small" after quitting and reopening.
   // Only an explicit drag (the mouseup handlers above) should persist.
+  //
+  // SIDEBAR_MIN_WIDTH guard (2026-09-04): mini mode really resizes the OS
+  // window (electron/main.js enter/exit-mini-mode), which fires genuine
+  // native 'resize' events the sidebar view never asked for — a legitimate
+  // 240px mini window, and (observed) transient sub-20px garbage readings
+  // during the resize sequence itself. Both are narrower than the sidebar
+  // view's own enforced floor (electron/main.js DEFAULT_MIN_WIDTH — keep
+  // these in sync), so neither can ever be a real "the sidebar got resized"
+  // event. Below that floor this whole block is a no-op: it used to instead
+  // run the shrink-only clamp against these bogus widths, silently ratcheting
+  // navWidth/npWidth down with no way back (see preMiniLayoutRef below for
+  // the belt-and-suspenders restore on the mini round trip specifically).
+  const SIDEBAR_MIN_WIDTH = 900;
   useEffect(() => {
     let raf = 0;
     function onResize() {
+      if (window.innerWidth < SIDEBAR_MIN_WIDTH) return;
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
+        if (window.innerWidth < SIDEBAR_MIN_WIDTH) return;
         setViewportW(window.innerWidth);
         setNavWidth((w) => Math.min(w, Math.max(170, window.innerWidth - 460)));
-        setNpWidth((w) => {
-          if (w == null) return w;
-          return Math.min(w, Math.max(300, window.innerWidth - navWidthRef.current - 300));
-        });
+        setNpWidth((w) => (w == null ? w : Math.min(w, Math.max(300, window.innerWidth - navWidthRef.current - 300))));
       });
     }
     window.addEventListener('resize', onResize);
@@ -1825,12 +1854,39 @@ export default function App() {
   }, [view, pendingFocusSearch]);
 
   // physically shrink/restore the OS window itself for mini mode, rather
-  // than showing a small widget inside the still-full-size window
+  // than showing a small widget inside the still-full-size window.
+  //
+  // Root-caused 2026-09-04: that real OS resize (240px, and momentarily
+  // narrower still) fires native 'resize' events that the SIDEBAR_MIN_WIDTH
+  // guard above now ignores for navWidth/npWidth — but as a second,
+  // independent line of defense, this effect also snapshots both column
+  // widths the instant mini mode is entered and force-writes them back
+  // (plain setState calls, not the shrink-only clamp) the instant it's
+  // exited. Sequencing: the snapshot read happens synchronously, in the same
+  // tick as the `view === 'mini'` branch below, before enterMiniMode() sends
+  // its IPC — and the actual OS resize (and any resize events it causes)
+  // can only happen later, asynchronously, once main.js has handled that
+  // IPC. So nothing can clamp navWidth/npWidth for THIS transition before
+  // the snapshot is taken.
+  //
+  // Gated on a genuine mini transition (prevViewRef), not just "view isn't
+  // mini" — previously this ran its else-branch (calling exitMiniMode())
+  // on every view change away from mini, including a plain sidebar<->focus
+  // swap that never touched mini at all.
   useEffect(() => {
-    if (view === 'mini') {
+    const prevView = prevViewRef.current;
+    prevViewRef.current = view;
+    if (view === 'mini' && prevView !== 'mini') {
+      preMiniLayoutRef.current = { navWidth: navWidthRef.current, npWidth: npWidthRef.current };
       window.electronAPI?.enterMiniMode(240, 240);
-    } else {
+    } else if (view !== 'mini' && prevView === 'mini') {
       window.electronAPI?.exitMiniMode();
+      const saved = preMiniLayoutRef.current;
+      if (saved) {
+        setNavWidth(saved.navWidth);
+        setNpWidth(saved.npWidth);
+        preMiniLayoutRef.current = null;
+      }
     }
   }, [view]);
 
