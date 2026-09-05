@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import PlaylistNav from './components/PlaylistNav';
 import LibraryList from './components/LibraryList';
@@ -665,6 +665,42 @@ export default function App() {
   // showing something else you'd clicked over to. Now Z always ends with the
   // playing track (or, if nothing's playing, whatever's browsed) both
   // centered AND displayed.
+  // How far a center-scroll must actually move the container before it's
+  // worth doing — below this, on a short/mostly-visible list, `scrollIntoView`
+  // still fires but produces a small, visually pointless jump instead of a
+  // real re-center (2026-09-05: reported as "janky" on a ~10-track playlist
+  // where most rows were already on screen). Roughly half a track row. This
+  // is independent of the measurement-timing fix below — it's a threshold on
+  // a (now-correct) distance, not itself a source of the bug, so it didn't
+  // need retuning once the measurement was fixed.
+  const SCROLL_JUMP_THRESHOLD = 24;
+
+  // Root-caused 2026-09-05: on a Z press that also expands a row, the row
+  // only grows taller once React commits `setExpandedTrackId` and the
+  // browser reflows — which hasn't happened yet at the point a plain
+  // synchronous function body calls setState and keeps going. Measuring
+  // scrollHeight/offsetTop/getBoundingClientRect() right after calling
+  // setExpandedTrackId (the old code, in the same tick) reads the PRE-
+  // expansion layout every time, so the scroll target/distance was
+  // routinely computed against stale geometry. Negligible on a long list
+  // (one row's height is a rounding error against the total scrollable
+  // range); on a ~15-track list one expanded row can be a large fraction of
+  // it — hence "sometimes needs a second press" (the second press finally
+  // measures the already-expanded, settled layout) and "bounces off the
+  // bottom" (scrolling toward a target computed before the layout shift,
+  // then the shift moves the actual target elsewhere).
+  //
+  // Fix: split into two steps across a real commit boundary, the same
+  // technique as the WaveformSlot rework — expand-decision + state updates
+  // happen synchronously here (unaffected by this bug: it only needs the
+  // CURRENT, pre-press layout, to decide expand vs. collapse), then a
+  // useLayoutEffect (below) does the measurement + scroll AFTER React has
+  // committed those state updates and the browser has reflowed the taller
+  // row — but BEFORE paint, so there's no visible two-step jump, only ever
+  // one correct final frame.
+  const pendingScrollTargetRef = useRef(null);
+  const [scrollRequestTick, setScrollRequestTick] = useState(0);
+
   const handleExpandTrack = useCallback(() => {
     const targetId = playingTrackId || currentTrackId;
     if (!targetId) return;
@@ -672,6 +708,10 @@ export default function App() {
     const container = document.querySelector('.track-list, .track-grid');
     const target = container?.querySelector(`[data-sel-id="${CSS.escape(targetId)}"]`);
     if (container && target) {
+      // Pre-press measurement — correct to use here: this only decides
+      // expand vs. collapse vs. stay-expanded-and-recenter, which is a
+      // question about the CURRENT state before this press changes
+      // anything, not about where things will end up afterward.
       const c = container.getBoundingClientRect();
       const t = target.getBoundingClientRect();
       const isVisible = t.top >= c.top && t.bottom <= c.bottom;
@@ -682,8 +722,41 @@ export default function App() {
         return id; // expanded but off-screen -> stay expanded, just center below
       });
     }
-    target?.scrollIntoView({ block: 'center' });
+    // Defer the actual scroll decision to after this render commits — see
+    // the useLayoutEffect below. Bumping scrollRequestTick (rather than
+    // relying on expandedTrackId changing) guarantees the effect runs even
+    // when the expand/collapse decision above was a no-op value (e.g.
+    // collapsing, where the state goes from some id back to null — a real
+    // change — but also the "stay expanded" branch, which returns the SAME
+    // id and would otherwise bail out of re-rendering entirely).
+    pendingScrollTargetRef.current = targetId;
+    setScrollRequestTick((n) => n + 1);
   }, [playingTrackId, currentTrackId, libraryViewMode]);
+
+  useLayoutEffect(() => {
+    const targetId = pendingScrollTargetRef.current;
+    if (!targetId) return;
+    pendingScrollTargetRef.current = null;
+    const container = document.querySelector('.track-list, .track-grid');
+    const target = container?.querySelector(`[data-sel-id="${CSS.escape(targetId)}"]`);
+    if (!container || !target) return;
+    const c = container.getBoundingClientRect();
+    const t = target.getBoundingClientRect();
+    const isVisible = t.top >= c.top && t.bottom <= c.bottom;
+    if (isVisible) return; // already fully on screen — nothing to center
+    // Real distance a centered scroll would travel, clamped to the
+    // container's actual scrollable range (the same clamp the browser
+    // itself applies) rather than the theoretical unclamped distance to
+    // dead-center — see SCROLL_JUMP_THRESHOLD above.
+    const targetCenter = t.top - c.top + t.height / 2;
+    const desiredDelta = targetCenter - c.height / 2;
+    const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+    const newScrollTop = Math.min(maxScrollTop, Math.max(0, container.scrollTop + desiredDelta));
+    const actualDelta = Math.abs(newScrollTop - container.scrollTop);
+    if (actualDelta <= SCROLL_JUMP_THRESHOLD) return;
+    target.scrollIntoView({ block: 'center' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollRequestTick]);
 
   // if the active playlist is deleted elsewhere, fall back to Imported
   useEffect(() => {
