@@ -71,6 +71,22 @@ body {
   height: 100vh;
 }
 
+/* The three waveform-bearing views (now-playing, focus, mini) are ALWAYS
+   mounted — App.jsx marks the two inactive ones `view-hidden` instead of
+   unmounting them, so the shared <audio> host node is never detached from
+   the document on a view switch (a detached media element gets paused by
+   the browser; a display:none ancestor does not — see CLAUDE.md, "Single
+   shared WaveSurfer instance"). display:none also generates no box, so a
+   hidden view takes no grid cell: .now-playing still auto-places into
+   column 3 after nav + list exactly as before. Bonus: the `view-enter`
+   mount animation on each view root replays when it goes display:none ->
+   shown, so the transition feel survives without the unmount. */
+.now-playing.view-hidden,
+.focus-view.view-hidden,
+.mini-player.view-hidden {
+  display: none;
+}
+
 /* hiddenInset removes the title-bar strip, so nothing in the window is
    draggable by default — this restores a thin draggable band at the top
    (clear of the traffic lights, upload button, search input, back-btn,
