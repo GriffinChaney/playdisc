@@ -80,7 +80,7 @@ export default function App() {
 
   // playlists + which left-nav item the middle column is showing
   const [playlists, setPlaylists] = useState([]);
-  const [activeView, setActiveView] = useState({ type: 'imported' }); // | { type: 'playlist', id }
+  const [activeView, setActiveView] = useState({ type: 'imported' }); // | { type: 'playlist', id } | { type: 'liked' }
   const [libraryViewMode, setLibraryViewMode] = useState(
     () => localStorage.getItem('libraryViewMode') || 'list'
   );
@@ -108,6 +108,21 @@ export default function App() {
       return [];
     }
   });
+  // Liked view's own sort — separate from librarySort since its default and
+  // options differ ('likedAt' isn't meaningful anywhere else). No custom
+  // order: Liked isn't backed by a manual trackIds array, it's a live filter
+  // over every liked track.
+  const [likedSort, setLikedSort] = useState(() => localStorage.getItem('likedSort') || 'likedAt');
+  const [likedSortDir, setLikedSortDir] = useState(
+    () => localStorage.getItem('likedSortDir') || 'desc'
+  );
+  // Liked view's displayed row membership — deliberately NOT a live filter.
+  // Snapshotted on entry and on sort change only, so unliking a track while
+  // you're looking at this view leaves its row in place (heart flips to
+  // outlined immediately since that reads live off `tracks`, but the row
+  // itself doesn't vanish until you navigate away or change sort — a
+  // misclick shouldn't make the row disappear out from under the cursor).
+  const [likedViewIds, setLikedViewIds] = useState([]);
   const [contextMenu, setContextMenu] = useState(null);
   const [promptConfig, setPromptConfig] = useState(null);
   const [editingPlaylistId, setEditingPlaylistId] = useState(null);
@@ -122,6 +137,8 @@ export default function App() {
   const librarySortRef = useRef(librarySort);
   const librarySortDirRef = useRef(librarySortDir);
   const libraryOrderRef = useRef(libraryOrder);
+  const likedSortRef = useRef(likedSort);
+  const likedSortDirRef = useRef(likedSortDir);
   // read by the shuffle-order effects below so they can anchor a rebuild on
   // "whatever's actually playing right now" without depending on
   // playingTrackId itself (which would rebuild on every track change, not
@@ -134,6 +151,8 @@ export default function App() {
   librarySortRef.current = librarySort;
   librarySortDirRef.current = librarySortDir;
   libraryOrderRef.current = libraryOrder;
+  likedSortRef.current = likedSort;
+  likedSortDirRef.current = likedSortDir;
   playingTrackIdRef.current = playingTrackId;
 
   const [isPlaying, setIsPlaying] = useState(false);
@@ -622,6 +641,11 @@ export default function App() {
   }, [librarySort, librarySortDir]);
 
   useEffect(() => {
+    localStorage.setItem('likedSort', likedSort);
+    localStorage.setItem('likedSortDir', likedSortDir);
+  }, [likedSort, likedSortDir]);
+
+  useEffect(() => {
     localStorage.setItem('libraryOrder', JSON.stringify(libraryOrder));
   }, [libraryOrder]);
 
@@ -637,6 +661,11 @@ export default function App() {
   const handleSetLibrarySort = useCallback((sort, dir) => {
     setLibrarySort(sort);
     if (dir) setLibrarySortDir(dir);
+  }, []);
+
+  const handleSetLikedSort = useCallback((sort, dir) => {
+    setLikedSort(sort);
+    if (dir) setLikedSortDir(dir);
   }, []);
 
   const handleReorderLibrary = useCallback((fromIndex, insertBeforeIndex) => {
@@ -878,7 +907,9 @@ export default function App() {
     isPlaying &&
     (activeView.type === 'playlist'
       ? playbackContext.type === 'playlist' && playbackContext.id === activeView.id
-      : playbackContext.type === 'library');
+      : activeView.type === 'liked'
+        ? playbackContext.type === 'liked'
+        : playbackContext.type === 'library');
   // in focus / mini the waveform sits on the cover-derived (dark) mesh
   // backdrop whenever there's cover art — so its played-region wash should
   // use the light value in both themes, not the library view's dark wash
@@ -891,13 +922,23 @@ export default function App() {
   // regressed the "clicks feel laggy / inconsistent" complaint.
   const activePlaylist =
     activeView.type === 'playlist' ? playlists.find((p) => p.id === activeView.id) || null : null;
+  const isLikedView = activeView.type === 'liked';
 
   // one sort surface for the middle column, resolved from whichever view is
-  // active. Library sort is app-level; playlist sort rides on the record.
+  // active. Library sort is app-level; playlist sort rides on the record;
+  // Liked has its own (separate default/options, see likedSort above).
   // (the setter, handleSetActiveSort, is defined lower — it needs
   // handleSetPlaylistSort, which needs persistPlaylist.)
-  const activeSort = activePlaylist ? activePlaylist.sort || 'custom' : librarySort;
-  const activeSortDir = activePlaylist ? activePlaylist.sortDir || 'desc' : librarySortDir;
+  const activeSort = activePlaylist
+    ? activePlaylist.sort || 'custom'
+    : isLikedView
+      ? likedSort
+      : librarySort;
+  const activeSortDir = activePlaylist
+    ? activePlaylist.sortDir || 'desc'
+    : isLikedView
+      ? likedSortDir
+      : librarySortDir;
 
   const shownTracks = useMemo(() => {
     if (activePlaylist) {
@@ -907,12 +948,33 @@ export default function App() {
       if (sort === 'custom') return plTracks;
       return sortLibrary(plTracks, sort, activePlaylist.sortDir || 'desc', activePlaylist.trackIds);
     }
+    if (isLikedView) {
+      // likedViewIds is a frozen snapshot (see its declaration above) —
+      // membership doesn't change here just because a track's liked flag
+      // flipped; track data itself (title, the flag for the heart icon,
+      // etc.) still comes from the live `tracks` array via this lookup.
+      const byId = new Map(tracks.map((t) => [t.id, t]));
+      const likedTracks = likedViewIds.map((id) => byId.get(id)).filter(Boolean);
+      return sortLibrary(likedTracks, likedSort, likedSortDir, []);
+    }
     return sortLibrary(tracks, librarySort, librarySortDir, libraryOrder);
-  }, [tracks, activePlaylist, librarySort, librarySortDir, libraryOrder]);
+  }, [tracks, activePlaylist, isLikedView, likedViewIds, likedSort, likedSortDir, librarySort, librarySortDir, libraryOrder]);
   // the middle column's displayed order (pre search/tag filter) — the header
   // play button starts here so "play" matches what the user sees
   const shownTracksRef = useRef(shownTracks);
   shownTracksRef.current = shownTracks;
+
+  // (Re-)snapshots which tracks the Liked view shows, on entering it and on
+  // an actual sort change — NOT on every `tracks` change, which is the whole
+  // point (see likedViewIds above). activeView.type is enough to detect
+  // "entered/left," since leaving always changes it to something else first,
+  // so coming back re-triggers this even though the string value repeats.
+  useEffect(() => {
+    if (activeView.type === 'liked') {
+      setLikedViewIds(tracksRef.current.filter((t) => t.liked).map((t) => t.id));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeView.type, likedSort, likedSortDir]);
 
   const dismissImportToast = useCallback(() => setImportToast(null), []);
 
@@ -1008,6 +1070,9 @@ export default function App() {
       const pl = playlistsRef.current.find((p) => p.id === av.id);
       return { type: 'playlist', id: av.id, sort: pl?.sort || 'custom', dir: pl?.sortDir || 'desc' };
     }
+    if (av.type === 'liked') {
+      return { type: 'liked', sort: likedSortRef.current, dir: likedSortDirRef.current };
+    }
     return { type: 'library', sort: librarySortRef.current, dir: librarySortDirRef.current };
   }, []);
 
@@ -1059,6 +1124,24 @@ export default function App() {
     handleAdoptAndPlay(startId, { autoPlay: true });
   }, [startTrackFor, handleAdoptAndPlay]);
 
+  // "play Liked" — same shape as handlePlayLibrary, but over every liked
+  // track rather than the whole library. `orderedIds`, when given, is the
+  // Liked view's current displayed (frozen-snapshot) order, same as how the
+  // header play button passes shownTracksRef through for a playlist/library.
+  const handlePlayLiked = useCallback(
+    (orderedIds) => {
+      const ids =
+        orderedIds && orderedIds.length
+          ? orderedIds
+          : tracksRef.current.filter((t) => t.liked).map((t) => t.id);
+      const startId = startTrackFor(ids);
+      if (!startId) return;
+      setPlaybackContext({ type: 'liked', sort: likedSortRef.current, dir: likedSortDirRef.current });
+      handleAdoptAndPlay(startId, { autoPlay: true });
+    },
+    [startTrackFor, handleAdoptAndPlay]
+  );
+
   // the library header's play/pause button. If this view's context is already
   // what's playing (or paused mid-track), toggle the engine — resume must not
   // restart or re-roll the shuffle pick. Otherwise start the view fresh.
@@ -1068,7 +1151,9 @@ export default function App() {
     const sameCtx =
       av.type === 'playlist'
         ? ctx.type === 'playlist' && ctx.id === av.id
-        : ctx.type === 'library';
+        : av.type === 'liked'
+          ? ctx.type === 'liked'
+          : ctx.type === 'library';
     const started = isPlayingRef.current || currentTimeRef.current > 0;
     if (sameCtx && started) {
       waveformRef.current?.toggle();
@@ -1079,10 +1164,12 @@ export default function App() {
         av.id,
         shownTracksRef.current.map((t) => t.id)
       );
+    } else if (av.type === 'liked') {
+      handlePlayLiked(shownTracksRef.current.map((t) => t.id));
     } else {
       handlePlayLibrary();
     }
-  }, [handlePlayPlaylist, handlePlayLibrary]);
+  }, [handlePlayPlaylist, handlePlayLiked, handlePlayLibrary]);
 
   // play/pause button: if browsing a track that isn't the one playing,
   // pressing play adopts it instead of toggling whatever's in the background
@@ -1111,6 +1198,16 @@ export default function App() {
     setTracks((prev) => prev.map((t) => (t.id === id ? { ...t, ...changes } : t)));
     updateTrack(id, changes);
   }, []);
+
+  // liked/favorites. likedAt is only ever set (on like) — left as-is on
+  // unlike (schemaless field, no migration; absent/undefined reads as not
+  // liked everywhere it's checked).
+  const handleSetLiked = useCallback(
+    (id, liked) => {
+      patchTrack(id, liked ? { liked: true, likedAt: Date.now() } : { liked: false });
+    },
+    [patchTrack]
+  );
 
   const handleAddTag = useCallback(async (id, tag) => {
     setTracks((prev) =>
@@ -1202,9 +1299,10 @@ export default function App() {
     (sort, dir) => {
       const av = activeViewRef.current;
       if (av.type === 'playlist') handleSetPlaylistSort(av.id, sort, dir);
+      else if (av.type === 'liked') handleSetLikedSort(sort, dir);
       else handleSetLibrarySort(sort, dir);
     },
-    [handleSetPlaylistSort, handleSetLibrarySort]
+    [handleSetPlaylistSort, handleSetLikedSort, handleSetLibrarySort]
   );
 
   const handleCreatePlaylist = useCallback(
@@ -1438,6 +1536,17 @@ export default function App() {
             : sortLibrary(list, sort, ctx.dir || pl.sortDir || 'desc', pl.trackIds);
         }
       }
+    }
+    if (ctx.type === 'liked') {
+      // the LIVE liked set, not the Liked view's frozen display snapshot —
+      // that snapshot is a UI-only concern (rows not vanishing mid-look), it
+      // has no bearing on what skip/auto-advance should traverse
+      return sortLibrary(
+        tracks.filter((t) => t.liked),
+        ctx.sort || 'likedAt',
+        ctx.dir || 'desc',
+        []
+      );
     }
     return sortLibrary(
       tracks,
@@ -2316,6 +2425,7 @@ export default function App() {
             playlists={playlists}
             activeView={activeView}
             onSelectView={setActiveView}
+            likedCount={tracks.filter((t) => t.liked).length}
             onFilesSelected={handleFilesSelected}
             onCreatePlaylist={handleCreatePlaylist}
             onOpenMenu={setContextMenu}
@@ -2338,12 +2448,14 @@ export default function App() {
           />
           <LibraryList
             tracks={shownTracks}
-            viewTitle={activePlaylist ? activePlaylist.name : 'Imported'}
+            viewTitle={activePlaylist ? activePlaylist.name : isLikedView ? 'Liked Songs' : 'Imported'}
             isPlaylistView={!!activePlaylist}
+            isLikedView={isLikedView}
             playlistId={activePlaylist?.id}
             playlistDescription={activePlaylist?.description || ''}
             playlistImageBlob={activePlaylist?.imageBlob || null}
             onEditPlaylist={activePlaylist ? () => setEditingPlaylistId(activePlaylist.id) : undefined}
+            onToggleLiked={handleSetLiked}
             playlists={playlists}
             currentTrackId={currentTrackId}
             playingTrackId={playingTrackId}

@@ -551,6 +551,78 @@ body {
   transform: scale(1.15);
 }
 
+/* liked/favorite heart — list row. Faint at rest (not invisible: 83 rows of
+   loud hearts was explicitly unwanted, but the affordance and a liked row's
+   state should still read at a glance without hovering), clearer on row
+   hover, full opacity + var(--playing) when liked regardless of hover.
+   var(--playing) here is the ONE place this color lives for the heart —
+   swap it (and LIKED_GRADIENT_BASE/TONES in likedBackdrop.js for the Liked
+   header) to change the whole feature's color, e.g. to red. */
+.track-like-btn {
+  flex-shrink: 0;
+  opacity: 0.22;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.12s ease, transform 0.12s ease, color 0.12s ease;
+}
+.track-item:hover .track-like-btn {
+  opacity: 0.6;
+}
+.track-like-btn:hover {
+  opacity: 1;
+  background: var(--surface-2);
+  transform: scale(1.15);
+}
+.track-like-btn.liked {
+  opacity: 1;
+  color: var(--playing);
+}
+.track-like-btn.liked:hover {
+  background: var(--surface-2);
+}
+
+/* liked/favorite heart — grid tile. Sits over the cover's top-right corner
+   (the one spot on a compact tile with room to spare, clear of the eq bars
+   and title/artist lines below); same opacity/color logic as the list
+   version above. */
+.grid-like-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  opacity: 0.35;
+  border: none;
+  background: rgba(0, 0, 0, 0.35);
+  color: #f4f4f2;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.grid-item:hover .grid-like-btn {
+  opacity: 0.85;
+}
+.grid-like-btn:hover {
+  opacity: 1;
+  transform: scale(1.12);
+}
+.grid-like-btn.liked {
+  opacity: 1;
+  color: var(--playing);
+}
+
 .queue-panel {
   display: flex;
   flex-direction: column;
@@ -2260,6 +2332,18 @@ body {
   color: var(--text-primary);
   border-left-color: var(--text-primary);
 }
+.nav-item-liked {
+  display: flex;
+  align-items: center;
+}
+.nav-item-count {
+  margin-left: auto;
+  font-size: 11px;
+  letter-spacing: normal;
+  text-transform: none;
+  font-weight: 400;
+  color: var(--text-muted);
+}
 
 .nav-section-label {
   font-size: 10px;
@@ -3390,6 +3474,7 @@ body {
   background: var(--selection-bg);
 }
 .grid-cover {
+  position: relative;
   width: 100%;
   aspect-ratio: 1;
   border-radius: 4px;

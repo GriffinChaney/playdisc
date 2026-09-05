@@ -1,9 +1,17 @@
 // Library (Imported view) sorting. Playlists keep their own manual trackIds
 // order and don't use any of this.
 //
-//   'added'  — by dateAdded; dir 'desc' = newest first (the default), 'asc' = oldest
-//   'artist' — grouped by artist, then title; dir 'asc' = A–Z, 'desc' = Z–A
-//   'custom' — the user's hand-dragged order (`order`, an array of track ids)
+//   'added'   — by dateAdded; dir 'desc' = newest first (the default), 'asc' = oldest
+//   'artist'  — grouped by artist, then title; dir 'asc' = A–Z, 'desc' = Z–A
+//   'custom'  — the user's hand-dragged order (`order`, an array of track ids)
+//   'liked'   — liked tracks first (2026-09-05); ties fall back to dateAdded
+//               desc, same secondary order 'artist' ties use. `dir` is
+//               ignored — there's one "Liked first" menu entry, not a pair.
+//               Available alongside the others in Imported/playlists.
+//   'likedAt' — Liked-view-only default: by likedAt, dir 'desc' = most
+//               recently liked first (the view's default), 'asc' = oldest
+//               like first. Never offered outside the Liked view — nothing
+//               else has a meaningful likedAt to sort by.
 
 const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
 
@@ -18,6 +26,20 @@ export function sortLibrary(tracks, sort = 'added', dir = 'desc', order = []) {
       if (ai !== bi) return ai - bi;
       return b.dateAdded - a.dateAdded;
     });
+  }
+
+  if (sort === 'liked') {
+    return [...tracks].sort((a, b) => {
+      const al = a.liked ? 1 : 0;
+      const bl = b.liked ? 1 : 0;
+      if (al !== bl) return bl - al; // liked (1) before unliked (0)
+      return b.dateAdded - a.dateAdded;
+    });
+  }
+
+  if (sort === 'likedAt') {
+    const s = dir === 'asc' ? 1 : -1;
+    return [...tracks].sort((a, b) => s * ((a.likedAt || 0) - (b.likedAt || 0)));
   }
 
   if (sort === 'artist') {

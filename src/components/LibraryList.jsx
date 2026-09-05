@@ -6,7 +6,9 @@ import { useObjectUrl } from '../lib/useObjectUrl';
 import { useListSelection } from '../lib/useListSelection';
 import { useArtworkPalette, useDominantColor } from '../lib/useDominantColor';
 import { meshBackdropStyle } from '../lib/meshBackdrop';
+import { likedBackdropStyle } from '../lib/likedBackdrop';
 import { usePlaylistMosaic } from '../lib/usePlaylistMosaic';
+import HeartIcon from './HeartIcon';
 
 function formatTotal(seconds) {
   const mins = Math.round(seconds / 60);
@@ -27,7 +29,8 @@ function GridItem({
   onMouseDownItem,
   onMouseOverItem,
   onPlay,
-  onContextMenu
+  onContextMenu,
+  onToggleLiked
 }) {
   const artworkUrl = useObjectUrl(track.artworkBlob);
   // Z / follow-mode centering is handled centrally in LibraryList (via
@@ -52,6 +55,21 @@ function GridItem({
         style={artworkUrl ? { backgroundImage: `url(${artworkUrl})` } : undefined}
       >
         {!artworkUrl && <span className="thumb-fallback">♪</span>}
+        {/* top-right corner of the cover — the one spot in a compact grid
+            tile with room to spare, doesn't collide with the eq bars (which
+            sit inline with the title below) or the staggered entry motion */}
+        <button
+          className={`grid-like-btn${track.liked ? ' liked' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleLiked(track.id);
+          }}
+          aria-label={track.liked ? `unlike ${track.title}` : `like ${track.title}`}
+          aria-pressed={!!track.liked}
+          title={track.liked ? 'unlike' : 'like'}
+        >
+          <HeartIcon filled={!!track.liked} />
+        </button>
       </div>
       <p className="grid-title">
         {/* only rendered on the current track's tile — same bars markup list
@@ -125,7 +143,9 @@ function LibraryList({
   onSetQuery,
   activeTag,
   onSetActiveTag,
-  onUpdatePlaylist
+  onUpdatePlaylist,
+  isLikedView = false,
+  onToggleLiked
 }) {
   const playlistImageUrl = useObjectUrl(playlistImageBlob);
 
@@ -166,11 +186,14 @@ function LibraryList({
   const singleCoverUrl = playlistImageBlob ? playlistImageUrl : distinctUrls[0];
 
   // gradient source: the real cover, else the first track's art — a single
-  // stable blob, never a composite (extraction code is untouched)
+  // stable blob, never a composite (extraction code is untouched). Liked has
+  // no cover art at all, so it gets a fixed backdrop instead (see
+  // likedBackdrop.js) — these two hooks still run unconditionally either way
+  // (rules of hooks), just with a null blob for the Liked view.
   const coverSourceBlob = playlistImageBlob || firstArtworkBlob;
   const palette = useArtworkPalette(coverSourceBlob);
   const dominantColor = useDominantColor(coverSourceBlob);
-  const backdropStyle = meshBackdropStyle(palette, dominantColor);
+  const backdropStyle = isLikedView ? likedBackdropStyle() : meshBackdropStyle(palette, dominantColor);
 
   // query/activeTag are lifted to App.jsx (query, onSetQuery, activeTag,
   // onSetActiveTag) so they survive this component unmounting on a
@@ -267,7 +290,7 @@ function LibraryList({
   // switch or a sort change, resetting scroll to top — but NOT on a
   // list<->grid toggle, which shows the same tracks in the same order and
   // should keep your place (see the viewMode-specific effect below instead).
-  const listKey = `${isPlaylistView ? playlistId : 'imported'}|${sort}|${sortDir}`;
+  const listKey = `${isLikedView ? 'liked' : isPlaylistView ? playlistId : 'imported'}|${sort}|${sortDir}`;
   const prevListKeyRef = useRef(listKey);
   // list rows and grid tiles have very different heights, so a raw scrollTop
   // carried over from one to the other lands somewhere arbitrary. Captured
@@ -432,6 +455,17 @@ function LibraryList({
     menuTargets(trackId).forEach((id) => onAddToQueue(id));
   }
 
+  // the heart (list + grid) and the right-click Like/Unlike item — same
+  // "whole selection vs. just this row" logic as menuTargets above. The new
+  // state is the OPPOSITE of the clicked row's own current liked state,
+  // applied uniformly to every targeted track (so liking a mixed selection
+  // via the row you clicked doesn't leave some tracks toggled the other way).
+  function handleRowToggleLiked(trackId) {
+    const clicked = visibleTracks.find((t) => t.id === trackId);
+    const nextLiked = !clicked?.liked;
+    menuTargets(trackId).forEach((id) => onToggleLiked(id, nextLiked));
+  }
+
   // the row's "×" button — same "whole selection vs. just this row" logic
   // as the right-click menu (menuTargets above), so deleting/removing via
   // × while several tracks are highlighted acts on all of them, not just
@@ -483,8 +517,20 @@ function LibraryList({
       }
     ];
 
+    // label reflects the CLICKED row's own state (not a per-selection mix) —
+    // same convention "many" already uses elsewhere in this menu
+    const clickedLiked = !!visibleTracks.find((t) => t.id === trackId)?.liked;
+    const likeLabel = clickedLiked
+      ? many
+        ? `Unlike ${label}`
+        : 'Unlike'
+      : many
+        ? `Like ${label}`
+        : 'Like';
+
     const items = [];
     if (!many) items.push({ label: 'Play', onClick: () => onPlayTrack(trackId) });
+    items.push({ label: likeLabel, onClick: () => handleRowToggleLiked(trackId) });
     if (!many && onAddVersion) {
       items.push({ label: 'Add version…', onClick: () => onAddVersion(trackId) });
       items.push({ label: 'Versions & notes…', onClick: () => onOpenVersions(trackId) });
@@ -572,7 +618,7 @@ function LibraryList({
   //   FULL    — a playlist with cover art (its own image, or a track mosaic)
   //   COMPACT — Imported, or a playlist whose tracks have no artwork at all
   //   SHRUNK  — FULL after the list is scrolled past the threshold
-  const isFullHeader = isPlaylistView && (!!playlistImageBlob || distinctCount > 0);
+  const isFullHeader = isLikedView || (isPlaylistView && (!!playlistImageBlob || distinctCount > 0));
   // play is an action (needs tracks); shuffle is a mode (always available).
   // "whole view" = the unfiltered list, so search / tags never affect playback.
   const viewHasTracks = tracks.length > 0;
@@ -640,17 +686,30 @@ function LibraryList({
     </div>
   );
 
-  // sort menu — the library (Imported) and every playlist. "Custom" is the
-  // library's hand-dragged order, or a playlist's manual trackIds order.
-  const SORT_OPTIONS = [
-    ['custom', 'desc', 'Custom order'],
-    ['added', 'desc', 'Newest first'],
-    ['added', 'asc', 'Oldest first'],
-    ['artist', 'asc', 'Artist · A–Z'],
-    ['artist', 'desc', 'Artist · Z–A']
-  ];
+  // sort menu — the library (Imported) and every playlist get "Liked first"
+  // alongside the rest. The Liked view gets its own list instead: no Custom
+  // order (Liked has no manual trackIds array to reorder — it's a live
+  // filter over every liked track, not a container), and "Recently liked" as
+  // its default in Custom's usual first slot.
+  const SORT_OPTIONS = isLikedView
+    ? [
+        ['likedAt', 'desc', 'Recently liked'],
+        ['likedAt', 'asc', 'Least recently liked'],
+        ['added', 'desc', 'Newest first'],
+        ['added', 'asc', 'Oldest first'],
+        ['artist', 'asc', 'Artist · A–Z'],
+        ['artist', 'desc', 'Artist · Z–A']
+      ]
+    : [
+        ['custom', 'desc', 'Custom order'],
+        ['added', 'desc', 'Newest first'],
+        ['added', 'asc', 'Oldest first'],
+        ['artist', 'asc', 'Artist · A–Z'],
+        ['artist', 'desc', 'Artist · Z–A'],
+        ['liked', 'desc', 'Liked first']
+      ];
   const activeSortLabel =
-    SORT_OPTIONS.find(([s, d]) => s === sort && (s === 'custom' || d === sortDir))?.[2] || 'Sort';
+    SORT_OPTIONS.find(([s, d]) => s === sort && (s === 'custom' || s === 'liked' || d === sortDir))?.[2] || 'Sort';
 
   function openSortMenu(e) {
     const r = e.currentTarget.getBoundingClientRect();
@@ -658,7 +717,7 @@ function LibraryList({
       x: r.left,
       y: r.bottom + 4,
       items: SORT_OPTIONS.map(([s, d, label]) => {
-        const active = s === sort && (s === 'custom' || d === sortDir);
+        const active = s === sort && (s === 'custom' || s === 'liked' || d === sortDir);
         return {
           label: (
             <span className="ctx-label">
@@ -694,7 +753,7 @@ function LibraryList({
   );
 
   return (
-    <div className={`library-list${backdropStyle ? ' has-backdrop' : ''}`}>
+    <div className={`library-list${backdropStyle ? ' has-backdrop' : ''}${isLikedView ? ' liked-view' : ''}`}>
       {backdropStyle && (
         <div
           className={`lib-backdrop${isFullHeader && shrunk ? ' shrunk' : ''}`}
@@ -707,7 +766,7 @@ function LibraryList({
           isFullHeader && shrunk ? ' shrunk' : ''
         }${backdropStyle ? ' has-backdrop' : ''}`}
       >
-        {isFullHeader && (
+        {isFullHeader && !isLikedView && (
           <div
             className={`lib-header-cover${mosaicPattern ? ' mosaic' : ''}`}
             style={
@@ -919,6 +978,7 @@ function LibraryList({
               onMouseOverItem={onItemMouseOver}
               onPlay={onPlayTrack}
               onContextMenu={openTrackMenu}
+              onToggleLiked={handleRowToggleLiked}
             />
           ))}
           {visibleTracks.length === 0 && <p className="empty-state">nothing here yet.</p>}
@@ -980,6 +1040,7 @@ function LibraryList({
                 onRowAction={handleRowDelete}
                 inPlaylist={isPlaylistView}
                 onAddToQueue={handleRowAddToQueue}
+                onToggleLiked={handleRowToggleLiked}
               />
               {reorderEnabled && index === visibleTracks.length - 1 && dropIndex === visibleTracks.length && (
                 <div className="lib-drop-line bottom" />

@@ -5,12 +5,14 @@ import HistoryPanel from './HistoryPanel';
 import { useListSelection } from '../lib/useListSelection';
 
 // Left column of the library view: upload, the "Imported" (whole-library)
-// view, the playlist list (pinned first), a new-playlist affordance, then
-// the queue and recently-played panels.
+// view, "Liked Songs" (its own zone, not part of the playlist list below —
+// it's not a playlist), the playlist list (pinned first), a new-playlist
+// affordance, then the queue and recently-played panels.
 function PlaylistNav({
   playlists,
   activeView,
   onSelectView,
+  likedCount = 0,
   onFilesSelected,
   onCreatePlaylist,
   onOpenMenu,
@@ -154,6 +156,17 @@ function PlaylistNav({
         onClick={() => onSelectView({ type: 'imported' })}
       >
         Imported
+      </button>
+
+      {/* its own zone — a peer of Imported, not one of the playlist rows
+          below (Liked isn't a playlist: no manual trackIds, can't be
+          renamed/pinned/deleted the way a playlist can) */}
+      <button
+        className={`nav-item nav-item-liked${activeView.type === 'liked' ? ' active' : ''}`}
+        onClick={() => onSelectView({ type: 'liked' })}
+      >
+        Liked Songs
+        {likedCount > 0 && <span className="nav-item-count">{likedCount}</span>}
       </button>
 
       <div className="nav-section-label">playlists</div>

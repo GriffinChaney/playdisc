@@ -43,7 +43,10 @@ function getDB() {
 //   ],
 //   notes: [ { id, text, complete, dateAdded } ],
 //   tags: string[],
-//   dateAdded: number
+//   dateAdded: number,
+//   liked: boolean,            // schemaless addition, 2026-09-05 — absent on
+//                               // older records, treated as falsy (not liked)
+//   likedAt: number | undefined // set when liked; left as-is (not cleared) on unlike
 // }
 // Audio bytes live on disk (~/Music/Sona Library), NOT in IndexedDB — see
 // electron/main.js. Records from before the migration still carry audioBlob

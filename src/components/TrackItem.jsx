@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { useObjectUrl } from '../lib/useObjectUrl';
 import { qualityChips, qualityTier } from '../lib/audioQuality';
 import TagMenu from './TagMenu';
+import HeartIcon from './HeartIcon';
 
 function formatDuration(seconds = 0) {
   const m = Math.floor(seconds / 60);
@@ -61,6 +62,7 @@ export default function TrackItem({
   onRowAction,
   inPlaylist,
   onAddToQueue,
+  onToggleLiked,
   position,
   allTags = [],
   // when this row is part of a multi-selection, `+ tag` acts on the whole
@@ -222,6 +224,18 @@ export default function TrackItem({
         );
       })()}
       <span className="track-duration">{formatDuration(track.duration)}</span>
+      <button
+        className={`track-like-btn${track.liked ? ' liked' : ''}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleLiked(track.id);
+        }}
+        aria-label={track.liked ? `unlike ${track.title}` : `like ${track.title}`}
+        aria-pressed={!!track.liked}
+        title={track.liked ? 'unlike' : 'like'}
+      >
+        <HeartIcon filled={!!track.liked} />
+      </button>
       <button
         className="track-queue-btn"
         onClick={(e) => {
