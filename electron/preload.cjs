@@ -5,6 +5,17 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
   enterMiniMode: (width, height) => ipcRenderer.send('enter-mini-mode', { width, height }),
   exitMiniMode: () => ipcRenderer.send('exit-mini-mode'),
+  // Whole-mini-window hover, computed in main via screen.getCursorScreenPoint()
+  // vs. the window's own bounds (see startMiniHoverPolling in main.js) —
+  // OS-level truth, not a DOM mouseenter/mouseleave pair, because those fed a
+  // feedback loop with the hover-revealed controls changing the window's own
+  // -webkit-app-region hit-test layout. Only fires while in mini mode, and
+  // only on an actual inside/outside change. Returns an unsubscribe fn.
+  onMiniHoverChange: (cb) => {
+    const listener = (_event, hovering) => cb(hovering);
+    ipcRenderer.on('mini-hover-change', listener);
+    return () => ipcRenderer.removeListener('mini-hover-change', listener);
+  },
   // opens a native dialog where files AND folders are both selectable at
   // once, recursively scans any selected folders for audio, and returns
   // {name, path} pairs (not file contents — see main.js for why) for every

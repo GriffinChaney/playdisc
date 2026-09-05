@@ -45,42 +45,30 @@ export default function MiniPlayer({
   const backdropStyle = meshBackdropStyle(palette, dominantColor);
   const miniRef = useRef(null);
 
-  // Whole-window hover state (2026-09-05, reworked). First attempt put
-  // onMouseEnter/onMouseLeave directly on the `.mini-player` root div — but
-  // that div carries `-webkit-app-region: drag` for window-dragging, and it
-  // turns out that CSS property doesn't just break plain `:hover` matching
-  // (already known — see the mini-volume-control comment below), it also
-  // swallows the DOM mouseenter/mouseleave events themselves on the exact
-  // element they're attached to. Only descendants explicitly marked
-  // `no-drag` (the cover, and the controls once visible) ever fired them,
-  // so hovering the title, the corners, or the plain gradient did nothing.
+  // Whole-window hover state (2026-09-05, third attempt — see git history
+  // for the two rejected ones). Both prior attempts used DOM
+  // mouseenter/mouseleave (first on `.mini-player` itself, then on
+  // `document` after discovering `-webkit-app-region: drag` swallows those
+  // events on the element carrying it) — but the real bug was a feedback
+  // loop, confirmed via temporary event logging: showing the volume
+  // pill/shuffle button on hover changes the window's own layout (and,
+  // combined with the drag region, its hit-testing), which the browser
+  // reads as "the pointer left," hiding the controls, reverting the
+  // layout, and re-triggering enter — repeatedly, several times a second,
+  // without the cursor ever actually leaving the window. No DOM-event-based
+  // detection can be structurally immune to that, because the thing
+  // changing layout IS the hover state being computed.
   //
-  // Fix: listen on `document` instead of the drag-region element, gated on
-  // `active`. In mini mode the OS window genuinely IS this component,
-  // edge-to-edge (see enterMiniMode in main.js), so "mouse entered/left the
-  // document" is exactly "mouse entered/left the mini window" — no
-  // app-region interference, because we're not attached to the drag element
-  // at all. mouseenter/mouseleave (not mouseover/mouseout) is still the
-  // right pair here: those don't fire on every child-boundary crossing
-  // inside the target the way mouseover/mouseout do, which matters even
-  // more on `document` (a single target with the entire page as its only
-  // "child" as far as this listener cares) — with mouseover/mouseout,
-  // moving the pointer across any inner element's edge would double-fire.
+  // Fixed by moving detection out of the DOM entirely: main.js polls
+  // `screen.getCursorScreenPoint()` against the window's own bounds (see
+  // `startMiniHoverPolling` there), which is OS-level truth nothing the
+  // renderer paints can influence, and pushes only actual inside/outside
+  // transitions over IPC. Only runs while a window is in mini mode.
   const [hovering, setHovering] = useState(false);
   useEffect(() => {
     if (!active) return;
-    function onEnter() {
-      setHovering(true);
-    }
-    function onLeave() {
-      setHovering(false);
-    }
-    document.addEventListener('mouseenter', onEnter);
-    document.addEventListener('mouseleave', onLeave);
-    return () => {
-      document.removeEventListener('mouseenter', onEnter);
-      document.removeEventListener('mouseleave', onLeave);
-    };
+    setHovering(false);
+    return window.electronAPI?.onMiniHoverChange?.(setHovering);
   }, [active]);
 
   // Volume control (2026-09-05 rework): its own control, not the app's
