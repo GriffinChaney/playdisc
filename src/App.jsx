@@ -47,6 +47,7 @@ import { loadKeybindings, saveKeybindings, eventToKeyString, DEFAULT_KEYBINDINGS
 import { sortLibrary, reconcileLibraryOrder } from './lib/librarySort';
 import { noteRank } from './lib/notes';
 import { invalidateArtworkHash } from './lib/artworkHash';
+import { fisherYates } from './lib/shuffle';
 
 // One-time: earlier builds could persist a hand-dragged column width (often
 // from an accidental grab of a resize handle, or — before this fix — a
@@ -121,6 +122,11 @@ export default function App() {
   const librarySortRef = useRef(librarySort);
   const librarySortDirRef = useRef(librarySortDir);
   const libraryOrderRef = useRef(libraryOrder);
+  // read by the shuffle-order effects below so they can anchor a rebuild on
+  // "whatever's actually playing right now" without depending on
+  // playingTrackId itself (which would rebuild on every track change, not
+  // just on a shuffle toggle or context change)
+  const playingTrackIdRef = useRef(playingTrackId);
   playlistsRef.current = playlists;
   playbackContextRef.current = playbackContext;
   activeViewRef.current = activeView;
@@ -128,6 +134,7 @@ export default function App() {
   librarySortRef.current = librarySort;
   librarySortDirRef.current = librarySortDir;
   libraryOrderRef.current = libraryOrder;
+  playingTrackIdRef.current = playingTrackId;
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -189,10 +196,14 @@ export default function App() {
   // playback actually starts, so the play/pause icon never lies mid-load.
   const shouldAutoPlayRef = useRef(false);
 
-  // when on, "next" and auto-advance-on-finish pick a genuinely random track
-  // (Math.random(), not a shuffled-order queue) instead of library order.
-  // "previous" stays sequential either way — shuffle only affects moving
-  // forward, same as most players.
+  // when on, "next" and auto-advance-on-finish walk a persisted shuffled
+  // order of the current context (see shuffleOrder / buildShuffleOrder /
+  // advanceShuffle below) instead of library order — a real Fisher-Yates
+  // permutation built once, not a fresh random pick every time, so nothing
+  // repeats until the whole context has played. "Previous" needs no
+  // shuffle-specific logic at all: it already walks the real play-history
+  // list (handleSkip's direction===-1 branch), which is the actual path
+  // played regardless of shuffle.
   const [shuffleEnabled, setShuffleEnabled] = useState(() => localStorage.getItem('shuffle') === '1');
   useEffect(() => {
     localStorage.setItem('shuffle', shuffleEnabled ? '1' : '0');
@@ -1363,6 +1374,108 @@ export default function App() {
     );
   }, [tracks]);
 
+  // ---- shuffle: a real shuffled order, not a random pick per skip ----
+  // `shuffleOrder` is the current context's track ids in shuffled play
+  // order — built once (Fisher-Yates) and then walked forward/backward like
+  // any other ordered list, so every track plays once before any repeats.
+  // Lives here (not on playbackContext itself) because it needs its own
+  // effect-driven lifecycle: rebuilt when shuffle turns on or the context
+  // changes, reconciled (not rebuilt) when the context's own track list
+  // changes, cleared when shuffle turns off. "Previous" needs none of this —
+  // it already walks the real play-history list (see handleSkip below),
+  // which is the actual path played regardless of shuffle.
+  const [shuffleOrder, setShuffleOrder] = useState([]);
+  const shuffleOrderRef = useRef(shuffleOrder);
+  const setShuffleOrderBoth = useCallback((order) => {
+    shuffleOrderRef.current = order;
+    setShuffleOrder(order);
+  }, []);
+
+  // `anchorId`, if present and still in this context, is pinned at position
+  // 0 and everything else is shuffled around it — used when shuffle turns on
+  // (or the context changes) while something is already playing, so that
+  // track keeps playing instead of the user being jumped elsewhere.
+  const buildShuffleOrder = useCallback(
+    (anchorId) => {
+      const ids = orderedContextTracks().map((t) => t.id);
+      if (anchorId && ids.includes(anchorId)) {
+        return [anchorId, ...fisherYates(ids.filter((id) => id !== anchorId))];
+      }
+      return fisherYates(ids);
+    },
+    [orderedContextTracks]
+  );
+
+  // Rebuild (anchored on whatever's currently playing) whenever shuffle
+  // turns on, or the context changes while it's already on — this is what
+  // makes "turn shuffle on mid-playback" keep the current track playing
+  // (decision: shuffle everything else around it) and "switch to a
+  // different playlist while shuffling" start a fresh order for the new one
+  // (the old one is discarded, not merged). Always rebuilds unconditionally
+  // rather than trying to detect "is the existing order already correct" —
+  // the one case that could look redundant (handlePlayPlaylist/
+  // handlePlayLibrary already picked a random start id, then this rebuild
+  // runs right after and reshuffles the rest around it) is cheap and
+  // harmless, and skipping it would need a correctness check on the OLD
+  // order's contents that isn't worth the complexity.
+  useEffect(() => {
+    if (!shuffleEnabled) {
+      setShuffleOrderBoth([]);
+      return;
+    }
+    setShuffleOrderBoth(buildShuffleOrder(playingTrackIdRef.current));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shuffleEnabled, playbackContext]);
+
+  // Tracks added to (or removed from) the current context mid-shuffle: keep
+  // the existing order's relative order for survivors and append newcomers
+  // at the end — never reshuffle from scratch just because the list
+  // changed. (Removal isn't explicitly asked for, but a stale id left in
+  // the order after a track is deleted would dead-end a lookup later, so
+  // it's pruned here too.)
+  useEffect(() => {
+    if (!shuffleEnabled) return;
+    const currentIds = orderedContextTracks().map((t) => t.id);
+    const currentSet = new Set(currentIds);
+    setShuffleOrder((prev) => {
+      const kept = prev.filter((id) => currentSet.has(id));
+      const keptSet = new Set(kept);
+      const appended = currentIds.filter((id) => !keptSet.has(id));
+      if (kept.length === prev.length && appended.length === 0) return prev;
+      const next = [...kept, ...appended];
+      shuffleOrderRef.current = next;
+      return next;
+    });
+  }, [tracks, shuffleEnabled, orderedContextTracks]);
+
+  // Advances one step along the persisted shuffle order from `referenceId`.
+  // Builds the order lazily if it's somehow empty when this is called.
+  // Reaching (or past) the last element starts a fresh shuffled pass — a
+  // NEW shuffle, not the same order repeating — and reports `wrapped: true`
+  // only when `referenceId` was genuinely the last element of a real,
+  // known order (as opposed to not being found in it at all, e.g. the
+  // track that just played came from the queue and isn't part of this
+  // context) — see handleFinish below for why that distinction matters for
+  // the repeat-off-stops-at-the-end check.
+  const advanceShuffle = useCallback(
+    (referenceId) => {
+      let order = shuffleOrderRef.current;
+      if (!order.length) {
+        order = buildShuffleOrder(referenceId);
+        setShuffleOrderBoth(order);
+      }
+      const idx = order.indexOf(referenceId);
+      if (idx !== -1 && idx < order.length - 1) {
+        return { trackId: order[idx + 1], wrapped: false };
+      }
+      const atGenuineEnd = idx === order.length - 1;
+      const fresh = buildShuffleOrder(null);
+      setShuffleOrderBoth(fresh);
+      return { trackId: fresh[0], wrapped: atGenuineEnd };
+    },
+    [buildShuffleOrder, setShuffleOrderBoth]
+  );
+
   const handleSkip = useCallback((direction) => {
     if (!tracks.length) return;
 
@@ -1421,15 +1534,17 @@ export default function App() {
     // happens to be browsed, so it stays correct even mid-browse
     const referenceId = playingTrackId ?? currentTrackId;
     if (direction === 1 && shuffleEnabled && sorted.length > 1) {
-      const candidates = sorted.filter((t) => t.id !== referenceId);
-      const pick = candidates[Math.floor(Math.random() * candidates.length)];
-      handleAdoptAndPlay(pick.id, { autoPlay: isPlaying });
+      // manual "next" always wraps into a fresh shuffled pass at the end,
+      // same as sequential mode's manual skip wraps regardless of repeat
+      // mode — only handleFinish's natural end-of-track respects repeat-off
+      const { trackId } = advanceShuffle(referenceId);
+      handleAdoptAndPlay(trackId, { autoPlay: isPlaying });
       return;
     }
     const idx = sorted.findIndex((t) => t.id === referenceId);
     const nextIdx = (idx + direction + sorted.length) % sorted.length;
     handleAdoptAndPlay(sorted[nextIdx].id, { autoPlay: isPlaying });
-  }, [tracks, playingTrackId, currentTrackId, handleAdoptAndPlay, isPlaying, queue, shuffleEnabled, goToHistory, stepHistory, commitHistory, orderedContextTracks]);
+  }, [tracks, playingTrackId, currentTrackId, handleAdoptAndPlay, isPlaying, queue, shuffleEnabled, goToHistory, stepHistory, commitHistory, orderedContextTracks, advanceShuffle]);
 
   const handleReady = useCallback((dur) => {
     setDuration(dur);
@@ -1475,15 +1590,23 @@ export default function App() {
     const sorted = orderedContextTracks();
     const referenceId = playingTrackId ?? currentTrackId;
     if (shuffleEnabled && sorted.length > 1) {
-      const candidates = sorted.filter((t) => t.id !== referenceId);
-      const pick = candidates[Math.floor(Math.random() * candidates.length)];
-      handleAdoptAndPlay(pick.id, { autoPlay: true });
+      // unlike a manual skip, a track finishing naturally at the end of a
+      // full shuffled pass respects repeat mode — stop with repeat off,
+      // same as sequential mode below, instead of shuffling forever
+      const { trackId, wrapped } = advanceShuffle(referenceId);
+      if (wrapped && repeatMode !== 'all') {
+        waveformRef.current?.pause();
+        waveformRef.current?.seekTo(0);
+        setCurrentTime(0);
+        setIsPlaying(false);
+        return;
+      }
+      handleAdoptAndPlay(trackId, { autoPlay: true });
       return;
     }
     const idx = sorted.findIndex((t) => t.id === referenceId);
-    // Sequential playback only — the shuffle branch above always returns first
-    // when shuffle is on with >1 track, so shuffle keeps going regardless of
-    // repeat. End of the context with repeat off -> stop, don't wrap.
+    // Sequential playback only — the shuffle branch above already returned.
+    // End of the context with repeat off -> stop, don't wrap.
     if (idx === sorted.length - 1 && repeatMode !== 'all') {
       waveformRef.current?.pause();
       waveformRef.current?.seekTo(0);
@@ -1493,7 +1616,7 @@ export default function App() {
     }
     const nextIdx = (idx + 1) % sorted.length;
     handleAdoptAndPlay(sorted[nextIdx].id, { autoPlay: true });
-  }, [tracks, playingTrackId, currentTrackId, handleAdoptAndPlay, queue, shuffleEnabled, repeatMode, goToHistory, stepHistory, orderedContextTracks]);
+  }, [tracks, playingTrackId, currentTrackId, handleAdoptAndPlay, queue, shuffleEnabled, repeatMode, goToHistory, stepHistory, orderedContextTracks, advanceShuffle]);
 
   // OS-level media keys — literal F7/F8/F9 and the Media* keys, registered
   // always for the app's whole lifetime (electron/main.js, via
