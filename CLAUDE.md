@@ -73,13 +73,15 @@ playdisc/                # repo lives at ~/Developer/playdisc (was ~/Developer/s
 │   │   ├── Waveform.jsx       # owns the single WaveSurfer instance; heatmap + EQ bars
 │   │   ├── WaveformSlot.jsx   # reparents the shared waveform DOM node into whichever view needs it
 │   │   ├── SettingsModal.jsx  # theme toggle + keybinding editor
-│   │   └── VolumeIcon.jsx     # flat inline-SVG speaker glyph (no emoji)
+│   │   ├── VolumeIcon.jsx     # flat inline-SVG speaker glyph (no emoji)
+│   │   └── HeartIcon.jsx      # outline/filled heart (liked/favorites) — see activeView above
 │   └── lib/
 │       ├── db.js              # IndexedDB CRUD (idb wrapper)
 │       ├── parseTrack.js      # File -> track record (metadata + artwork extraction)
 │       ├── useObjectUrl.js    # hook: Blob -> object URL, auto-revoked
 │       ├── keybindings.js     # DEFAULT_KEYBINDINGS, load/save/format helpers
-│       └── artworkTilt.js     # shared mouse-tilt handlers for album art
+│       ├── artworkTilt.js     # shared mouse-tilt handlers for album art
+│       └── likedBackdrop.js   # fixed (non-cover-derived) header gradient for the Liked view
 ├── vite.config.js        # dev server port 5173; ignores release/ in the watcher
 ├── index.html             # <title>Playdisc</title>
 └── package.json           # name: "playdisc", productName: "Playdisc"
@@ -268,10 +270,41 @@ persisted to `localStorage.navWidth`) / `1fr` / `var(--np-width)` (fixed 278px).
 **`'focus'` and `'mini'` views are untouched** — `.focus-view` still spans
 `grid-column: 1 / -1`, `.mini-player` is still `position: fixed; inset: 0`.
 
-- `activeView`: `{ type: 'imported' }` or `{ type: 'playlist', id }` — which left-nav
-  item the middle column shows. "Imported" = the **entire library** (newest-first),
-  not "songs not in a playlist". Purely a view; never changes `currentTrackId`/
-  `playingTrackId`.
+- `activeView`: `{ type: 'imported' }`, `{ type: 'playlist', id }`, or `{ type: 'liked' }`
+  — which left-nav item the middle column shows. "Imported" = the **entire library**
+  (newest-first), not "songs not in a playlist". Purely a view; never changes
+  `currentTrackId`/`playingTrackId`.
+- **Liked / favorites** (2026-09-05): `liked: boolean` + `likedAt: number|undefined` on
+  the track record (see Track record shape below) — schemaless, no `DB_VERSION` bump,
+  same as `originalArtist`/`originalArtworkBlob`. Toggled via `handleSetLiked(id,
+  liked)` in `App.jsx` (`patchTrack` under the hood); `likedAt` is set on like and left
+  alone on unlike (never cleared). `src/components/HeartIcon.jsx` is the outline/filled
+  glyph used everywhere (track rows in both list and grid, the right-click Like/Unlike
+  menu item) — its fill color is `var(--playing)`, the ONE place that color lives for
+  the heart. Both the row heart and the context-menu item route through
+  `LibraryList.jsx`'s existing `menuTargets(trackId)` helper, so acting on a row that's
+  part of a multi-selection acts on the whole selection, same as tag/queue/delete.
+  `{ type: 'liked' }` is its own `activeView`, a peer of Imported in the sidebar (its
+  own zone above the "playlists" section label, NOT one of the playlist rows — it has
+  no manual `trackIds` array, no rename/pin/delete). Its header uses a fixed,
+  non-cover-derived gradient (`src/lib/likedBackdrop.js`, exports `likedBackdropStyle()`
+  — several blue tones over a dark base, same visual construction as
+  `meshBackdropStyle`'s palette branch but with hardcoded colors; `meshBackdropStyle`/
+  `dominantColor.js`/the real extraction pipeline are untouched by this feature). Sort
+  options: `'likedAt'` (this view's own default, "Recently liked" = desc) plus the
+  normal `added`/`artist` options, but deliberately **no** `'custom'` — Liked isn't
+  backed by a manual order to hand-drag. Everywhere else (Imported, playlists), sort
+  gained a `'liked'` option ("Liked first") that groups liked tracks to the top, ties
+  falling back to `dateAdded desc` (same secondary order `'artist'` sort already uses).
+  Both new sort modes live in `src/lib/librarySort.js`. The Liked view's own row
+  membership is a **snapshot** (`likedViewIds` state in `App.jsx`), re-taken on entering
+  the view and on an actual sort change — NOT a live filter — so unliking a track while
+  looking at this view leaves its row in place (the heart still flips to outlined
+  immediately, reading live off `tracks`) until you navigate away or change sort; a
+  misclick shouldn't make the row vanish. Playback/shuffle/skip all treat `{type:
+  'liked'}` as a third case alongside `'playlist'`/`'library'` throughout `App.jsx`
+  (`contextFromActiveView`, `orderedContextTracks`, `handlePlayLiked`, the header
+  play/pause button) — shuffle is deliberately NOT liked-weighted, it stays unbiased.
 - `playlists`: array of `{ id, name, trackIds: string[], pinned, sortIndex, createdAt, updatedAt }`.
   Left-nav order = `pinned desc, sortIndex asc` (`sortIndex` backfills to `createdAt`
   for old records). Drag-reorder in `PlaylistNav` (`handleReorderPlaylists`) renumbers
@@ -459,9 +492,17 @@ persisted to `localStorage.navWidth`) / `1fr` / `var(--np-width)` (fixed 278px).
     bitrate, bitsPerSample, channels, lossless
   } | null,
   tags: string[],
-  dateAdded: number      // epoch ms; sort key for library order
+  dateAdded: number,     // epoch ms; sort key for library order
+  liked: boolean,        // schemaless, 2026-09-05 — absent on older records reads as
+                          //   not-liked, no backfill/migration. See activeView above.
+  likedAt: number|undefined // epoch ms, set on like; left as-is (not cleared) on unlike
 }
 ```
+
+This isn't an exhaustive list of every field on a track record — schemaless additions
+(`liked`/`likedAt` above, `originalArtist`, `originalArtworkBlob`) get merged in via
+`patchTrack`/`updateTrack` without necessarily being added here. Treat this as "the
+shape as of the last time someone updated this comment," not a strict schema.
 
 IndexedDB database name is `"my-music-player"` (stores `"tracks"` and, since
 DB_VERSION 2, `"playlists"`) — **not** renamed when the app was rebranded (twice now:
