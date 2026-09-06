@@ -148,6 +148,26 @@ Already fixed — don't remove that config.
   This was a deliberate correction after the first mini-player implementation (an
   in-window widget) was explicitly rejected by the user as leaving "a huge big grey
   empty box."
+- **Library root + relative paths (branch `library-sync`, stage 2, 2026-09-06 —
+  see `docs/LIBRARY_SYNC_PLAN.md`).** Audio files live under ONE per-machine
+  folder, the *library root*, chosen in Settings › Library (or the first-launch
+  gate) via a native folder picker and stored by main in
+  `<userData>/config.json` (`{ libraryRoot, machineId }` — `machineId` is a
+  generated UUID for the upcoming sync files). That root is the **only absolute
+  path in the app**. Every version stores `relPath` (POSIX slashes, e.g.
+  `"Artist — Title/title.wav"`), and every media IPC + the
+  `playdisc-media://f/<encoded relPath>` protocol resolve it in main via
+  `resolveRel()`, which throws on anything absolute, backslashed, `..`-y, or
+  escaping the root. Renderer side, `assertRelPath()` in `src/lib/media.js` does
+  the same check at every use (`mediaUrl`, `makeVersion`, rename/delete/relocate,
+  the missing-file sweep). **A record with an old absolute `filePath` fails
+  loudly, never silently** — that's the point of the rename, don't add fallbacks.
+  App.jsx refuses to load a library containing any version without a valid
+  `relPath` (`legacyLibrary`) and blocks behind `LibrarySetup.jsx` until "Reset
+  library"; a missing/unset root blocks the same way until a folder is chosen.
+  Only *source* files picked in a dialog (`selectAudioImport`, `selectAudioFile`,
+  `readAudioFile`) are ever absolute. Import still **copies in** (adopt-in-place
+  is a later stage).
 - Console forwarding: `win.webContents.on('console-message', ...)` pipes all renderer
   `console.*` output to the terminal running `electron:dev`, regardless of whether
   DevTools is open. DevTools no longer auto-opens on launch (was previously

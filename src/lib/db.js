@@ -39,7 +39,8 @@ function getDB() {
 //   audio: {...} | null,       // mirrors the active version's format info
 //   activeVersionId: string,
 //   versions: [                // >=1; an unversioned track has one implicit
-//     { id, label, filePath, duration, format, fingerprint, dateAdded }
+//     { id, title, originalTitle, relPath, duration, format, fingerprint, dateAdded }
+//     — relPath is relative to the per-machine library root (see media.js)
 //   ],
 //   notes: [ { id, text, complete, dateAdded } ],
 //   tags: string[],
@@ -48,7 +49,7 @@ function getDB() {
 //                               // older records, treated as falsy (not liked)
 //   likedAt: number | undefined // set when liked; left as-is (not cleared) on unlike
 // }
-// Audio bytes live on disk (~/Music/Sona Library), NOT in IndexedDB — see
+// Audio bytes live on disk under the library root, NOT in IndexedDB — see
 // electron/main.js. The blob->file / extension / version-title migrations
 // that used to run over old records were removed on the library-sync branch
 // (fresh start, nothing to migrate); every record now has `versions`.

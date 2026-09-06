@@ -25,14 +25,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // folder import never serializes everything through IPC in one message
   readAudioFile: (filePath) => ipcRenderer.invoke('read-audio-file', filePath),
 
-  // --- media library (versioning) ---
+  // --- media library ---
+  // Every path that crosses this bridge in either direction is a `relPath`
+  // relative to the configured library root (POSIX slashes) — EXCEPT
+  // selectAudioFile / selectAudioImport / readAudioFile, which deal in
+  // absolute paths of *source* files picked in a native dialog. Main throws
+  // on any relPath that isn't a clean path inside the root.
   selectAudioFile: () => ipcRenderer.invoke('select-audio-file'),
-  mediaCopyIn: (opts) => ipcRenderer.invoke('media:copy-in', opts),
-  mediaExists: (paths) => ipcRenderer.invoke('media:exists', paths),
-  mediaDelete: (filePath) => ipcRenderer.invoke('media:delete', filePath),
-  mediaRename: (opts) => ipcRenderer.invoke('media:rename', opts),
-  mediaLibraryDir: () => ipcRenderer.invoke('media:library-dir'),
+  mediaCopyIn: (opts) => ipcRenderer.invoke('media:copy-in', opts), // -> { relPath }
+  mediaExists: (relPaths) => ipcRenderer.invoke('media:exists', relPaths),
+  mediaDelete: (relPath) => ipcRenderer.invoke('media:delete', relPath),
+  mediaRename: (opts) => ipcRenderer.invoke('media:rename', opts), // { relPath, title } -> relPath
   revealLibraryDir: () => ipcRenderer.invoke('media:reveal-library'),
+  // the per-machine library root: { root, exists, machineId }. chooseLibraryRoot
+  // opens the native folder picker and returns the same shape, or null on cancel.
+  getLibraryRoot: () => ipcRenderer.invoke('library:get-root'),
+  chooseLibraryRoot: () => ipcRenderer.invoke('library:choose-root'),
 
   // --- app / settings ---
   appVersion: () => ipcRenderer.invoke('app:version'),

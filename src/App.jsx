@@ -19,6 +19,7 @@ import ImportToast from './components/ImportToast';
 import VersionsModal from './components/VersionsModal';
 import CoverEditModal from './components/CoverEditModal';
 import ChoiceModal from './components/ChoiceModal';
+import LibrarySetup from './components/LibrarySetup';
 import {
   addTrack,
   getAllTracks,
@@ -32,6 +33,8 @@ import {
 import { buildImportedTrack } from './lib/parseTrack';
 import {
   mediaUrl,
+  assertRelPath,
+  isRelPath,
   readAudioMeta,
   fingerprint,
   makeVersion,
@@ -266,8 +269,25 @@ export default function App() {
   // multi-choice confirm (e.g. merge / copy / cancel when adding a version
   // from a file that's already its own track). null when nothing to ask.
   const [choiceConfig, setChoiceConfig] = useState(null);
-  // filePaths of active versions whose file is missing from disk
+  // relPaths of active versions whose file is missing from disk
   const [missingPaths, setMissingPaths] = useState(() => new Set());
+  // The per-machine library root, from electron/main.js: undefined while
+  // loading, then { root: string|null, exists: boolean, machineId }. The
+  // renderer never uses `root` for anything but display — every path it
+  // holds is relative to it (see media.js assertRelPath).
+  const [libraryRoot, setLibraryRoot] = useState(undefined);
+  // true when IndexedDB holds records from before the relative-path rework
+  // (a version without a valid relPath). Those records are NOT loaded into
+  // `tracks` — nothing here can play, rename, delete or sync them correctly,
+  // and any write path would make it worse — so the app blocks behind
+  // <LibrarySetup> until the library is reset. Deliberately no auto-migration:
+  // the sync plan starts from a wiped library on both machines.
+  const [legacyLibrary, setLegacyLibrary] = useState(false);
+  // In the packaged app, nothing path-based may run until a root exists on
+  // disk. In the plain dev browser (no electronAPI) there's no root concept
+  // and no playback anyway, so don't block the UI there.
+  const libraryReady = !window.electronAPI || !!libraryRoot?.exists;
+  const setupGate = legacyLibrary || (!!window.electronAPI && libraryRoot !== undefined && !libraryRoot.exists);
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
   // 0-100: fullscreen background drift/audio-reaction intensity (see
   // useGradientDrift). Default 61 (2026-09-05, was 50 — retuned by feel;
@@ -508,16 +528,42 @@ export default function App() {
   }
 
   useEffect(() => {
-    getAllTracks().then(setTracks);
+    getAllTracks().then((all) => {
+      // see legacyLibrary above — a single pre-rework record blocks the
+      // whole library rather than loading a mix of usable and unusable rows
+      const legacy = all.filter(
+        (t) => !Array.isArray(t.versions) || !t.versions.length || t.versions.some((v) => !isRelPath(v.relPath))
+      );
+      if (legacy.length) {
+        console.error(
+          `[library] ${legacy.length} of ${all.length} tracks predate the relative-path rework (no valid version.relPath) — refusing to load; reset the library to continue. First offender:`,
+          legacy[0]
+        );
+        setLegacyLibrary(true);
+        return;
+      }
+      setTracks(all);
+    });
     getAllPlaylists().then((pls) =>
       setPlaylists(pls.map((p) => ({ pinned: false, sortIndex: p.createdAt, ...p })))
     );
+    window.electronAPI?.getLibraryRoot?.().then(setLibraryRoot);
   }, []);
 
-  // sweep for active-version files that have gone missing from disk
+  // Settings / first-launch gate: native folder picker in main. A cancel
+  // leaves things as they were.
+  const handleChooseLibraryRoot = useCallback(async () => {
+    const res = await window.electronAPI?.chooseLibraryRoot?.();
+    if (res) setLibraryRoot(res);
+  }, []);
+
+  // sweep for active-version files that have gone missing from disk. Waits
+  // for the root: main throws on every media IPC without one, and a legacy
+  // record never gets this far (it isn't in `tracks`). assertRelPath is the
+  // loud failure for anything that slipped past the load-time check.
   useEffect(() => {
-    if (!window.electronAPI?.mediaExists) return;
-    const paths = tracks.map((t) => activeVersion(t)?.filePath).filter(Boolean);
+    if (!window.electronAPI?.mediaExists || !libraryReady) return;
+    const paths = tracks.map((t) => assertRelPath(activeVersion(t)?.relPath, 'missing-file sweep'));
     if (!paths.length) return;
     let cancelled = false;
     window.electronAPI.mediaExists([...new Set(paths)]).then((res) => {
@@ -531,7 +577,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [tracks]);
+  }, [tracks, libraryReady]);
 
   useEffect(() => {
     localStorage.setItem('libraryViewMode', libraryViewMode);
@@ -951,10 +997,12 @@ export default function App() {
   // Changing the active version changes this URL, which recreates the
   // WaveSurfer instance -> playback restarts from 0 (intended: different
   // mixes don't line up).
+  // mediaUrl throws on a version without a valid relPath — deliberately, see
+  // media.js. Nothing is handed to the audio engine until the root exists.
   const playingVersion = activeVersion(playingTrack);
-  const audioUrl = mediaUrl(playingVersion?.filePath);
+  const audioUrl = libraryReady && playingVersion ? mediaUrl(playingVersion.relPath) : null;
   const currentMissing =
-    !!currentTrack && missingPaths.has(activeVersion(currentTrack)?.filePath);
+    !!currentTrack && missingPaths.has(activeVersion(currentTrack)?.relPath);
   // colors sampled from the PLAYING track's cover, fed to the waveform + EQ
   // visualizer (null when the track has no artwork -> default heatmap colors)
   const playingPalette = useArtworkPalette(playingTrack?.artworkBlob);
@@ -1091,7 +1139,7 @@ export default function App() {
           existing.add(fp);
           const meta = await readAudioMeta(bytes, item.name);
           const fileTitle = importTitle(meta, item.name);
-          const { storedPath } = await window.electronAPI.mediaCopyIn({
+          const { relPath } = await window.electronAPI.mediaCopyIn({
             srcPath: item.path,
             artist: meta.artist || 'unknown artist',
             title: fileTitle,
@@ -1100,7 +1148,7 @@ export default function App() {
             label: fileTitle,
             ext: sniffExt(bytes) || extFromName(item.name)
           });
-          const track = buildImportedTrack({ name: item.name, meta, storedPath, fp });
+          const track = buildImportedTrack({ name: item.name, meta, relPath, fp });
           await addTrack(track);
           added.push(track);
         } catch (err) {
@@ -1993,21 +2041,24 @@ export default function App() {
       const v = t?.versions.find((x) => x.id === versionId);
       const title = (rawTitle || '').trim();
       if (!t || !v || !title || title === v.title) return;
-      // rename the file on disk to match, best-effort (DB path stays truth)
-      let filePath = v.filePath;
-      if (filePath && window.electronAPI?.mediaRename) {
+      // rename the file on disk to match, best-effort (DB path stays truth).
+      // Best-effort covers filesystem failures only: a version without a
+      // valid relPath throws here, before anything is touched, on purpose.
+      let relPath = assertRelPath(v.relPath, 'rename version');
+      if (window.electronAPI?.mediaRename) {
         try {
-          filePath = await window.electronAPI.mediaRename({ filePath, title });
-        } catch {
-          filePath = v.filePath;
+          relPath = assertRelPath(await window.electronAPI.mediaRename({ relPath, title }), 'rename version result');
+        } catch (err) {
+          console.error('[media] rename failed, keeping the old filename:', err);
+          relPath = v.relPath;
         }
       }
       const isActive = t.activeVersionId === versionId;
       patchTrack(trackId, {
-        versions: t.versions.map((x) => (x.id === versionId ? { ...x, title, filePath } : x)),
+        versions: t.versions.map((x) => (x.id === versionId ? { ...x, title, relPath } : x)),
         ...(isActive ? { title } : {})
       });
-      if (isActive && filePath !== v.filePath) restartIfPlaying(trackId);
+      if (isActive && relPath !== v.relPath) restartIfPlaying(trackId);
     },
     [patchTrack, restartIfPlaying]
   );
@@ -2046,7 +2097,7 @@ export default function App() {
         extra = { title: next.title || t.title, duration: next.duration, audio: next.format };
       }
       patchTrack(trackId, { versions: remaining, activeVersionId, ...extra });
-      if (gone?.filePath) window.electronAPI?.mediaDelete(gone.filePath);
+      if (gone) window.electronAPI?.mediaDelete(assertRelPath(gone.relPath, 'delete version'));
       if (activeVersionId !== t.activeVersionId) restartIfPlaying(trackId);
     },
     [patchTrack, restartIfPlaying]
@@ -2081,7 +2132,7 @@ export default function App() {
 
       // copy the picked file into this track's folder as a new active version
       const addSeparateCopy = async () => {
-        const { storedPath } = await window.electronAPI.mediaCopyIn({
+        const { relPath } = await window.electronAPI.mediaCopyIn({
           srcPath: entry.path,
           artist: t.artist,
           title: t.title,
@@ -2090,7 +2141,7 @@ export default function App() {
         });
         const newVersion = makeVersion({
           title,
-          filePath: storedPath,
+          relPath,
           duration: meta.duration,
           format: meta.format,
           fp
@@ -2160,21 +2211,27 @@ export default function App() {
       const picked = await readPicked();
       if (!picked) return;
       const { entry, bytes, fp, meta } = picked;
-      const { storedPath } = await window.electronAPI.mediaCopyIn({
+      const { relPath } = await window.electronAPI.mediaCopyIn({
         srcPath: entry.path,
         artist: t.artist,
         title: t.title,
         label: v.title || 'original',
         ext: sniffExt(bytes) || extFromName(entry.name)
       });
-      const nextV = { ...v, filePath: storedPath, duration: meta.duration, format: meta.format, fingerprint: fp };
+      const nextV = {
+        ...v,
+        relPath: assertRelPath(relPath, 'relocate version'),
+        duration: meta.duration,
+        format: meta.format,
+        fingerprint: fp
+      };
       patchTrack(trackId, {
         versions: t.versions.map((x) => (x.id === versionId ? nextV : x)),
         ...(t.activeVersionId === versionId ? { duration: nextV.duration, audio: nextV.format } : {})
       });
       setMissingPaths((prev) => {
         const next = new Set(prev);
-        next.delete(v.filePath);
+        next.delete(v.relPath);
         return next;
       });
       restartIfPlaying(trackId);
@@ -2266,7 +2323,7 @@ export default function App() {
 
   const handleDeleteTrack = useCallback(async (id) => {
     const t = tracksRef.current.find((x) => x.id === id);
-    (t?.versions || []).forEach((v) => v.filePath && window.electronAPI?.mediaDelete(v.filePath));
+    (t?.versions || []).forEach((v) => window.electronAPI?.mediaDelete(assertRelPath(v.relPath, 'delete track')));
     await deleteTrack(id);
     setTracks((prev) => prev.filter((t) => t.id !== id));
     if (id === playingTrackId) {
@@ -2344,8 +2401,9 @@ export default function App() {
       // open (their own capture-phase listener handles Escape/Cmd+W/etc.
       // for themselves — see SettingsModal.jsx and SearchOverlay.jsx) —
       // this mirrors settingsOpen exactly rather than inventing a second
-      // mechanism, per the Cmd+W lesson below.
-      if (settingsOpen || searchOverlayOpen) return;
+      // mechanism, per the Cmd+W lesson below. The library-setup gate is
+      // blocking by definition — no shortcut may act behind it.
+      if (settingsOpen || searchOverlayOpen || setupGate) return;
 
       // Option+Space opens the quick-search overlay (2026-09-06) —
       // deliberately NOT Electron's globalShortcut (system-wide, and
@@ -2513,6 +2571,7 @@ export default function App() {
     settingsOpen,
     searchOverlayOpen,
     anyModalOpen,
+    setupGate,
     view,
     activeView,
     closeArtistPage,
@@ -2558,7 +2617,7 @@ export default function App() {
   useEffect(() => {
     function handleKeyDown(e) {
       if (eventToKeyString(e) !== keybindings.playPause.key) return;
-      if (settingsOpen || searchOverlayOpen || anyModalOpen) return;
+      if (settingsOpen || searchOverlayOpen || anyModalOpen || setupGate) return;
       if (isTypingTarget(e)) return;
       // Every qualifying keydown, including OS auto-repeat while held — not
       // just the first. Space's default browser action is "scroll the
@@ -2605,7 +2664,7 @@ export default function App() {
       document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('keyup', handleKeyUp);
     };
-  }, [keybindings, settingsOpen, searchOverlayOpen, anyModalOpen, handleTogglePlay, resetSpaceHold]);
+  }, [keybindings, settingsOpen, searchOverlayOpen, anyModalOpen, setupGate, handleTogglePlay, resetSpaceHold]);
 
   // Reset on track switch or a view change (fullscreen/mini, back-to-
   // sidebar, the artist-page Escape/back path) — holding space, then
@@ -2921,8 +2980,18 @@ export default function App() {
           onSetKeybindings={handleSetKeybinding}
           onResetKeybindings={handleResetKeybindings}
           onResetLibrary={handleResetLibrary}
+          libraryRoot={libraryRoot}
+          onChooseLibraryRoot={handleChooseLibraryRoot}
           trackCount={tracks.length}
           onClose={handleCloseSettings}
+        />
+      )}
+      {setupGate && (
+        <LibrarySetup
+          legacy={legacyLibrary}
+          libraryRoot={libraryRoot}
+          onChooseRoot={handleChooseLibraryRoot}
+          onResetLibrary={handleResetLibrary}
         />
       )}
       <ContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} />

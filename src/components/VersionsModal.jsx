@@ -160,7 +160,7 @@ export default function VersionsModal({
           <div className="vm-list">
             {versions.map((v) => {
               const isActive = v.id === track.activeVersionId;
-              const missing = missingPaths?.has(v.filePath);
+              const missing = missingPaths?.has(v.relPath);
               return (
                 <div key={v.id} className={`vm-row${isActive ? ' active' : ''}`}>
                   <button
