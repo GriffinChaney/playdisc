@@ -7,6 +7,7 @@ import { useListSelection } from '../lib/useListSelection';
 import { useArtworkPalette, useDominantColor } from '../lib/useDominantColor';
 import { meshBackdropStyle } from '../lib/meshBackdrop';
 import { likedBackdropStyle } from '../lib/likedBackdrop';
+import { artistBackdropStyle } from '../lib/artistBackdrop';
 import { usePlaylistMosaic } from '../lib/usePlaylistMosaic';
 import HeartIcon from './HeartIcon';
 
@@ -30,7 +31,8 @@ function GridItem({
   onMouseOverItem,
   onPlay,
   onContextMenu,
-  onToggleLiked
+  onToggleLiked,
+  onOpenArtist
 }) {
   const artworkUrl = useObjectUrl(track.artworkBlob);
   // Z / follow-mode centering is handled centrally in LibraryList (via
@@ -89,7 +91,18 @@ function GridItem({
         )}
         {track.title}
       </p>
-      <p className="grid-artist">{track.artist}</p>
+      <p
+        className="grid-artist grid-artist-link"
+        onClick={(e) => {
+          // must not also select the tile (the row's own onClick) —
+          // see TrackItem's .track-artist for the identical reasoning
+          e.stopPropagation();
+          onOpenArtist?.(track.artist);
+        }}
+        onDoubleClick={(e) => e.stopPropagation()}
+      >
+        {track.artist}
+      </p>
     </div>
   );
 }
@@ -145,6 +158,8 @@ function LibraryList({
   onSetActiveTag,
   onUpdatePlaylist,
   isLikedView = false,
+  isArtistView = false,
+  onOpenArtist,
   onToggleLiked
 }) {
   const playlistImageUrl = useObjectUrl(playlistImageBlob);
@@ -193,7 +208,11 @@ function LibraryList({
   const coverSourceBlob = playlistImageBlob || firstArtworkBlob;
   const palette = useArtworkPalette(coverSourceBlob);
   const dominantColor = useDominantColor(coverSourceBlob);
-  const backdropStyle = isLikedView ? likedBackdropStyle() : meshBackdropStyle(palette, dominantColor);
+  const backdropStyle = isLikedView
+    ? likedBackdropStyle()
+    : isArtistView
+      ? artistBackdropStyle(viewTitle) // viewTitle IS the artist name for this view
+      : meshBackdropStyle(palette, dominantColor);
 
   // query/activeTag are lifted to App.jsx (query, onSetQuery, activeTag,
   // onSetActiveTag) so they survive this component unmounting on a
@@ -290,7 +309,9 @@ function LibraryList({
   // switch or a sort change, resetting scroll to top — but NOT on a
   // list<->grid toggle, which shows the same tracks in the same order and
   // should keep your place (see the viewMode-specific effect below instead).
-  const listKey = `${isLikedView ? 'liked' : isPlaylistView ? playlistId : 'imported'}|${sort}|${sortDir}`;
+  const listKey = `${
+    isLikedView ? 'liked' : isArtistView ? `artist:${viewTitle}` : isPlaylistView ? playlistId : 'imported'
+  }|${sort}|${sortDir}`;
   const prevListKeyRef = useRef(listKey);
   // list rows and grid tiles have very different heights, so a raw scrollTop
   // carried over from one to the other lands somewhere arbitrary. Captured
@@ -618,7 +639,8 @@ function LibraryList({
   //   FULL    — a playlist with cover art (its own image, or a track mosaic)
   //   COMPACT — Imported, or a playlist whose tracks have no artwork at all
   //   SHRUNK  — FULL after the list is scrolled past the threshold
-  const isFullHeader = isLikedView || (isPlaylistView && (!!playlistImageBlob || distinctCount > 0));
+  const isFullHeader =
+    isLikedView || isArtistView || (isPlaylistView && (!!playlistImageBlob || distinctCount > 0));
   // play is an action (needs tracks); shuffle is a mode (always available).
   // "whole view" = the unfiltered list, so search / tags never affect playback.
   const viewHasTracks = tracks.length > 0;
@@ -690,7 +712,13 @@ function LibraryList({
   // alongside the rest. The Liked view gets its own list instead: no Custom
   // order (Liked has no manual trackIds array to reorder — it's a live
   // filter over every liked track, not a container), and "Recently liked" as
-  // its default in Custom's usual first slot.
+  // its default in Custom's usual first slot. The artist page is the same
+  // "no manual order" situation as Liked (also a live filter, not a
+  // container) — same option set as a playlist view otherwise, minus
+  // 'custom'. Note 'Artist · A–Z'/'Z–A' still work here even though every
+  // row already shares this page's own artist — sortLibrary's 'artist' mode
+  // ties on title, so it degrades to a plain title sort, which is exactly
+  // as meaningful here as it is anywhere else.
   const SORT_OPTIONS = isLikedView
     ? [
         ['likedAt', 'desc', 'Recently liked'],
@@ -700,14 +728,22 @@ function LibraryList({
         ['artist', 'asc', 'Artist · A–Z'],
         ['artist', 'desc', 'Artist · Z–A']
       ]
-    : [
-        ['custom', 'desc', 'Custom order'],
-        ['added', 'desc', 'Newest first'],
-        ['added', 'asc', 'Oldest first'],
-        ['artist', 'asc', 'Artist · A–Z'],
-        ['artist', 'desc', 'Artist · Z–A'],
-        ['liked', 'desc', 'Liked first']
-      ];
+    : isArtistView
+      ? [
+          ['added', 'desc', 'Newest first'],
+          ['added', 'asc', 'Oldest first'],
+          ['artist', 'asc', 'Artist · A–Z'],
+          ['artist', 'desc', 'Artist · Z–A'],
+          ['liked', 'desc', 'Liked first']
+        ]
+      : [
+          ['custom', 'desc', 'Custom order'],
+          ['added', 'desc', 'Newest first'],
+          ['added', 'asc', 'Oldest first'],
+          ['artist', 'asc', 'Artist · A–Z'],
+          ['artist', 'desc', 'Artist · Z–A'],
+          ['liked', 'desc', 'Liked first']
+        ];
   const activeSortLabel =
     SORT_OPTIONS.find(([s, d]) => s === sort && (s === 'custom' || s === 'liked' || d === sortDir))?.[2] || 'Sort';
 
@@ -753,7 +789,11 @@ function LibraryList({
   );
 
   return (
-    <div className={`library-list${backdropStyle ? ' has-backdrop' : ''}${isLikedView ? ' liked-view' : ''}`}>
+    <div
+      className={`library-list${backdropStyle ? ' has-backdrop' : ''}${isLikedView ? ' liked-view' : ''}${
+        isArtistView ? ' artist-view' : ''
+      }`}
+    >
       {backdropStyle && (
         <div
           className={`lib-backdrop${isFullHeader && shrunk ? ' shrunk' : ''}`}
@@ -766,7 +806,7 @@ function LibraryList({
           isFullHeader && shrunk ? ' shrunk' : ''
         }${backdropStyle ? ' has-backdrop' : ''}`}
       >
-        {isFullHeader && !isLikedView && (
+        {isFullHeader && !isLikedView && !isArtistView && (
           <div
             className={`lib-header-cover${mosaicPattern ? ' mosaic' : ''}`}
             style={
@@ -979,6 +1019,7 @@ function LibraryList({
               onPlay={onPlayTrack}
               onContextMenu={openTrackMenu}
               onToggleLiked={handleRowToggleLiked}
+              onOpenArtist={onOpenArtist}
             />
           ))}
           {visibleTracks.length === 0 && <p className="empty-state">nothing here yet.</p>}
@@ -1041,6 +1082,7 @@ function LibraryList({
                 inPlaylist={isPlaylistView}
                 onAddToQueue={handleRowAddToQueue}
                 onToggleLiked={handleRowToggleLiked}
+                onOpenArtist={onOpenArtist}
               />
               {reorderEnabled && index === visibleTracks.length - 1 && dropIndex === visibleTracks.length && (
                 <div className="lib-drop-line bottom" />

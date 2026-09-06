@@ -26,17 +26,41 @@ import { useObjectUrl } from '../lib/useObjectUrl';
 // unreachable, just not one of the fast-jump slots.
 const RESULTS_PER_GROUP = 8;
 
-const GROUP_LABELS = { track: 'Tracks', playlist: 'Playlists', artist: 'Artists' };
+// Imported and Liked Songs (2026-09-06) are grouped with playlists — same
+// "thing you navigate to" as any playlist, just not user-created — under
+// one relabeled header. "Playlists" stopped fitting once it held two
+// things that aren't playlists; "Views" reads correctly for all three
+// (Imported, Liked Songs, and every real playlist) without implying they're
+// user-created. GROUP_LABELS keys are these merged group ids, not raw
+// result types — see groupOf() below for the type -> group mapping.
+const GROUP_LABELS = { track: 'Tracks', view: 'Views', artist: 'Artists' };
+function groupOf(type) {
+  return type === 'track' ? 'track' : type === 'artist' ? 'artist' : 'view';
+}
+
+// Match strength within a group, weakest last — an exact or prefix match on
+// a view/playlist name should rank above one that merely contains the
+// query, so typing "liked" surfaces "Liked Songs" ahead of some unrelated
+// playlist whose name happens to contain those letters. Tracks/artists
+// don't need this (they're typically searched by a short fragment of a
+// longer title/name, where "contains" IS the normal case), so it's only
+// applied to the merged Views group below.
+function matchRank(name, q) {
+  const n = name.toLowerCase();
+  if (n === q) return 0;
+  if (n.startsWith(q)) return 1;
+  return 2;
+}
 
 function ResultThumb({ result }) {
   // Tracks and playlists-with-a-cover get a real thumbnail (same fallback
   // glyph as everywhere else in the app — TrackItem's .track-thumb /
-  // .thumb-fallback); artists have no image source in the data model at
-  // all, so that row just skips the thumb column rather than inventing a
-  // placeholder graphic for it.
+  // .thumb-fallback); artists, Imported, and Liked Songs have no image
+  // source in the data model at all, so those rows just skip the thumb
+  // column rather than inventing a placeholder graphic for them.
   const blob = result.type === 'track' ? result.artworkBlob : result.type === 'playlist' ? result.imageBlob : null;
   const url = useObjectUrl(blob);
-  if (result.type === 'artist') return null;
+  if (result.type !== 'track' && result.type !== 'playlist') return null;
   return (
     <div className="search-result-thumb" style={url ? { backgroundImage: `url(${url})` } : undefined}>
       {!url && <span className="thumb-fallback">♪</span>}
@@ -83,9 +107,22 @@ export default function SearchOverlay({ tracks, playlists, onSelectResult, onClo
         secondary: t.artist || 'Unknown artist',
         artworkBlob: t.artworkBlob
       }));
+    // Imported/Liked Songs are synthetic entries, not real playlist
+    // records — same result shape otherwise so they slot into the merged,
+    // ranked Views group below exactly like a playlist does.
+    const builtinViews = [
+      { type: 'imported', id: 'imported', name: 'Imported', count: tracks.length },
+      { type: 'liked', id: 'liked', name: 'Liked Songs', count: tracks.filter((t) => t.liked).length }
+    ]
+      .filter((v) => v.name.toLowerCase().includes(q))
+      .map((v) => ({
+        type: v.type,
+        id: v.id,
+        primary: v.name,
+        secondary: `${v.count} track${v.count === 1 ? '' : 's'}`
+      }));
     const playlistResults = playlists
       .filter((p) => p.name?.toLowerCase().includes(q))
-      .slice(0, RESULTS_PER_GROUP)
       .map((p) => ({
         type: 'playlist',
         id: p.id,
@@ -93,6 +130,12 @@ export default function SearchOverlay({ tracks, playlists, onSelectResult, onClo
         secondary: `${p.trackIds.length} track${p.trackIds.length === 1 ? '' : 's'}`,
         imageBlob: p.imageBlob
       }));
+    // stable sort (V8/JS engines guarantee this) — ties keep their relative
+    // order (builtins before playlists, then each in their own order) so
+    // rank only ever promotes a strong match, never reshuffles equal ones
+    const viewResults = [...builtinViews, ...playlistResults]
+      .sort((a, b) => matchRank(a.primary, q) - matchRank(b.primary, q))
+      .slice(0, RESULTS_PER_GROUP);
     const artistResults = artists
       .filter((a) => a.name.toLowerCase().includes(q))
       .slice(0, RESULTS_PER_GROUP)
@@ -103,7 +146,7 @@ export default function SearchOverlay({ tracks, playlists, onSelectResult, onClo
         primary: a.name,
         secondary: `${a.count} track${a.count === 1 ? '' : 's'}`
       }));
-    return [...trackResults, ...playlistResults, ...artistResults];
+    return [...trackResults, ...viewResults, ...artistResults];
   }, [query, tracks, playlists, artists]);
 
   // First result highlighted by default (so Enter works immediately after
@@ -177,7 +220,7 @@ export default function SearchOverlay({ tracks, playlists, onSelectResult, onClo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [results, safeIndex]);
 
-  let lastType = null;
+  let lastGroup = null;
 
   return createPortal(
     <div className="modal-overlay modal-overlay-blur search-overlay" onMouseDown={onClose}>
@@ -196,11 +239,12 @@ export default function SearchOverlay({ tracks, playlists, onSelectResult, onClo
         ) : (
           <div className="search-palette-results">
             {results.map((result, i) => {
-              const showHeader = result.type !== lastType;
-              lastType = result.type;
+              const group = groupOf(result.type);
+              const showHeader = group !== lastGroup;
+              lastGroup = group;
               return (
                 <div key={`${result.type}-${result.id}`}>
-                  {showHeader && <div className="search-group-label">{GROUP_LABELS[result.type]}</div>}
+                  {showHeader && <div className="search-group-label">{GROUP_LABELS[group]}</div>}
                   <div
                     ref={(el) => (resultRefs.current[i] = el)}
                     className={`search-result-row${i === safeIndex ? ' highlighted' : ''}`}

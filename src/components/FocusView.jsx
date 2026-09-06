@@ -33,6 +33,7 @@ export default function FocusView({
   onToggleShuffle,
   repeatMode,
   onCycleRepeat,
+  onOpenArtist,
   movementIntensity = 0,
   getFrequencyBands,
   // Always mounted — App.jsx CSS-hides this view (`view-hidden`) instead of
@@ -96,7 +97,9 @@ export default function FocusView({
 
       <div className="focus-track-info">
         <p className="focus-title">{track?.title}</p>
-        <p className="focus-artist">{track?.artist}</p>
+        <p className="focus-artist focus-artist-link" onClick={() => track && onOpenArtist?.(track.artist)}>
+          {track?.artist}
+        </p>
       </div>
 
       <div className="focus-waveform-wrap">

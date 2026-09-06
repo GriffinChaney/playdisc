@@ -855,6 +855,22 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* clickable artist name -> artist page (2026-09-06). Block-level and full
+   row width stay unchanged (needed for the ellipsis truncation above) —
+   text-decoration only ever draws under the actual glyphs, not the row, so
+   the hover feedback still reads as "this word is a link," not a full-width
+   highlight bar. Same treatment on .grid-artist below. */
+.track-artist-link,
+.grid-artist-link {
+  cursor: pointer;
+  width: fit-content;
+  max-width: 100%;
+}
+.track-artist-link:hover,
+.grid-artist-link:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
 .track-duration {
   flex-shrink: 0;
   font-size: 12px;
@@ -1084,6 +1100,18 @@ body {
   color: var(--text-secondary);
   margin: 4px 0 0;
 }
+/* clickable artist name -> artist page (2026-09-06), same affordance as
+   the list/grid rows (TrackItem.jsx / LibraryList.jsx's GridItem) */
+.np-artist-link,
+.focus-artist-link {
+  display: inline-block;
+  cursor: pointer;
+}
+.np-artist-link:hover,
+.focus-artist-link:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
 
 /* ---- fullscreen legibility over a cover-derived backdrop ----
    The mesh backdrop is always a dark, saturated field (palette base is fixed
@@ -1101,6 +1129,9 @@ body {
 .focus-view.has-backdrop .focus-artist {
   color: rgba(244, 244, 242, 0.72);
   text-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
+}
+.focus-view.has-backdrop .focus-artist-link:hover {
+  color: #f4f4f2;
 }
 /* elapsed/total under the fullscreen waveform — same fix, dimmer than the
    artist line so it stays visually subordinate to title/artist. Scoped to

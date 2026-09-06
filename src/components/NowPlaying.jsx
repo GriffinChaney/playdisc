@@ -41,6 +41,7 @@ export default function NowPlaying({
   onReorderNote,
   onOpenMenu,
   onOpenVersions,
+  onOpenArtist,
   notesPanelOpen,
   onNotesPanelOpenChange,
   // Always mounted — App.jsx CSS-hides this view (`view-hidden`) instead of
@@ -76,7 +77,9 @@ export default function NowPlaying({
 
           <div className="track-info">
             <p className="np-title">{track.title}</p>
-            <p className="np-artist">{track.artist}</p>
+            <p className="np-artist np-artist-link" onClick={() => onOpenArtist?.(track.artist)}>
+              {track.artist}
+            </p>
           </div>
         </>
       )}

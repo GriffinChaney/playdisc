@@ -63,6 +63,7 @@ export default function TrackItem({
   inPlaylist,
   onAddToQueue,
   onToggleLiked,
+  onOpenArtist,
   position,
   allTags = [],
   // when this row is part of a multi-selection, `+ tag` acts on the whole
@@ -119,7 +120,21 @@ export default function TrackItem({
       </div>
       <div className="track-meta">
         <p className="track-title">{track.title}</p>
-        <p className="track-artist">{track.artist}</p>
+        <p
+          className="track-artist track-artist-link"
+          onClick={(e) => {
+            // stopPropagation so this doesn't ALSO select the row (the
+            // row's own onClick above) — clicking the artist name should
+            // open the artist page and nothing else. Same on the artist
+            // name's own dblclick, so double-clicking it specifically
+            // doesn't also fall through to the row's onDoubleClick (play).
+            e.stopPropagation();
+            onOpenArtist?.(track.artist);
+          }}
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
+          {track.artist}
+        </p>
         {isExpanded && (
           <div className="track-expanded-info">
             {qualityTier(track.audio) && (

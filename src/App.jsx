@@ -81,7 +81,14 @@ export default function App() {
 
   // playlists + which left-nav item the middle column is showing
   const [playlists, setPlaylists] = useState([]);
-  const [activeView, setActiveView] = useState({ type: 'imported' }); // | { type: 'playlist', id } | { type: 'liked' }
+  const [activeView, setActiveView] = useState({ type: 'imported' }); // | { type: 'playlist', id } | { type: 'liked' } | { type: 'artist', name }
+  // Where to return when leaving the artist page (Escape, or the header's
+  // back button) — captured once, when FIRST navigating to an artist page,
+  // not overwritten by navigating from one artist page straight to another
+  // (via the search overlay) — so a chain of artist -> artist -> artist
+  // still unwinds to wherever you actually started, not the last hop.
+  // { view, activeView } | null; null whenever no artist page is open.
+  const [artistPageReturn, setArtistPageReturn] = useState(null);
   const [libraryViewMode, setLibraryViewMode] = useState(
     () => localStorage.getItem('libraryViewMode') || 'list'
   );
@@ -124,6 +131,19 @@ export default function App() {
   // itself doesn't vanish until you navigate away or change sort — a
   // misclick shouldn't make the row disappear out from under the cursor).
   const [likedViewIds, setLikedViewIds] = useState([]);
+  // Artist page's own sort (2026-09-06) — same shape as Liked's, but no
+  // snapshot: unlike Liked (a quick heart-toggle that shouldn't vanish a row
+  // out from under a misclick), a track's artist only ever changes via the
+  // deliberate rename flow in VersionsModal, so a plain live filter over
+  // `tracks` is simpler and there's no accidental-vanishing row to guard
+  // against. 'added' default, not 'artist' — every row here already shares
+  // the same artist, so "Artist A–Z" would just degrade to a title sort
+  // (still offered, since it's the same option set as a playlist view, just
+  // not a useful DEFAULT for a single-artist list).
+  const [artistSort, setArtistSort] = useState(() => localStorage.getItem('artistSort') || 'added');
+  const [artistSortDir, setArtistSortDir] = useState(
+    () => localStorage.getItem('artistSortDir') || 'desc'
+  );
   const [contextMenu, setContextMenu] = useState(null);
   const [promptConfig, setPromptConfig] = useState(null);
   const [editingPlaylistId, setEditingPlaylistId] = useState(null);
@@ -140,6 +160,8 @@ export default function App() {
   const libraryOrderRef = useRef(libraryOrder);
   const likedSortRef = useRef(likedSort);
   const likedSortDirRef = useRef(likedSortDir);
+  const artistSortRef = useRef(artistSort);
+  const artistSortDirRef = useRef(artistSortDir);
   // read by the shuffle-order effects below so they can anchor a rebuild on
   // "whatever's actually playing right now" without depending on
   // playingTrackId itself (which would rebuild on every track change, not
@@ -154,6 +176,8 @@ export default function App() {
   libraryOrderRef.current = libraryOrder;
   likedSortRef.current = likedSort;
   likedSortDirRef.current = likedSortDir;
+  artistSortRef.current = artistSort;
+  artistSortDirRef.current = artistSortDir;
   playingTrackIdRef.current = playingTrackId;
 
   const [isPlaying, setIsPlaying] = useState(false);
@@ -653,6 +677,11 @@ export default function App() {
   }, [likedSort, likedSortDir]);
 
   useEffect(() => {
+    localStorage.setItem('artistSort', artistSort);
+    localStorage.setItem('artistSortDir', artistSortDir);
+  }, [artistSort, artistSortDir]);
+
+  useEffect(() => {
     localStorage.setItem('libraryOrder', JSON.stringify(libraryOrder));
   }, [libraryOrder]);
 
@@ -673,6 +702,11 @@ export default function App() {
   const handleSetLikedSort = useCallback((sort, dir) => {
     setLikedSort(sort);
     if (dir) setLikedSortDir(dir);
+  }, []);
+
+  const handleSetArtistSort = useCallback((sort, dir) => {
+    setArtistSort(sort);
+    if (dir) setArtistSortDir(dir);
   }, []);
 
   const handleReorderLibrary = useCallback((fromIndex, insertBeforeIndex) => {
@@ -822,8 +856,12 @@ export default function App() {
       const stayPut =
         activeView.type === 'imported' ||
         (activeView.type === 'liked' && !!track.liked) ||
+        (activeView.type === 'artist' && track.artist === activeView.name) ||
         (activeView.type === 'playlist' &&
           playlists.find((p) => p.id === activeView.id)?.trackIds.includes(id));
+      // (leaving the artist page this way, via a search result, is handled
+      // generically by the artistPageReturn safety-net effect above — no
+      // special-casing needed here)
       if (!stayPut) setActiveView({ type: 'imported' });
       setCurrentTrackId(id);
       if (libraryViewMode !== 'grid') setExpandedTrackId(id); // grid has no expand panel — see handleExpandTrack
@@ -833,16 +871,53 @@ export default function App() {
     [tracks, activeView, playlists, libraryViewMode]
   );
 
-  // Search-overlay "go to this artist." There's no artist entity/page yet
-  // (see CLAUDE.md) — this is deliberately the ONLY place that knowledge
-  // lives, so wiring a real artist page in later is a one-function swap
-  // (this body changes to setActiveView({ type: 'artist', name }) or
-  // similar) with no change needed in SearchOverlay or how it's called.
-  const openArtist = useCallback((artistName) => {
-    setView('sidebar');
-    setActiveView({ type: 'imported' });
-    setLibrarySearchQuery(artistName);
-  }, []);
+  // Search-overlay/track-row "go to this artist" (2026-09-06: now a real
+  // page — see the `activeView.type === 'artist'` case threaded throughout
+  // this file, the same way 'liked' was added as a third case). Captures
+  // the return point the FIRST time (see artistPageReturn above), so
+  // artist -> artist chaining doesn't lose track of where you actually
+  // started.
+  const openArtist = useCallback(
+    (artistName) => {
+      setArtistPageReturn((prev) => prev ?? { view, activeView });
+      setView('sidebar');
+      setActiveView({ type: 'artist', name: artistName });
+    },
+    [view, activeView]
+  );
+
+  // Leaving the artist page (Escape, or the header's back control) —
+  // restores the view/activeView captured when the page was entered. See
+  // "Which view to land in" in landOnTrack above for why there's no
+  // equivalent scroll-position restore: even switching between two
+  // ordinary playlists already resets scroll to the top by design (see
+  // LibraryList's listKey effect) — there's no existing "remember where I
+  // was" mechanism for THAT case either, so adding one just for this one
+  // exit path would be new, inconsistent behavior, not a restoration of
+  // something that already existed.
+  const closeArtistPage = useCallback(() => {
+    const back = artistPageReturn;
+    setArtistPageReturn(null);
+    if (back) {
+      setView(back.view);
+      setActiveView(back.activeView);
+    } else {
+      setActiveView({ type: 'imported' }); // safety net — shouldn't normally be reachable
+    }
+  }, [artistPageReturn]);
+
+  // Safety net for artistPageReturn: the sidebar (PlaylistNav's Imported /
+  // playlist / Liked Songs items) can navigate straight OFF the artist page
+  // without ever calling closeArtistPage — that's fine, they're just normal
+  // navigation, not "close the artist page" — but it would otherwise leave
+  // artistPageReturn stale, and openArtist's `prev ?? {...}` (see above)
+  // would then wrongly reuse that stale point on the NEXT artist page visit
+  // instead of capturing where this new one actually started. Whenever
+  // activeView isn't 'artist', there's no open artist page, so there's
+  // nothing valid to return to.
+  useEffect(() => {
+    if (activeView.type !== 'artist') setArtistPageReturn(null);
+  }, [activeView.type]);
 
   // Single dispatch point the search overlay calls on Enter/click — kept
   // here (not in the overlay) so it stays a dumb search+list component,
@@ -854,6 +929,16 @@ export default function App() {
         setView('sidebar');
         setActiveView({ type: 'playlist', id: result.id });
       } else if (result.type === 'artist') openArtist(result.name);
+      // Imported/Liked Songs (2026-09-06) — searchable alongside playlists,
+      // same "navigate to a view" shape, just the two built-in ones instead
+      // of a playlist record.
+      else if (result.type === 'imported') {
+        setView('sidebar');
+        setActiveView({ type: 'imported' });
+      } else if (result.type === 'liked') {
+        setView('sidebar');
+        setActiveView({ type: 'liked' });
+      }
     },
     [landOnTrack, openArtist]
   );
@@ -980,7 +1065,9 @@ export default function App() {
       ? playbackContext.type === 'playlist' && playbackContext.id === activeView.id
       : activeView.type === 'liked'
         ? playbackContext.type === 'liked'
-        : playbackContext.type === 'library');
+        : activeView.type === 'artist'
+          ? playbackContext.type === 'artist' && playbackContext.name === activeView.name
+          : playbackContext.type === 'library');
   // in focus / mini the waveform sits on the cover-derived (dark) mesh
   // backdrop whenever there's cover art — so its played-region wash should
   // use the light value in both themes, not the library view's dark wash
@@ -994,22 +1081,29 @@ export default function App() {
   const activePlaylist =
     activeView.type === 'playlist' ? playlists.find((p) => p.id === activeView.id) || null : null;
   const isLikedView = activeView.type === 'liked';
+  const isArtistView = activeView.type === 'artist';
+  const activeArtistName = isArtistView ? activeView.name : null;
 
   // one sort surface for the middle column, resolved from whichever view is
   // active. Library sort is app-level; playlist sort rides on the record;
-  // Liked has its own (separate default/options, see likedSort above).
+  // Liked has its own (separate default/options, see likedSort above); the
+  // artist page has its own too (see artistSort above), for the same reason.
   // (the setter, handleSetActiveSort, is defined lower — it needs
   // handleSetPlaylistSort, which needs persistPlaylist.)
   const activeSort = activePlaylist
     ? activePlaylist.sort || 'custom'
     : isLikedView
       ? likedSort
-      : librarySort;
+      : isArtistView
+        ? artistSort
+        : librarySort;
   const activeSortDir = activePlaylist
     ? activePlaylist.sortDir || 'desc'
     : isLikedView
       ? likedSortDir
-      : librarySortDir;
+      : isArtistView
+        ? artistSortDir
+        : librarySortDir;
 
   const shownTracks = useMemo(() => {
     if (activePlaylist) {
@@ -1028,8 +1122,27 @@ export default function App() {
       const likedTracks = likedViewIds.map((id) => byId.get(id)).filter(Boolean);
       return sortLibrary(likedTracks, likedSort, likedSortDir, []);
     }
+    if (isArtistView) {
+      // live filter, not a snapshot — see artistSort's declaration above for
+      // why that's the right call here (unlike Liked's likedViewIds)
+      return sortLibrary(tracks.filter((t) => t.artist === activeArtistName), artistSort, artistSortDir, []);
+    }
     return sortLibrary(tracks, librarySort, librarySortDir, libraryOrder);
-  }, [tracks, activePlaylist, isLikedView, likedViewIds, likedSort, likedSortDir, librarySort, librarySortDir, libraryOrder]);
+  }, [
+    tracks,
+    activePlaylist,
+    isLikedView,
+    likedViewIds,
+    likedSort,
+    likedSortDir,
+    isArtistView,
+    activeArtistName,
+    artistSort,
+    artistSortDir,
+    librarySort,
+    librarySortDir,
+    libraryOrder
+  ]);
   // the middle column's displayed order (pre search/tag filter) — the header
   // play button starts here so "play" matches what the user sees
   const shownTracksRef = useRef(shownTracks);
@@ -1144,6 +1257,9 @@ export default function App() {
     if (av.type === 'liked') {
       return { type: 'liked', sort: likedSortRef.current, dir: likedSortDirRef.current };
     }
+    if (av.type === 'artist') {
+      return { type: 'artist', name: av.name, sort: artistSortRef.current, dir: artistSortDirRef.current };
+    }
     return { type: 'library', sort: librarySortRef.current, dir: librarySortDirRef.current };
   }, []);
 
@@ -1213,6 +1329,23 @@ export default function App() {
     [startTrackFor, handleAdoptAndPlay]
   );
 
+  // "play this artist" — same shape as handlePlayLiked. `orderedIds`, when
+  // given, is the artist page's current displayed order (same convention as
+  // the header play button elsewhere).
+  const handlePlayArtist = useCallback(
+    (name, orderedIds) => {
+      const ids =
+        orderedIds && orderedIds.length
+          ? orderedIds
+          : tracksRef.current.filter((t) => t.artist === name).map((t) => t.id);
+      const startId = startTrackFor(ids);
+      if (!startId) return;
+      setPlaybackContext({ type: 'artist', name, sort: artistSortRef.current, dir: artistSortDirRef.current });
+      handleAdoptAndPlay(startId, { autoPlay: true });
+    },
+    [startTrackFor, handleAdoptAndPlay]
+  );
+
   // the library header's play/pause button. If this view's context is already
   // what's playing (or paused mid-track), toggle the engine — resume must not
   // restart or re-roll the shuffle pick. Otherwise start the view fresh.
@@ -1224,7 +1357,9 @@ export default function App() {
         ? ctx.type === 'playlist' && ctx.id === av.id
         : av.type === 'liked'
           ? ctx.type === 'liked'
-          : ctx.type === 'library';
+          : av.type === 'artist'
+            ? ctx.type === 'artist' && ctx.name === av.name
+            : ctx.type === 'library';
     const started = isPlayingRef.current || currentTimeRef.current > 0;
     if (sameCtx && started) {
       waveformRef.current?.toggle();
@@ -1237,10 +1372,15 @@ export default function App() {
       );
     } else if (av.type === 'liked') {
       handlePlayLiked(shownTracksRef.current.map((t) => t.id));
+    } else if (av.type === 'artist') {
+      handlePlayArtist(
+        av.name,
+        shownTracksRef.current.map((t) => t.id)
+      );
     } else {
       handlePlayLibrary();
     }
-  }, [handlePlayPlaylist, handlePlayLiked, handlePlayLibrary]);
+  }, [handlePlayPlaylist, handlePlayLiked, handlePlayArtist, handlePlayLibrary]);
 
   // play/pause button: if browsing a track that isn't the one playing,
   // pressing play adopts it instead of toggling whatever's in the background
@@ -1371,9 +1511,10 @@ export default function App() {
       const av = activeViewRef.current;
       if (av.type === 'playlist') handleSetPlaylistSort(av.id, sort, dir);
       else if (av.type === 'liked') handleSetLikedSort(sort, dir);
+      else if (av.type === 'artist') handleSetArtistSort(sort, dir);
       else handleSetLibrarySort(sort, dir);
     },
-    [handleSetPlaylistSort, handleSetLikedSort, handleSetLibrarySort]
+    [handleSetPlaylistSort, handleSetLikedSort, handleSetArtistSort, handleSetLibrarySort]
   );
 
   const handleCreatePlaylist = useCallback(
@@ -1615,6 +1756,14 @@ export default function App() {
       return sortLibrary(
         tracks.filter((t) => t.liked),
         ctx.sort || 'likedAt',
+        ctx.dir || 'desc',
+        []
+      );
+    }
+    if (ctx.type === 'artist') {
+      return sortLibrary(
+        tracks.filter((t) => t.artist === ctx.name),
+        ctx.sort || 'added',
         ctx.dir || 'desc',
         []
       );
@@ -2353,6 +2502,26 @@ export default function App() {
         return;
       }
 
+      // Escape closes the artist page (2026-09-06), checked right after the
+      // fullscreen/mini case above and before everything else, same
+      // "unconditional, before isTyping" placement — this is what makes it
+      // still fire even if some non-search-box element on the page happens
+      // to have focus. The two checks are mutually exclusive in practice
+      // (opening an artist page always switches to 'sidebar' first — see
+      // openArtist), but if `view` and `activeView` ever disagree (e.g. the
+      // mini-player keybinding pressed while viewing an artist page), the
+      // fullscreen/mini exit above wins first; a second Escape then closes
+      // the artist page. Loses to: Settings/the search overlay (see the
+      // early return at the top of this handler — each owns Escape
+      // entirely while open) and to LibraryList's own search-box Escape
+      // handling (a local onKeyDown that stops propagation before this
+      // handler ever runs, when that box has focus and isn't empty).
+      if (e.key === 'Escape' && activeView.type === 'artist') {
+        e.preventDefault();
+        closeArtistPage();
+        return;
+      }
+
       if (keyStr === keybindings.search.key) {
         e.preventDefault();
         setPendingFocusSearch(true);
@@ -2447,6 +2616,8 @@ export default function App() {
     searchOverlayOpen,
     anyModalOpen,
     view,
+    activeView,
+    closeArtistPage,
     handleSetVolume,
     handleTogglePlay,
     handleToggleShuffle,
@@ -2545,9 +2716,19 @@ export default function App() {
           />
           <LibraryList
             tracks={shownTracks}
-            viewTitle={activePlaylist ? activePlaylist.name : isLikedView ? 'Liked Songs' : 'Imported'}
+            viewTitle={
+              activePlaylist
+                ? activePlaylist.name
+                : isLikedView
+                  ? 'Liked Songs'
+                  : isArtistView
+                    ? activeArtistName
+                    : 'Imported'
+            }
             isPlaylistView={!!activePlaylist}
             isLikedView={isLikedView}
+            isArtistView={isArtistView}
+            onOpenArtist={openArtist}
             playlistId={activePlaylist?.id}
             playlistDescription={activePlaylist?.description || ''}
             playlistImageBlob={activePlaylist?.imageBlob || null}
@@ -2613,6 +2794,7 @@ export default function App() {
         onToggleShuffle={handleToggleShuffle}
         repeatMode={repeatMode}
         onCycleRepeat={handleCycleRepeat}
+        onOpenArtist={openArtist}
         mediaMissing={currentMissing}
         onRelocate={() => {
           const v = activeVersion(currentTrack);
@@ -2646,6 +2828,7 @@ export default function App() {
         onToggleShuffle={handleToggleShuffle}
         repeatMode={repeatMode}
         onCycleRepeat={handleCycleRepeat}
+        onOpenArtist={openArtist}
         movementIntensity={backgroundMovement}
         getFrequencyBands={() => waveformRef.current?.getFrequencyBands()}
       />
