@@ -168,6 +168,22 @@ Already fixed — don't remove that config.
   Only *source* files picked in a dialog (`selectAudioImport`, `selectAudioFile`,
   `readAudioFile`) are ever absolute. Import still **copies in** (adopt-in-place
   is a later stage).
+- **Sync snapshots (stage 3).** Each machine writes its whole library to
+  `<root>/.playdisc/sync/<machineId>.json`, debounced 500 ms after any change to
+  `tracks` / `playlists` / `libraryOrder`, serialized from the refs by
+  `flushSnapshot` in `App.jsx` (writes are serialized; a change mid-write marks it
+  dirty and it goes round again). Blobs never enter the JSON: `src/lib/syncSnapshot.js`
+  turns `artworkBlob` / `originalArtworkBlob` / playlist `imageBlob` into
+  `{ hash, ext }` refs to immutable `<root>/.playdisc/art/<sha256>.<ext>` files
+  (written once, `wx` flag, only for names main doesn't already have — `knownArtRef`).
+  The absent / `null` / blob tri-state of `originalArtworkBlob` is preserved exactly.
+  **The writer is armed only in `libraryPhase === 'ready'`** — an empty database
+  goes `'bootstrap'` first: once a root exists, the newest non-empty snapshot in the
+  sync folder is hydrated (art read from the art files, refused whole if any track
+  lacks a valid relPath), written to IndexedDB, and shown with a toast. That is how
+  the second Mac gets set up. Reset library also deletes this machine's own snapshot,
+  so a reset doesn't resurrect from itself. Stage 4 replaces "newest wins whole" with
+  the per-item merge.
 - Console forwarding: `win.webContents.on('console-message', ...)` pipes all renderer
   `console.*` output to the terminal running `electron:dev`, regardless of whether
   DevTools is open. DevTools no longer auto-opens on launch (was previously

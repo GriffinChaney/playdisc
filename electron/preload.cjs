@@ -42,6 +42,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getLibraryRoot: () => ipcRenderer.invoke('library:get-root'),
   chooseLibraryRoot: () => ipcRenderer.invoke('library:choose-root'),
 
+  // --- library sync snapshots (<root>/.playdisc/, see main.js) ---
+  syncListArt: () => ipcRenderer.invoke('sync:list-art'),
+  // { json, art: [{ name, bytes }] } -> { file, artWritten, bytes }
+  syncWriteSnapshot: (payload) => ipcRenderer.invoke('sync:write-snapshot', payload),
+  // -> [{ file, own, doc }]
+  syncReadSnapshots: () => ipcRenderer.invoke('sync:read-snapshots'),
+  syncReadArt: (name) => ipcRenderer.invoke('sync:read-art', name), // -> bytes | null
+  syncDeleteOwnSnapshot: () => ipcRenderer.invoke('sync:delete-own-snapshot'),
+
   // --- app / settings ---
   appVersion: () => ipcRenderer.invoke('app:version'),
   // native menu "Settings…" (Cmd+,) asks the renderer to open its settings

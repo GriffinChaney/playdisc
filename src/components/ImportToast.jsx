@@ -20,11 +20,14 @@ export default function ImportToast({ toast, onDismiss }) {
     };
   }, [toast.id, onDismiss]);
 
-  const { count, error, failed, skipped } = toast;
+  const { count, error, failed, skipped, loaded, loadedFrom } = toast;
   const isError = !!error;
   let text;
   if (error) text = 'Import failed';
-  else {
+  else if (loaded != null) {
+    // stage-3 bootstrap: the library was filled from a sync snapshot
+    text = `Loaded ${loaded} ${loaded === 1 ? 'track' : 'tracks'} from ${loadedFrom || 'a library snapshot'}`;
+  } else {
     const extras = [failed && `${failed} failed`, skipped && `${skipped} already in library`]
       .filter(Boolean)
       .join(', ');

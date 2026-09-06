@@ -51,6 +51,7 @@ export default function SettingsModal({
   onResetLibrary,
   libraryRoot,
   onChooseLibraryRoot,
+  lastSnapshotAt = null,
   trackCount = 0,
   onClose
 }) {
@@ -163,6 +164,12 @@ export default function SettingsModal({
         section: 'library',
         label: 'Tracks in library',
         keywords: 'library tracks count songs number total'
+      },
+      {
+        key: 'lib-sync',
+        section: 'library',
+        label: 'Sync snapshot',
+        keywords: 'library sync snapshot dropbox machine written json'
       },
       {
         key: 'lib-reset',
@@ -415,6 +422,22 @@ export default function SettingsModal({
             </span>
           </div>
         );
+      case 'lib-sync':
+        return (
+          <div className="settings-field" key={key}>
+            <div className="settings-field-main">
+              <span className="settings-field-label">Sync snapshot</span>
+              <span className="settings-field-desc">
+                {libraryRoot?.machineId
+                  ? `.playdisc/sync/${libraryRoot.machineId}.json in the library folder`
+                  : 'Available once a library folder is set'}
+              </span>
+            </div>
+            <span className="settings-field-control settings-field-value">
+              {lastSnapshotAt ? `written ${new Date(lastSnapshotAt).toLocaleTimeString()}` : 'not written yet'}
+            </span>
+          </div>
+        );
       case 'lib-reset':
         return (
           <div className="settings-field" key={key}>
@@ -481,6 +504,7 @@ export default function SettingsModal({
             <h3 className="settings-section-title">Library</h3>
             {renderField('lib-location')}
             {renderField('lib-count')}
+            {renderField('lib-sync')}
             {renderField('lib-reset')}
           </>
         );

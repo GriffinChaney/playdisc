@@ -51,6 +51,7 @@ import { sortLibrary, reconcileLibraryOrder } from './lib/librarySort';
 import { noteRank } from './lib/notes';
 import { invalidateArtworkHash } from './lib/artworkHash';
 import { fisherYates } from './lib/shuffle';
+import { serializeLibrary, hydrateLibrary, findInvalidTrack, artFileName, artType } from './lib/syncSnapshot';
 
 // One-time: earlier builds could persist a hand-dragged column width (often
 // from an accidental grab of a resize handle, or — before this fix — a
@@ -288,6 +289,19 @@ export default function App() {
   // and no playback anyway, so don't block the UI there.
   const libraryReady = !window.electronAPI || !!libraryRoot?.exists;
   const setupGate = legacyLibrary || (!!window.electronAPI && libraryRoot !== undefined && !libraryRoot.exists);
+  const libraryRootRef = useRef(libraryRoot);
+  libraryRootRef.current = libraryRoot;
+  // Library lifecycle for the sync snapshot (stage 3):
+  //   'loading'   — IndexedDB not read yet
+  //   'bootstrap' — IndexedDB was empty; waiting for a root, then trying
+  //                 to fill the library from a snapshot another machine wrote
+  //   'ready'     — normal operation; the snapshot writer is armed
+  //   'blocked'   — legacy records, see legacyLibrary
+  // The writer runs ONLY in 'ready'. Anything earlier would snapshot an
+  // empty or half-loaded library as if it were this machine's truth.
+  const [libraryPhase, setLibraryPhase] = useState('loading');
+  // when this machine's snapshot was last written (Settings > Library)
+  const [lastSnapshotAt, setLastSnapshotAt] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
   // 0-100: fullscreen background drift/audio-reaction intensity (see
   // useGradientDrift). Default 61 (2026-09-05, was 50 — retuned by feel;
@@ -528,7 +542,7 @@ export default function App() {
   }
 
   useEffect(() => {
-    getAllTracks().then((all) => {
+    Promise.all([getAllTracks(), getAllPlaylists()]).then(([all, pls]) => {
       // see legacyLibrary above — a single pre-rework record blocks the
       // whole library rather than loading a mix of usable and unusable rows
       const legacy = all.filter(
@@ -540,13 +554,15 @@ export default function App() {
           legacy[0]
         );
         setLegacyLibrary(true);
+        setLibraryPhase('blocked');
         return;
       }
       setTracks(all);
+      setPlaylists(pls.map((p) => ({ pinned: false, sortIndex: p.createdAt, ...p })));
+      // an empty database is the bootstrap case (fresh install, or right
+      // after Reset library) — see the bootstrap effect below
+      setLibraryPhase(all.length || pls.length ? 'ready' : 'bootstrap');
     });
-    getAllPlaylists().then((pls) =>
-      setPlaylists(pls.map((p) => ({ pinned: false, sortIndex: p.createdAt, ...p })))
-    );
     window.electronAPI?.getLibraryRoot?.().then(setLibraryRoot);
   }, []);
 
@@ -556,6 +572,143 @@ export default function App() {
     const res = await window.electronAPI?.chooseLibraryRoot?.();
     if (res) setLibraryRoot(res);
   }, []);
+
+  // ---- library sync snapshot (docs/LIBRARY_SYNC_PLAN.md, stage 3) ----
+  //
+  // Bootstrap: an empty database plus a root on disk means "fill this
+  // machine from whatever snapshot another machine already wrote". Runs
+  // once per launch, the moment both conditions hold (the root can arrive
+  // later than the database read — first launch on a machine goes
+  // empty db -> choose folder -> bootstrap). Stage 4 merges every snapshot;
+  // for now the newest by writtenAt is taken whole. A snapshot with an
+  // invalid track (no usable relPath) is refused entirely rather than
+  // loaded partially — same rule as the IndexedDB load above.
+  const bootstrapRanRef = useRef(false);
+  useEffect(() => {
+    if (libraryPhase !== 'bootstrap' || !libraryReady || bootstrapRanRef.current) return;
+    if (!window.electronAPI?.syncReadSnapshots) {
+      setLibraryPhase('ready'); // dev browser: nothing to bootstrap from
+      return;
+    }
+    bootstrapRanRef.current = true;
+    (async () => {
+      try {
+        const snaps = await window.electronAPI.syncReadSnapshots();
+        const candidates = snaps
+          .filter((s) => s.doc && ((s.doc.tracks?.length || 0) > 0 || (s.doc.playlists?.length || 0) > 0))
+          .sort((a, b) => (b.doc.writtenAt || 0) - (a.doc.writtenAt || 0));
+        if (!candidates.length) {
+          console.log(`[sync] bootstrap: no usable snapshot among ${snaps.length} file(s) — starting empty`);
+          return;
+        }
+        const chosen = candidates[0];
+        console.log(
+          `[sync] bootstrap: loading ${chosen.file} (${chosen.doc.tracks?.length || 0} tracks, ${chosen.doc.playlists?.length || 0} playlists, written ${new Date(chosen.doc.writtenAt).toLocaleString()})`
+        );
+        setImportProgress({ done: 0, total: 1, label: 'Loading library from Dropbox…' });
+        const readArt = async (r) => {
+          const bytes = await window.electronAPI.syncReadArt(artFileName(r));
+          if (!bytes) {
+            console.warn('[sync] art file not on disk yet:', artFileName(r));
+            return null;
+          }
+          return new Blob([bytes], { type: artType(r.ext) });
+        };
+        const lib = await hydrateLibrary(chosen.doc, readArt, (done, total) =>
+          setImportProgress({ done, total, label: 'Loading library from Dropbox…' })
+        );
+        const bad = findInvalidTrack(lib.tracks);
+        if (bad) {
+          console.error('[sync] bootstrap refused — snapshot contains an invalid track:', bad);
+          setImportToast({ id: Date.now(), error: true });
+          return;
+        }
+        for (const t of lib.tracks) await addTrack(t);
+        for (const p of lib.playlists) await putPlaylist(p);
+        setTracks(lib.tracks);
+        setPlaylists(lib.playlists.map((p) => ({ pinned: false, sortIndex: p.createdAt, ...p })));
+        setLibraryOrder(lib.libraryOrder);
+        setImportToast({ id: Date.now(), loaded: lib.tracks.length, loadedFrom: 'Dropbox' });
+      } catch (err) {
+        console.error('[sync] bootstrap failed:', err);
+        setImportToast({ id: Date.now(), error: true });
+      } finally {
+        setImportProgress(null);
+        // whatever happened, this machine now owns its own state from here
+        setLibraryPhase('ready');
+      }
+    })();
+  }, [libraryPhase, libraryReady]);
+
+  // Writer: this machine's snapshot is rewritten (debounced) after any
+  // change to tracks / playlists / the hand-dragged library order. Art
+  // bytes go over IPC only for files main doesn't already have
+  // (knownArtRef is seeded from disk once the root is known and grows with
+  // each write). Writes are serialized; a change landing mid-write marks
+  // it dirty and the loop goes round again, so the last write always
+  // reflects the latest state.
+  const knownArtRef = useRef(null); // Set of "<hash>.<ext>" | null until listed
+  const snapshotTimerRef = useRef(null);
+  const snapshotBusyRef = useRef(false);
+  const snapshotDirtyRef = useRef(false);
+  useEffect(() => {
+    if (!libraryReady || !window.electronAPI?.syncListArt) return;
+    let cancelled = false;
+    window.electronAPI
+      .syncListArt()
+      .then((names) => {
+        if (!cancelled) knownArtRef.current = new Set(names);
+      })
+      .catch((err) => console.error('[sync] could not list art files:', err));
+    return () => {
+      cancelled = true;
+    };
+  }, [libraryReady]);
+
+  const flushSnapshot = useCallback(async () => {
+    if (snapshotBusyRef.current) return;
+    snapshotBusyRef.current = true;
+    try {
+      while (snapshotDirtyRef.current) {
+        snapshotDirtyRef.current = false;
+        const machineId = libraryRootRef.current?.machineId;
+        if (!machineId) return;
+        const { doc, art } = await serializeLibrary({
+          tracks: tracksRef.current,
+          playlists: playlistsRef.current,
+          libraryOrder: libraryOrderRef.current,
+          machineId
+        });
+        const known = knownArtRef.current || new Set();
+        const newArt = [];
+        for (const [name, blob] of art) {
+          if (known.has(name)) continue;
+          newArt.push({ name, bytes: new Uint8Array(await blob.arrayBuffer()) });
+        }
+        const res = await window.electronAPI.syncWriteSnapshot({ json: JSON.stringify(doc), art: newArt });
+        for (const a of newArt) known.add(a.name);
+        knownArtRef.current = known;
+        setLastSnapshotAt(doc.writtenAt);
+        console.log(
+          `[sync] wrote ${res.file}: ${doc.tracks.length} tracks, ${doc.playlists.length} playlists, ${res.bytes} bytes, ${res.artWritten} new art file(s)`
+        );
+      }
+    } catch (err) {
+      console.error('[sync] snapshot write failed:', err);
+    } finally {
+      snapshotBusyRef.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (libraryPhase !== 'ready' || !libraryReady || !window.electronAPI?.syncWriteSnapshot) return;
+    clearTimeout(snapshotTimerRef.current);
+    snapshotTimerRef.current = setTimeout(() => {
+      snapshotDirtyRef.current = true;
+      flushSnapshot();
+    }, 500);
+    return () => clearTimeout(snapshotTimerRef.current);
+  }, [tracks, playlists, libraryOrder, libraryPhase, libraryReady, flushSnapshot]);
 
   // sweep for active-version files that have gone missing from disk. Waits
   // for the root: main throws on every media IPC without one, and a legacy
@@ -913,8 +1066,17 @@ export default function App() {
     );
     if (!ok) return;
     waveformRef.current?.pause();
+    // stop the snapshot writer first so a debounced write can't land
+    // between the wipe and the reload and re-snapshot the old library
+    clearTimeout(snapshotTimerRef.current);
+    snapshotDirtyRef.current = false;
     try {
       await resetLibraryDatabase();
+      // this machine's own snapshot goes too — otherwise the reload would
+      // immediately bootstrap the wiped library right back from it. Other
+      // machines' snapshots stay and DO bootstrap this one (that's the
+      // "set up the second Mac" path).
+      await window.electronAPI?.syncDeleteOwnSnapshot?.();
     } catch (err) {
       console.error('[reset] database reset failed:', err);
       window.alert('Reset failed — nothing was changed. See the console for details.');
@@ -2982,6 +3144,7 @@ export default function App() {
           onResetLibrary={handleResetLibrary}
           libraryRoot={libraryRoot}
           onChooseLibraryRoot={handleChooseLibraryRoot}
+          lastSnapshotAt={lastSnapshotAt}
           trackCount={tracks.length}
           onClose={handleCloseSettings}
         />
