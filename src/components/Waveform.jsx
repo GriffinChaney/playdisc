@@ -321,6 +321,18 @@ const Waveform = forwardRef(function Waveform(
     skip: (seconds) => wsRef.current?.skip(seconds), // relative nudge, +/- seconds
     setVolume: (v) => wsRef.current?.setVolume(v), // 0..1
     getVolume: () => wsRef.current?.getVolume() ?? 1,
+    // Hold-space-for-2x (2026-09-06). wavesurfer's setPlaybackRate(rate,
+    // preservePitch) sets the underlying <audio> element's `playbackRate`
+    // and, when preservePitch is passed, its `preservesPitch` directly
+    // (see node_modules/wavesurfer.js/dist/player.js) — the unprefixed,
+    // standard property. Confirmed live in this Electron/Chromium version
+    // ('preservesPitch' in HTMLMediaElement.prototype is true;
+    // 'webkitPreservesPitch' is not present) — no vendor-prefixed fallback
+    // needed here, unlike some older-Chromium-era advice you'll find
+    // online. preservePitch=false is the "tape/record speeding up" effect
+    // (pitch rises with speed); true is the default browser behavior
+    // (pitch held constant, only tempo changes) used to reset back to 1x.
+    setPlaybackRate: (rate, preservePitch) => wsRef.current?.setPlaybackRate(rate, preservePitch),
     getCurrentTime: () => wsRef.current?.getCurrentTime() ?? 0,
     getDuration: () => wsRef.current?.getDuration() ?? 0,
     // single 0..1 loudness reading at the current playhead, for small

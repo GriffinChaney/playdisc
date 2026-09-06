@@ -67,6 +67,21 @@ try {
   /* localStorage unavailable — nothing to reset */
 }
 
+// Shared by the global keybindings dispatcher and the space-hold-for-2x
+// effect (2026-09-06) — one definition so the two never drift apart on
+// what counts as "typing." Excludes the volume <input type="range"> — if
+// it happens to have focus, arrow keys/space should still drive the normal
+// handlers below rather than the browser's native range-input behavior.
+function isTypingTarget(e) {
+  const target = e.target;
+  return (
+    target instanceof HTMLElement &&
+    ((target.tagName === 'INPUT' && target.type !== 'range') ||
+      target.tagName === 'TEXTAREA' ||
+      target.isContentEditable)
+  );
+}
+
 export default function App() {
   const [tracks, setTracks] = useState([]);
   // currentTrackId: the track shown in the main panel (what you're browsing).
@@ -192,6 +207,34 @@ export default function App() {
   currentTimeRef.current = currentTime;
 
   const waveformRef = useRef(null);
+
+  // Hold-space-for-2x tape-style speed (2026-09-06). State lives in refs,
+  // not React state, so the keydown/keyup effect below, handleFinish, and
+  // the track/view-change and window-blur effects can all reach and reset
+  // the SAME in-progress hold without any of them needing it in a
+  // dependency array (a ref write triggers no re-render, which is exactly
+  // right here — this is playback-engine state, not UI state).
+  const spaceHoldTimerRef = useRef(null);
+  const spaceHoldActiveRef = useRef(false); // crossed the threshold — rate is currently 2x
+  const spaceHoldTrackingRef = useRef(false); // a keydown/keyup pair we own is in progress
+  // The one place that ever un-does a hold, from wherever it's called:
+  // a real release, or any of the "something changed out from under this"
+  // cases (track end, track switch, view change, a modal opening, the
+  // window losing focus). Safe to call when nothing is happening — every
+  // branch is a no-op unless there's actually a timer pending or the rate
+  // is actually at 2x.
+  const resetSpaceHold = useCallback(() => {
+    if (spaceHoldTimerRef.current) {
+      clearTimeout(spaceHoldTimerRef.current);
+      spaceHoldTimerRef.current = null;
+    }
+    if (spaceHoldActiveRef.current) {
+      spaceHoldActiveRef.current = false;
+      waveformRef.current?.setPlaybackRate(1, true);
+    }
+    spaceHoldTrackingRef.current = false;
+  }, []);
+
   const searchInputRef = useRef(null);
   const [pendingFocusSearch, setPendingFocusSearch] = useState(false);
   const [expandedTrackId, setExpandedTrackId] = useState(null);
@@ -1967,6 +2010,10 @@ export default function App() {
   // a track finishing naturally should always auto-advance and keep
   // playing, regardless of ambient isPlaying state at that instant
   const handleFinish = useCallback(() => {
+    // a track ending mid-hold must not carry a 2x rate into whatever plays
+    // next (repeat-one restarts the SAME track, so this has to run before
+    // that branch too, not just the auto-advance ones below)
+    resetSpaceHold();
     // repeat-one: loop the current track, bypassing queue / context entirely
     if (repeatMode === 'one' && playingTrackId) {
       waveformRef.current?.seekTo(0);
@@ -2018,7 +2065,7 @@ export default function App() {
     }
     const nextIdx = (idx + 1) % sorted.length;
     handleAdoptAndPlay(sorted[nextIdx].id, { autoPlay: true });
-  }, [tracks, playingTrackId, currentTrackId, handleAdoptAndPlay, queue, shuffleEnabled, repeatMode, goToHistory, stepHistory, orderedContextTracks, advanceShuffle]);
+  }, [tracks, playingTrackId, currentTrackId, handleAdoptAndPlay, queue, shuffleEnabled, repeatMode, goToHistory, stepHistory, orderedContextTracks, advanceShuffle, resetSpaceHold]);
 
   // OS-level media keys — literal F7/F8/F9 and the Media* keys, registered
   // always for the app's whole lifetime (electron/main.js, via
@@ -2479,16 +2526,7 @@ export default function App() {
         return;
       }
 
-      const target = e.target;
-      // exclude the volume <input type="range"> — if it happens to have
-      // focus, arrow keys should still drive our own volume handler below
-      // rather than the browser's native range-input stepping (which was
-      // both too small a nudge and showed a focus ring around the slider)
-      const isTyping =
-        target instanceof HTMLElement &&
-        ((target.tagName === 'INPUT' && target.type !== 'range') ||
-          target.tagName === 'TEXTAREA' ||
-          target.isContentEditable);
+      const isTyping = isTypingTarget(e);
       const keyStr = eventToKeyString(e);
 
       // Cmd+, (open settings) is handled by the native app menu accelerator
@@ -2540,14 +2578,15 @@ export default function App() {
         return;
       }
 
-      if (keyStr === keybindings.playPause.key) {
-        e.preventDefault();
-        // not just waveformRef.toggle() — if you're browsing a track that
-        // isn't loaded into the audio engine yet, there's nothing to toggle.
-        // handleTogglePlay adopts the browsed track first, same as clicking
-        // the play button does.
-        handleTogglePlay();
-      } else if (keyStr === keybindings.next.key) {
+      // playPause is handled by the dedicated hold-for-2x effect below
+      // instead of here — see SPACE_HOLD_THRESHOLD_MS — since a plain
+      // keydown-fires-immediately branch can't distinguish a tap from the
+      // first moment of a hold. That effect calls handleTogglePlay itself
+      // on a genuine tap (not just waveformRef.toggle() — if you're
+      // browsing a track that isn't loaded into the audio engine yet,
+      // there's nothing to toggle; handleTogglePlay adopts the browsed
+      // track first, same as clicking the play button does).
+      if (keyStr === keybindings.next.key) {
         e.preventDefault();
         handleSkip(1);
       } else if (keyStr === keybindings.prev.key) {
@@ -2625,6 +2664,118 @@ export default function App() {
     nudgeLibraryScroll,
     handleExpandTrack
   ]);
+
+  // Hold-space-for-2x tape-style speed. A quick tap of the play/pause key
+  // still just toggles, exactly as before this feature — the distinction
+  // is made here, not in the dispatcher above, because a plain
+  // keydown-fires-immediately branch can't tell a tap from the first
+  // instant of a hold. 200ms threshold: long enough that a normal, snappy
+  // tap-to-play/pause never accidentally engages 2x (typical key-repeat
+  // delay on macOS is itself ~500-600ms, so this comfortably sits below
+  // that too, meaning the threshold — not the OS's own repeat timing — is
+  // always what decides), short enough that a deliberate hold feels
+  // instant, matching the "hold space to skim" gesture this is modeled on
+  // (YouTube uses a comparable threshold for the same reason).
+  //
+  // e.repeat (true for OS auto-repeat while a key is held, false for the
+  // genuine first press) is what keeps this to "once per hold, not once
+  // per repeat" — the repeat keydowns are ignored outright, so neither the
+  // timer nor a play/pause toggle can ever fire from them.
+  //
+  // isTypingTarget is the EXACT SAME function the dispatcher above uses,
+  // not a second reimplementation — typing a literal space in the library
+  // search box, Settings' search, a rename field, the notes panel, or the
+  // search overlay's own input all take the early return here for free.
+  // settingsOpen/searchOverlayOpen/anyModalOpen are re-checked here too
+  // (not just relied on via the dispatcher's own early return above) since
+  // this is a separate listener pair, not a branch inside that handler.
+  //
+  // The keyUP handler deliberately does NOT re-check any of those guards —
+  // once spaceHoldTrackingRef says a press begun here, the release must
+  // always be honored (reset the rate, or toggle, whichever is due)
+  // regardless of what opened in the meantime. See resetSpaceHold's own
+  // comment above for why refs, not state.
+  const SPACE_HOLD_THRESHOLD_MS = 200;
+  useEffect(() => {
+    function handleKeyDown(e) {
+      if (eventToKeyString(e) !== keybindings.playPause.key) return;
+      if (settingsOpen || searchOverlayOpen || anyModalOpen) return;
+      if (isTypingTarget(e)) return;
+      // Every qualifying keydown, including OS auto-repeat while held — not
+      // just the first. Space's default browser action is "scroll the
+      // nearest scrollable ancestor" (the track list, or the grid — same
+      // default, different container, both blocked the same way here since
+      // this prevents the key event itself, not something container-
+      // specific); `e.repeat` was checked before this, as an early return,
+      // so only the very first keydown of a hold ever got prevented and
+      // every auto-repeat after it fell through to the browser's default —
+      // invisible on a quick tap (one keydown, moves the list a few px at
+      // most) but a rapid, repeated scroll for the whole duration of a
+      // hold. isTypingTarget still wins over this — a space in a text field
+      // must actually type a space, never get prevented.
+      e.preventDefault();
+      if (e.repeat) return; // only the first keydown of a hold starts tracking/the timer
+      spaceHoldTrackingRef.current = true;
+      spaceHoldActiveRef.current = false;
+      spaceHoldTimerRef.current = setTimeout(() => {
+        spaceHoldTimerRef.current = null;
+        spaceHoldActiveRef.current = true;
+        // Skipped when nothing's actually playing — "holding space with
+        // playback stopped" must do nothing rather than set a rate that's
+        // only ever audible as a glitch the moment playback next starts.
+        // preservePitch=false is the tape/record-speeding-up effect: false
+        // means DON'T preserve pitch, so it rises with the speed — see
+        // Waveform.jsx's setPlaybackRate for which underlying media
+        // property that actually sets (preservesPitch, confirmed live —
+        // no webkit-prefixed fallback needed on this Chromium version).
+        if (isPlayingRef.current) waveformRef.current?.setPlaybackRate(2, false);
+      }, SPACE_HOLD_THRESHOLD_MS);
+    }
+    function handleKeyUp(e) {
+      if (eventToKeyString(e) !== keybindings.playPause.key) return;
+      if (!spaceHoldTrackingRef.current) return; // not a press this effect started tracking
+      const wasHolding = spaceHoldActiveRef.current;
+      resetSpaceHold();
+      // only a genuine tap (never crossed the threshold) toggles — same
+      // action, same guard rail, a plain press always triggered
+      if (!wasHolding) handleTogglePlay();
+    }
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('keyup', handleKeyUp);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [keybindings, settingsOpen, searchOverlayOpen, anyModalOpen, handleTogglePlay, resetSpaceHold]);
+
+  // Reset on track switch or a view change (fullscreen/mini, back-to-
+  // sidebar, the artist-page Escape/back path) — holding space, then
+  // clicking a different track or leaving the view mid-hold, must not
+  // carry a 2x rate into whatever's showing/playing next.
+  useEffect(() => {
+    resetSpaceHold();
+  }, [playingTrackId, view, resetSpaceHold]);
+
+  // Reset the instant any modal-ish surface opens, however it was opened —
+  // this is a safety net alongside the keydown guard above (which only
+  // stops a NEW hold from starting), for the narrower case of one of these
+  // opening via the mouse while a hold from the keyboard is already mid-
+  // flight (e.g. clicking the gear icon while still holding space).
+  useEffect(() => {
+    if (settingsOpen || searchOverlayOpen || anyModalOpen) resetSpaceHold();
+  }, [settingsOpen, searchOverlayOpen, anyModalOpen, resetSpaceHold]);
+
+  // Window-blur case, specifically: Cmd+Tab-ing away mid-hold never
+  // delivers a keyup for the held key at all (the OS, not this window, has
+  // the keyboard focus from that point on) — there is no keyboard event to
+  // catch here, by construction. 'blur' on window is the actual signal:
+  // it fires the instant this window stops being the focused one, for any
+  // reason (Cmd+Tab, clicking another app, minimizing), independent of
+  // whatever key state the OS is now tracking on our behalf.
+  useEffect(() => {
+    window.addEventListener('blur', resetSpaceHold);
+    return () => window.removeEventListener('blur', resetSpaceHold);
+  }, [resetSpaceHold]);
 
   return (
     <div
