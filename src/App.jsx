@@ -87,6 +87,22 @@ try {
 // what counts as "typing." Excludes the volume <input type="range"> — if
 // it happens to have focus, arrow keys/space should still drive the normal
 // handlers below rather than the browser's native range-input behavior.
+// Is the user mid-edit in a text field right now? The sync merge never
+// applies remote changes while this is true (stage 5): a merge re-renders
+// whatever it touched, and a note being typed, a title mid-rename, a
+// playlist name half-entered must not be re-rendered or removed underneath
+// the cursor. Deferred merges resume on the next focusout. Fields where a
+// merge landing is harmless (the library search box, the search overlay,
+// Settings) opt out with data-sync-passive so a cursor parked in them
+// doesn't hold sync back.
+function editInProgress() {
+  const el = document.activeElement;
+  if (!(el instanceof HTMLElement)) return false;
+  if (el.dataset.syncPassive !== undefined) return false;
+  if (el.tagName === 'INPUT') return !['range', 'checkbox', 'radio', 'file', 'button', 'submit'].includes(el.type);
+  return el.tagName === 'TEXTAREA' || el.isContentEditable;
+}
+
 function isTypingTarget(e) {
   const target = e.target;
   return (
@@ -309,6 +325,17 @@ export default function App() {
   const [choiceConfig, setChoiceConfig] = useState(null);
   // relPaths of active versions whose file is missing from disk
   const [missingPaths, setMissingPaths] = useState(() => new Set());
+  // relPaths of active versions whose file has NEVER been seen on this
+  // machine's disk — a remote track whose audio is still on its way through
+  // Dropbox. Shown as "syncing", not "missing", and relocate isn't offered.
+  // A file that WAS here once and is now absent is genuinely missing.
+  // `seenRelPaths` in localStorage remembers which files this machine has
+  // seen, across launches.
+  const [waitingPaths, setWaitingPaths] = useState(() => new Set());
+  const seenPathsRef = useRef(null);
+  // bumped by main's watcher whenever audio files land / move under the
+  // root, so the missing-file sweep re-runs without a tracks change
+  const [fileSweepTick, setFileSweepTick] = useState(0);
   // The per-machine library root, from electron/main.js: undefined while
   // loading, then { root: string|null, exists: boolean, machineId }. The
   // renderer never uses `root` for anything but display — every path it
@@ -641,9 +668,17 @@ export default function App() {
   const pendingSyncTrackIdsRef = useRef(new Set());
   const pendingSyncPlaylistIdsRef = useRef(new Set());
 
+  const syncDeferredForEditRef = useRef(false); // a merge waited for an edit to finish
   const runSync = useCallback(async ({ initial = false, reason = 'focus' } = {}) => {
     if (syncBusyRef.current) {
       syncAgainRef.current = true;
+      return;
+    }
+    // never apply under a live edit (see editInProgress) — checked here
+    // before the read, and again right before apply since the read is async
+    if (!initial && editInProgress()) {
+      syncDeferredForEditRef.current = true;
+      console.log(`[sync] deferred (${reason}): an edit is in progress; will merge when it ends`);
       return;
     }
     // focus can fire in bursts (clicking between windows); one read a second is plenty
@@ -658,6 +693,17 @@ export default function App() {
       ]);
       knownArtRef.current = new Set(artNames);
       const own = snaps.find((s) => s.own);
+      // Dropbox conflicted copies are merged like any other snapshot and
+      // then removed — but only once a merge run has actually consumed them
+      // in full (no record deferred waiting for art), so nothing they carry
+      // is lost.
+      const conflicted = snaps.filter((s) => s.conflicted && s.doc).map((s) => s.file);
+      const cleanupConflicts = (deferred) => {
+        if (!conflicted.length || deferred) return;
+        window.electronAPI.syncDeleteConflictedCopies?.(conflicted).catch((err) =>
+          console.warn('[sync] conflicted-copy cleanup failed:', err)
+        );
+      };
       const remotes = snaps
         .filter((s) => !s.own && s.doc)
         .sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0))
@@ -719,6 +765,7 @@ export default function App() {
         if (result.deferred) {
           console.log(`[sync] nothing to merge; ${result.deferred} remote record(s) still waiting for their art files`);
         }
+        cleanupConflicts(result.deferred);
         return;
       }
 
@@ -734,6 +781,13 @@ export default function App() {
         else console.warn('[sync] art file vanished between listing and reading:', name);
       }
       const getBlob = (r) => blobs.get(artFileName(r)) || null;
+
+      // the read took time; an edit may have started meanwhile
+      if (!initial && editInProgress()) {
+        syncDeferredForEditRef.current = true;
+        console.log('[sync] deferred at apply: an edit is in progress; will merge when it ends');
+        return;
+      }
       const changedTracks = new Map();
       for (const [id, rec] of result.changedTracks) {
         changedTracks.set(id, isSnapshotShaped(rec) ? hydrateTrack(rec, getBlob) : rec);
@@ -808,6 +862,7 @@ export default function App() {
             : { id: Date.now(), synced: nRemote }
         );
       }
+      cleanupConflicts(result.deferred);
     } catch (err) {
       console.error('[sync] merge failed:', err);
     } finally {
@@ -843,14 +898,35 @@ export default function App() {
     })();
   }, [libraryPhase, libraryReady, runSync]);
 
-  // Read on focus: the other machine's snapshot arrives through Dropbox
-  // while this window is in the background; coming back to it is the
-  // natural moment to look. (Live directory watching is stage 5.)
+  // When to read (stage 5). The live signal is main's directory watcher:
+  // another machine's snapshot (or an art file) landing under .playdisc/
+  // through Dropbox arrives as 'sync-dir-changed', already debounced. Focus
+  // and wake-from-sleep ('resume', also via that channel) are belt and
+  // braces for anything the watcher could miss. A merge that was deferred
+  // because a text field had focus resumes on the next focusout.
   useEffect(() => {
     if (libraryPhase !== 'ready' || !libraryReady || !window.electronAPI?.syncReadSnapshots) return;
     const onFocus = () => runSync({ reason: 'focus' });
     window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
+    const offDir = window.electronAPI.onSyncDirChanged?.((p) => runSync({ reason: p?.reason || 'watch' }));
+    const offFiles = window.electronAPI.onLibraryFilesChanged?.(() => setFileSweepTick((n) => n + 1));
+    const onFocusOut = () => {
+      if (!syncDeferredForEditRef.current) return;
+      // activeElement updates after focusout; let it settle so the check in
+      // runSync sees where focus actually went (maybe another text field)
+      setTimeout(() => {
+        if (editInProgress()) return;
+        syncDeferredForEditRef.current = false;
+        runSync({ reason: 'edit-done' });
+      }, 0);
+    };
+    document.addEventListener('focusout', onFocusOut, true);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('focusout', onFocusOut, true);
+      offDir?.();
+      offFiles?.();
+    };
   }, [libraryPhase, libraryReady, runSync]);
 
   // Writer: this machine's snapshot is rewritten (debounced) after any
@@ -915,6 +991,12 @@ export default function App() {
   // for the root: main throws on every media IPC without one, and a legacy
   // record never gets this far (it isn't in `tracks`). assertRelPath is the
   // loud failure for anything that slipped past the load-time check.
+  //
+  // Absent files split two ways (stage 5): a path this machine has seen on
+  // disk before is MISSING (moved or deleted — offer relocate); one it has
+  // never seen is WAITING — a remote track whose audio hasn't come through
+  // Dropbox yet. Re-runs when tracks change and whenever main's watcher
+  // reports files landing under the root (fileSweepTick).
   useEffect(() => {
     if (!window.electronAPI?.mediaExists || !libraryReady) return;
     const paths = tracks.map((t) => assertRelPath(activeVersion(t)?.relPath, 'missing-file sweep'));
@@ -922,16 +1004,42 @@ export default function App() {
     let cancelled = false;
     window.electronAPI.mediaExists([...new Set(paths)]).then((res) => {
       if (cancelled) return;
-      const missing = new Set(Object.entries(res).filter(([, ok]) => !ok).map(([p]) => p));
-      setMissingPaths((prev) => {
-        if (prev.size === missing.size && [...missing].every((p) => prev.has(p))) return prev;
-        return missing;
-      });
+      if (!seenPathsRef.current) {
+        try {
+          seenPathsRef.current = new Set(JSON.parse(localStorage.getItem('seenRelPaths') || '[]'));
+        } catch {
+          seenPathsRef.current = new Set();
+        }
+      }
+      const seen = seenPathsRef.current;
+      let seenChanged = false;
+      const missing = new Set();
+      const waiting = new Set();
+      for (const [p, ok] of Object.entries(res)) {
+        if (ok) {
+          if (!seen.has(p)) {
+            seen.add(p);
+            seenChanged = true;
+          }
+        } else if (seen.has(p)) missing.add(p);
+        else waiting.add(p);
+      }
+      if (seenChanged) {
+        try {
+          localStorage.setItem('seenRelPaths', JSON.stringify([...seen]));
+        } catch {
+          /* best effort */
+        }
+      }
+      const same = (prev, next) => prev.size === next.size && [...next].every((p) => prev.has(p));
+      setMissingPaths((prev) => (same(prev, missing) ? prev : missing));
+      setWaitingPaths((prev) => (same(prev, waiting) ? prev : waiting));
+      if (waiting.size) console.log(`[sync] ${waiting.size} track file(s) still on their way through Dropbox`);
     });
     return () => {
       cancelled = true;
     };
-  }, [tracks, libraryReady]);
+  }, [tracks, libraryReady, fileSweepTick]);
 
   useEffect(() => {
     localStorage.setItem('libraryViewMode', libraryViewMode);
@@ -1292,7 +1400,7 @@ export default function App() {
       window.alert('Reset failed — nothing was changed. See the console for details.');
       return;
     }
-    for (const key of ['libraryOrder', 'libraryOrderUpdatedAt', 'syncTombstones', 'playHistory']) {
+    for (const key of ['libraryOrder', 'libraryOrderUpdatedAt', 'syncTombstones', 'playHistory', 'seenRelPaths']) {
       try {
         localStorage.removeItem(key);
       } catch {
@@ -1375,6 +1483,8 @@ export default function App() {
   const audioUrl = libraryReady && playingVersion ? mediaUrl(playingVersion.relPath) : null;
   const currentMissing =
     !!currentTrack && missingPaths.has(activeVersion(currentTrack)?.relPath);
+  const currentWaiting =
+    !!currentTrack && waitingPaths.has(activeVersion(currentTrack)?.relPath);
   // colors sampled from the PLAYING track's cover, fed to the waveform + EQ
   // visualizer (null when the track has no artwork -> default heatmap colors)
   const playingPalette = useArtworkPalette(playingTrack?.artworkBlob);
@@ -3336,6 +3446,7 @@ export default function App() {
         onCycleRepeat={handleCycleRepeat}
         onOpenArtist={openArtist}
         mediaMissing={currentMissing}
+        mediaWaiting={currentWaiting}
         onRelocate={() => {
           const v = activeVersion(currentTrack);
           if (v) handleRelocateVersion(currentTrack.id, v.id);
@@ -3478,6 +3589,7 @@ export default function App() {
       <VersionsModal
         track={tracks.find((t) => t.id === versionsModalTrackId) || null}
         missingPaths={missingPaths}
+        waitingPaths={waitingPaths}
         onClose={() => setVersionsModalTrackId(null)}
         onAddVersion={handleAddVersion}
         onSetActiveVersion={handleSetActiveVersion}

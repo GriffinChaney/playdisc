@@ -221,6 +221,25 @@ Already fixed — don't remove that config.
   reads with its snapshot's `writtenAt`. Either upgrade order converges. Don't
   "simplify" that to 0 — with 0-vs-0 ties going local, the other machine's edits
   would never arrive.
+- **Live sync triggers (stage 5, 2026-09-06).** `electron/main.js` keeps ONE recursive
+  `fs.watch` on the library root (`startLibraryWatch`, FSEvents-backed, restarted on
+  error and whenever the root is chosen). Events are debounced 400 ms and sorted into
+  two renderer channels: `sync-dir-changed` for anything under `.playdisc/` (another
+  machine's snapshot or an art file landing → `runSync`) and `library-files-changed`
+  for everything else (audio arriving/moving → the missing-file sweep re-runs via
+  `fileSweepTick`). It watches the DIRECTORY, never a file — Dropbox renames incoming
+  content into place, so a file-level watch dies after the first update. Our own
+  snapshot writes and `.tmp` files are skipped by name. `powerMonitor` `resume` and
+  window `focus` are belt and braces on the same path. **A merge never applies while
+  a text field has focus** (`editInProgress()` in `App.jsx`, checked before the read
+  AND right before apply): the merge is deferred and resumes on the next `focusout`.
+  Fields where a landing merge is harmless (library search, search overlay, Settings)
+  opt out with `data-sync-passive`. Absent audio splits into MISSING (this machine
+  has seen the file before → relocate offered) and WAITING (never seen here → a
+  remote track still on its way through Dropbox; "syncing…" state, no relocate) via
+  `localStorage.seenRelPaths`. Dropbox "conflicted copy" snapshots are merged like any
+  other and then deleted through `sync:delete-conflicted-copies`, only after a run
+  with nothing deferred, and main refuses to delete anything not named like one.
 - Console forwarding: `win.webContents.on('console-message', ...)` pipes all renderer
   `console.*` output to the terminal running `electron:dev`, regardless of whether
   DevTools is open. DevTools no longer auto-opens on launch (was previously

@@ -32,6 +32,7 @@ export default function NowPlaying({
   onCycleRepeat,
   onResizeStart,
   mediaMissing,
+  mediaWaiting,
   onRelocate,
   onAddNote,
   onToggleNote,
@@ -87,7 +88,11 @@ export default function NowPlaying({
       <div className="waveform-wrap" style={!track ? { display: 'none' } : undefined}>
         <div className="waveform-inner">
           <WaveformSlot host={waveformHost} active={active} />
-          {mediaMissing ? (
+          {mediaWaiting ? (
+            <div className="waveform-placeholder-overlay waiting">
+              <span>waiting for Dropbox to sync this file…</span>
+            </div>
+          ) : mediaMissing ? (
             <div className="waveform-placeholder-overlay missing">
               <span>audio file missing</span>
               <button onClick={onRelocate}>relocate…</button>

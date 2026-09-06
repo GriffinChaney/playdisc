@@ -864,6 +864,7 @@ function LibraryList({
 
       <input
         ref={searchInputRef}
+        data-sync-passive=""
         className="search-input"
         placeholder="search"
         value={query}

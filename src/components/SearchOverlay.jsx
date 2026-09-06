@@ -227,6 +227,7 @@ export default function SearchOverlay({ tracks, playlists, onSelectResult, onClo
       <div className="search-palette" onMouseDown={(e) => e.stopPropagation()}>
         <input
           ref={inputRef}
+          data-sync-passive=""
           className="search-palette-input"
           placeholder="Search tracks, playlists, artists…"
           value={query}

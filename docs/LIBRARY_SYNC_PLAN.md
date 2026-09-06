@@ -97,7 +97,9 @@ writes go temp-file-then-rename so Dropbox never uploads a half-written JSON.
 
 ## Stages (a working app at each)
 
-Status: 1–4 done (tags `sync-stage1` … `sync-stage4`). Stage 4 specifics that
+Status: 1–5 done (tags `sync-stage1` … `sync-stage5`). Stage 5 also added the
+edit guard (no merge applies while a text field has focus) — see CLAUDE.md
+"Live sync triggers". Stage 4 specifics that
 weren't in the plan: pre-stage-4 records are stamped once at first launch with
 the machine's own last snapshot `writtenAt`; a remote record whose art hasn't
 arrived is deferred whole rather than taken coverless; merges apply through

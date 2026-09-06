@@ -50,6 +50,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
   syncReadSnapshots: () => ipcRenderer.invoke('sync:read-snapshots'),
   syncReadArt: (name) => ipcRenderer.invoke('sync:read-art', name), // -> bytes | null
   syncDeleteOwnSnapshot: () => ipcRenderer.invoke('sync:delete-own-snapshot'),
+  // conflicted copies (Dropbox) that the renderer has merged; main only ever
+  // deletes names that look like conflicted copies
+  syncDeleteConflictedCopies: (names) => ipcRenderer.invoke('sync:delete-conflicted-copies', names),
+  // Live watching (main.js fsWatch on the library root, debounced). Each
+  // returns an unsubscribe fn. Payload: { files: string[], reason }.
+  //   sync-dir-changed      -> something under .playdisc/ changed (or 'resume')
+  //   library-files-changed -> audio files arrived / moved / vanished
+  onSyncDirChanged: (cb) => {
+    const listener = (_event, payload) => cb(payload);
+    ipcRenderer.on('sync-dir-changed', listener);
+    return () => ipcRenderer.removeListener('sync-dir-changed', listener);
+  },
+  onLibraryFilesChanged: (cb) => {
+    const listener = (_event, payload) => cb(payload);
+    ipcRenderer.on('library-files-changed', listener);
+    return () => ipcRenderer.removeListener('library-files-changed', listener);
+  },
 
   // --- app / settings ---
   appVersion: () => ipcRenderer.invoke('app:version'),

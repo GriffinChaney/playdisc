@@ -364,6 +364,7 @@ export default function SettingsModal({
               {editingBgValue ? (
                 <input
                   ref={bgValueInputRef}
+                  data-sync-passive=""
                   className="settings-slider-value settings-slider-value-input"
                   value={bgValueDraft}
                   onChange={(e) => setBgValueDraft(e.target.value)}
@@ -556,6 +557,7 @@ export default function SettingsModal({
 
         <div className="settings-search">
           <input
+            data-sync-passive=""
             className={`settings-search-input${captureMode ? ' capturing' : ''}`}
             placeholder={
               captureMode
