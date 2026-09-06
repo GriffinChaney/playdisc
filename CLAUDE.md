@@ -73,6 +73,7 @@ playdisc/                # repo lives at ~/Developer/playdisc (was ~/Developer/s
 │   │   ├── Waveform.jsx       # owns the single WaveSurfer instance; heatmap + EQ bars
 │   │   ├── WaveformSlot.jsx   # reparents the shared waveform DOM node into whichever view needs it
 │   │   ├── SettingsModal.jsx  # theme toggle + keybinding editor
+│   │   ├── SearchOverlay.jsx  # Option+Space quick-search palette — see "Quick search overlay" below
 │   │   ├── VolumeIcon.jsx     # flat inline-SVG speaker glyph (no emoji)
 │   │   └── HeartIcon.jsx      # outline/filled heart (liked/favorites) — see activeView above
 │   └── lib/
@@ -476,6 +477,76 @@ persisted to `localStorage.navWidth`) / `1fr` / `var(--np-width)` (fixed 278px).
     'center' })`, no `behavior: 'smooth'`) — a smooth scroll re-targets
     against the row's own growing height (list view) and hard-froze the
     renderer on rapid track changes.
+
+### Quick search overlay (`Option+Space`) (2026-09-06)
+
+`src/components/SearchOverlay.jsx`, a floating Raycast/Spotlight-style command
+palette over whatever view is showing, without touching that view. Purely a
+finding tool — selecting a result navigates to it, it never plays anything.
+Controlled by `searchOverlayOpen` state in `App.jsx` (conditionally rendered,
+same as `SettingsModal`/the other modals — not always-mounted, since it holds
+no audio and needs no `WaveformSlot`-style persistence).
+
+- **Trigger — `Option+Space`, fixed and NOT in `DEFAULT_KEYBINDINGS`.**
+  Checked as `e.altKey && e.code === 'Space'` in `App.jsx`'s existing global
+  keydown effect — deliberately a plain renderer `keydown`, not Electron's
+  `globalShortcut` (system-wide, and already the source of real conflicts
+  elsewhere via the F7/F8/F9 media-key handling), so it only ever fires while
+  the window is actually focused, for free. `e.code` (not `e.key`) because
+  macOS's Option-composes-a-character behavior can otherwise turn `e.key` for
+  Space into something other than a plain space. Fixed/non-rebindable is the
+  same precedent as Cmd+W and Cmd+, below — `eventToKeyString()` in
+  `keybindings.js` has no concept of Alt as a modifier at all today, so making
+  this a real rebindable action would mean extending that first, not just
+  adding a `DEFAULT_KEYBINDINGS` entry.
+- **Dismissal (Escape / Cmd+W / click-outside) slots into the existing Cmd+W
+  pattern instead of a fourth mechanism.** `SearchOverlay` owns its own
+  capture-phase `document` keydown listener, same shape as
+  `SettingsModal.jsx`'s: it handles Escape/Cmd+W itself and calls
+  `stopPropagation()` on dismiss. `App.jsx`'s bubble-phase global handler has
+  `if (settingsOpen || searchOverlayOpen) return;` at the very top — identical
+  to how it already deferred entirely to Settings. **The two listeners never
+  inspect each other's state; they coordinate purely through
+  `stopPropagation`.** (This is the fix for the earlier Settings/Cmd+W bug —
+  see git history around `3b5c809`/`c71036b` — where a capture-phase handler
+  that skipped `stopPropagation()` let Cmd+W fall through and close the
+  window on the same keypress. Any new modal-ish overlay should copy this
+  shape, not invent a fifth mechanism.)
+- **Results**: tracks (title/artist), playlists (name), and artists — there's
+  no artist entity in the data model, so the artist list is built on the fly
+  in `SearchOverlay.jsx` as the distinct, case-insensitively deduped set of
+  non-empty `track.artist` values (first-seen casing kept, with a track
+  count). Each of the three groups is capped independently at 8
+  (`RESULTS_PER_GROUP`), not one global cap — otherwise a broad query could
+  let tracks (there are far more of them than playlists or artists) crowd out
+  the other two groups entirely. Grouped under muted uppercase section
+  headers rather than a per-row type badge, matching `PlaylistNav`'s
+  `.nav-section-label` look.
+- **Selecting a track** goes through `landOnTrack(id)` in `App.jsx`, which
+  generalizes `handleExpandTrack`'s already-existing deferred-scroll
+  mechanism (`pendingScrollTargetRef` + `scrollRequestTick`, see "Other
+  App.jsx state" → `expandedTrackId` above) to an arbitrary id instead of
+  always `playingTrackId || currentTrackId`, preceded by a view switch when
+  needed. Lands exactly like pressing `z` on it: browsed + expanded (list
+  view only) + centered. **Which view it lands in**: stays in the current
+  `activeView` if that view already contains the track (avoids an
+  unnecessary context switch when it's already visible right there);
+  otherwise goes to `{ type: 'imported' }`, since Imported always contains
+  every track by definition (see `activeView` above) — there's no need to
+  rank among multiple playlists that might also contain it.
+- **Selecting an artist** goes through `openArtist(name)` in `App.jsx` —
+  currently just `{ type: 'imported' }` + `setLibrarySearchQuery(name)`
+  (there's no artist page yet). This is deliberately the ONE place that
+  "what does selecting an artist do" lives — `handleSelectSearchResult`'s
+  dispatch (`track` → `landOnTrack`, `playlist` → `setActiveView`, `artist` →
+  `openArtist`) never needs to change when a real artist page exists; only
+  `openArtist`'s body does.
+- **Keyboard**: arrows navigate, Enter selects the highlighted result
+  (highlighted defaults to index 0, reset on every query change so Enter
+  works immediately after typing), Cmd+1–9 jump straight to results 1–9.
+  Typing filters live via a plain `useMemo` over `tracks`/`playlists` — no
+  submit step, no debounce (the library is small enough that it doesn't
+  need one).
 
 ### Track record shape (see `src/lib/db.js`)
 
