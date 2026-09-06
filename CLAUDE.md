@@ -12,9 +12,10 @@ For what's currently in progress, broken, or next, see `docs/PROJECT_STATE.md`.
 > `~/Library/Application Support/Playdisc/`; `electron/main.js` has a one-time
 > `migrateProfileFromSona()` that copies `IndexedDB/` + `Local Storage/` from the
 > old `Sona/` profile on first launch (copy, not move — old profile kept).
-> **Deliberately NOT renamed** (both need a real data migration, not a rename):
-> the `~/Music/Sona Library/` folder (every stored `version.filePath` is
-> absolute) and the `my-music-player` IndexedDB name. Also left as-is: the
+> **Not renamed:** the `my-music-player` IndexedDB name (needs a real migration).
+> The old `~/Music/Sona Library/` folder is **orphaned, not deleted** — since
+> 2026-09-06 the library lives under a per-machine root in Dropbox (see "Library
+> storage & sync" below); nothing reads that folder any more. Also left as-is: the
 > `~/Library/Application Support/Sona/` frozen pre-migration profile snapshot,
 > and the `~/Developer/sona-backups/` dir (holds `idb-pre-versioning/`).
 >
@@ -75,7 +76,8 @@ playdisc/                # repo lives at ~/Developer/playdisc (was ~/Developer/s
 │   │   ├── SettingsModal.jsx  # theme toggle + keybinding editor
 │   │   ├── SearchOverlay.jsx  # Option+Space quick-search palette — see "Quick search overlay" below
 │   │   ├── VolumeIcon.jsx     # flat inline-SVG speaker glyph (no emoji)
-│   │   └── HeartIcon.jsx      # outline/filled heart (liked/favorites) — see activeView above
+│   │   ├── HeartIcon.jsx      # outline/filled heart (liked/favorites) — see activeView above
+│   │   └── LibrarySetup.jsx   # blocking first-launch / recovery gate: choose library folder, or reset a legacy library
 │   └── lib/
 │       ├── db.js              # IndexedDB CRUD (idb wrapper)
 │       ├── parseTrack.js      # File -> track record (metadata + artwork extraction)
@@ -83,7 +85,13 @@ playdisc/                # repo lives at ~/Developer/playdisc (was ~/Developer/s
 │       ├── keybindings.js     # DEFAULT_KEYBINDINGS, load/save/format helpers
 │       ├── artworkTilt.js     # shared mouse-tilt handlers for album art
 │       ├── likedBackdrop.js   # fixed (non-cover-derived) header gradient for the Liked view
-│       └── artistBackdrop.js  # per-artist header gradient, hashed from the artist's name
+│       ├── artistBackdrop.js  # per-artist header gradient, hashed from the artist's name
+│       ├── media.js           # relPath contract (assertRelPath), mediaUrl, makeVersion, tag reading
+│       ├── mediaFingerprint.js# size + edge-hash content fingerprint (import dedupe)
+│       ├── syncSnapshot.js    # library <-> per-machine snapshot JSON + content-addressed art refs
+│       └── syncMerge.js       # PURE per-item merge (newest wins, tombstones, per-note stamps) — tested
+├── test/syncMerge.test.mjs   # `npm test` (node --test) — the only test suite in the repo
+├── docs/LIBRARY_SYNC_PLAN.md # how sync was planned + staged (history; CLAUDE.md is current truth)
 ├── vite.config.js        # dev server port 5173; ignores release/ in the watcher
 ├── index.html             # <title>Playdisc</title>
 └── package.json           # name: "playdisc", productName: "Playdisc"
@@ -94,6 +102,7 @@ playdisc/                # repo lives at ~/Developer/playdisc (was ~/Developer/s
 ```bash
 npm run electron:dev      # vite dev server + electron pointed at localhost:5173
 npm run electron:build    # vite build + electron-builder -> release/mac-arm64/Playdisc.app
+npm test                  # node --test test/ — the sync merge rules (pure, fast)
 ```
 
 **Always fully restart** `electron:dev` (kill both processes, don't rely on HMR) after
@@ -137,19 +146,53 @@ Already fixed — don't remove that config.
   forces CommonJS regardless of the package type field. Preload uses
   `contextBridge.exposeInMainWorld('electronAPI', {...})` with `contextIsolation: true`,
   `nodeIntegration: false`.
-- IPC bridge (`window.electronAPI`) currently exposes exactly two things, both for
-  mini-player mode:
-  - `enterMiniMode(width, height)` → `ipcRenderer.send('enter-mini-mode', {...})`
-  - `exitMiniMode()` → `ipcRenderer.send('exit-mini-mode')`
-  Main process remembers the pre-mini `getBounds()` in a module-level
+- IPC bridge (`window.electronAPI`, see `preload.cjs` — every entry is commented
+  there). Groups: **mini mode** (`enterMiniMode` / `exitMiniMode` / `onMiniHoverChange`),
+  **source files** (`selectAudioImport` / `selectAudioFile` / `readAudioFile` — the
+  ONLY calls that deal in absolute paths, of files picked in a native dialog),
+  **media** (`mediaCopyIn` / `mediaExists` / `mediaDelete` / `mediaRename` /
+  `revealLibraryDir` — all in `relPath`s), **library root** (`getLibraryRoot` /
+  `chooseLibraryRoot`), **sync** (`syncListArt` / `syncWriteSnapshot` /
+  `syncReadSnapshots` / `syncReadArt` / `syncDeleteOwnSnapshot` /
+  `syncDeleteConflictedCopies`, plus the push channels `onSyncDirChanged` /
+  `onLibraryFilesChanged`), and **app** (`appVersion`, `onOpenSettings`,
+  `setModalOpen` / `onCloseActiveModal`, `onMediaKey`). For mini mode the main
+  process remembers the pre-mini `getBounds()` in a module-level
   `boundsBeforeMini` variable and restores it on exit. Mini mode **really resizes the
   OS window** (`win.setBounds`, `win.setResizable(false)`, temporarily shrinks
   `setMinimumSize`) — it is not a fake widget floating inside the full-size window.
   This was a deliberate correction after the first mini-player implementation (an
   in-window widget) was explicitly rejected by the user as leaving "a huge big grey
   empty box."
-- **Library root + relative paths (branch `library-sync`, stage 2, 2026-09-06 —
-  see `docs/LIBRARY_SYNC_PLAN.md`).** Audio files live under ONE per-machine
+- Console forwarding: `win.webContents.on('console-message', ...)` pipes all renderer
+  `console.*` output to the terminal running `electron:dev`, regardless of whether
+  DevTools is open. DevTools no longer auto-opens on launch (was previously
+  `openDevTools()` unconditionally in dev — removed because the user didn't want it
+  popping up every run). Open manually with Cmd+Option+I when needed; the console
+  forwarding means you often don't need to.
+
+## Library storage & sync
+
+Shipped 2026-09-06 (branch `library-sync`, merge `c0d3d71`, tag
+`library-sync-shipped`; `pre-sync-rework` marks main before it). Planned and staged
+in `docs/LIBRARY_SYNC_PLAN.md` (history — this section is the current truth).
+Tested at scale: 221 tracks incl. large WAVs imported on the laptop synced to the
+desktop cleanly.
+
+**The shape of it, in one paragraph.** Audio files live in ONE folder per machine,
+the *library root*, which Griffin points at a folder inside Dropbox on each Mac (the
+absolute path differs per machine and that's fine). IndexedDB holds the metadata
+(tracks, playlists) exactly as before, but every version stores a path **relative to
+the root**. Each machine also writes its whole library to a JSON snapshot in
+`<root>/.playdisc/sync/<machineId>.json` (its own file, never anyone else's) with
+cover art as content-addressed files in `<root>/.playdisc/art/`. Dropbox carries the
+audio, the art, and the snapshots between machines. Each machine folds the *other*
+machines' snapshots into its own library with a per-item newest-wins merge (tombstones
+for deletes, per-note stamps so notes don't collide with other edits), triggered live
+by a directory watcher plus focus/wake, and never while a text field has focus.
+Nothing here is a server, an account, or a cloud API — it's files in a folder.
+
+- **Library root + relative paths.** Audio files live under ONE per-machine
   folder, the *library root*, chosen in Settings › Library (or the first-launch
   gate) via a native folder picker and stored by main in
   `<userData>/config.json` (`{ libraryRoot, machineId }` — `machineId` is a
@@ -168,7 +211,7 @@ Already fixed — don't remove that config.
   Only *source* files picked in a dialog (`selectAudioImport`, `selectAudioFile`,
   `readAudioFile`) are ever absolute. Import still **copies in** (adopt-in-place
   is a later stage).
-- **Sync snapshots (stage 3).** Each machine writes its whole library to
+- **Per-machine snapshots.** Each machine writes its whole library to
   `<root>/.playdisc/sync/<machineId>.json`, debounced 500 ms after any change to
   `tracks` / `playlists` / `tombstones` / `libraryOrder`(+`UpdatedAt`), serialized
   from the refs by `flushSnapshot` in `App.jsx` (writes are serialized; a change
@@ -181,7 +224,7 @@ Already fixed — don't remove that config.
   since stage 4 (tombstones inline in the arrays, `libraryOrderUpdatedAt`); format 1
   is still readable. Reset library also deletes this machine's own snapshot, so a
   reset doesn't resurrect from itself.
-- **Sync merge (stage 4, 2026-09-06).** `src/lib/syncMerge.js` is the pure merge —
+- **Merge rules.** `src/lib/syncMerge.js` is the pure merge —
   **no IPC, no React, tested by `npm test` (`test/syncMerge.test.mjs`, plain
   `node --test`; the repo has no other test setup). Change the rules there, add a
   case there.** Rules: every track/playlist carries `updatedAt`; **newest wins per
@@ -221,7 +264,7 @@ Already fixed — don't remove that config.
   reads with its snapshot's `writtenAt`. Either upgrade order converges. Don't
   "simplify" that to 0 — with 0-vs-0 ties going local, the other machine's edits
   would never arrive.
-- **Live sync triggers (stage 5, 2026-09-06).** `electron/main.js` keeps ONE recursive
+- **When a merge runs, and the edit guard (the file watcher).** `electron/main.js` keeps ONE recursive
   `fs.watch` on the library root (`startLibraryWatch`, FSEvents-backed, restarted on
   error and whenever the root is chosen). Events are debounced 400 ms and sorted into
   two renderer channels: `sync-dir-changed` for anything under `.playdisc/` (another
@@ -251,12 +294,24 @@ Already fixed — don't remove that config.
   `localStorage.seenRelPaths`. Dropbox "conflicted copy" snapshots are merged like any
   other and then deleted through `sync:delete-conflicted-copies`, only after a run
   with nothing deferred, and main refuses to delete anything not named like one.
-- Console forwarding: `win.webContents.on('console-message', ...)` pipes all renderer
-  `console.*` output to the terminal running `electron:dev`, regardless of whether
-  DevTools is open. DevTools no longer auto-opens on launch (was previously
-  `openDevTools()` unconditionally in dev — removed because the user didn't want it
-  popping up every run). Open manually with Cmd+Option+I when needed; the console
-  forwarding means you often don't need to.
+- **Reset & recovery.** Settings › Library › "Reset library…" drops IndexedDB, the
+  library-derived localStorage keys (`libraryOrder`, `libraryOrderUpdatedAt`,
+  `syncTombstones`, `playHistory`, `seenRelPaths`) and **this machine's own snapshot**,
+  keeps keybindings/theme/layout/volume, leaves audio files alone, and reloads. If
+  another machine's snapshot exists the reload merges it in (that IS the
+  "set up the second Mac" path); if none does, the library is empty and the audio
+  files under the root are orphaned until re-imported (import copies in; there is no
+  adopt-in-place yet — known gap, see below). A deleted snapshot is recoverable from
+  Dropbox's own "Deleted files" for 30 days.
+- **Known gaps, deliberately not built (yet):** adopt-in-place import (a file already
+  under the root is copied again); cross-machine fingerprint dedupe (import from ONE
+  machine at a time, or the same song gets two ids); art file GC (art files are never
+  deleted); a drag-reorder in progress is not covered by the edit guard (a merge
+  landing mid-drag can shift the list under the cursor).
+- **Latency floor.** Our side is under a second (500 ms writer debounce + 400 ms watch
+  debounce + a millisecond merge). The rest is Dropbox: typically 3–8 s machine to
+  machine, 20–30 s when a big WAV shares its upload queue with the JSON. Don't chase
+  that in our code.
 
 ## State architecture (`App.jsx`)
 
@@ -735,8 +790,12 @@ no audio and needs no `WaveformSlot`-style persistence).
   title: string,
   artist: string,
   duration: number,      // seconds
-  audioBlob: Blob,       // the original file — played as-is, never re-encoded
-  artworkBlob: Blob|null,// extracted embedded cover art, if any
+  activeVersionId: string,
+  versions: [            // >= 1; the audio itself lives on disk under the library root,
+    { id, title, originalTitle, relPath, duration, format, fingerprint, dateAdded }
+  ],                     //   relPath is RELATIVE to the root — see "Library storage & sync"
+  notes: [ { id, text, complete, priority, dateAdded, updatedAt } ],
+  artworkBlob: Blob|null,// cover art (embedded at import, or edited); never in the snapshot JSON
   audio: {              // fidelity info from music-metadata (null on parse fail,
     codec, sampleRate,  //   and absent on records imported before 2026-08-27)
     bitrate, bitsPerSample, channels, lossless
@@ -955,3 +1014,11 @@ All of this lives in `src/components/Waveform.jsx`.
 8. Don't reintroduce **DevTools auto-open** on launch (`openDevTools()` in
    `main.js`'s `isDev` branch) — explicitly removed at the user's request. Console
    forwarding (`console-message` listener) covers debugging needs without it.
+9. **Paths are `relPath`s, and a bad one fails loudly.** The renderer never holds an
+   absolute library path; `assertRelPath` / `resolveRel` throw on anything absolute or
+   escaping the root. Don't add a fallback that quietly accepts an absolute path or an
+   `undefined` — that is the exact bug class the rename exists to catch.
+10. **The snapshot writer runs only in `libraryPhase === 'ready'`**, and the merge rules
+    live in `src/lib/syncMerge.js` with tests. Never snapshot an empty/half-loaded
+    library as this machine's truth, never stamp an unstamped record with `Date.now()`
+    (see "Merge rules"), and never apply a merge while a text field has focus.

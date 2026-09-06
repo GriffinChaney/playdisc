@@ -5,7 +5,12 @@ architecture/conventions context this builds on. Update this file as work progre
 move finished items out of "unfinished," log new bugs as they're found, and keep
 "just finished" trimmed to roughly the last session or two, not the full history.
 
-_Last updated: 2026-08-27 — playlist system, 3-column library view, play history, and
+_Last updated: 2026-09-06 — **library sync shipped** to `main` (merge `c0d3d71`, tag
+`library-sync-shipped`): relative paths under a per-machine Dropbox root, per-machine
+snapshots, per-item merge, live watcher. Architecture is in CLAUDE.md "Library storage &
+sync"; staging history in `docs/LIBRARY_SYNC_PLAN.md`. The desktop still needs a
+rebuild from `main`; the `library-sync` branch stays until then. Earlier (2026-08-27):
+playlist system, 3-column library view, play history, and
 several batches of view/UX polish all shipped and user-confirmed in the packaged app.
 Recent: zone proportions locked to a user-approved screenshot (one-time layout reset,
 now `layoutDefaults='v2.5'`), `v` grid⇄list toggle w/ staggered swap animation, Z zoom
