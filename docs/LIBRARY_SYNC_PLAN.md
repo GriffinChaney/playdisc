@@ -97,6 +97,13 @@ writes go temp-file-then-rename so Dropbox never uploads a half-written JSON.
 
 ## Stages (a working app at each)
 
+Status: 1–4 done (tags `sync-stage1` … `sync-stage4`). Stage 4 specifics that
+weren't in the plan: pre-stage-4 records are stamped once at first launch with
+the machine's own last snapshot `writtenAt`; a remote record whose art hasn't
+arrived is deferred whole rather than taken coverless; merges apply through
+state updaters with a per-item re-check, and IndexedDB is written from
+committed state. See CLAUDE.md "Sync merge".
+
 1. **Fresh-start prep.** Delete the three migrations. Add a reset path that
    drops the IndexedDB database and the library-derived localStorage keys but
    keeps keybindings/theme/layout. Tag.

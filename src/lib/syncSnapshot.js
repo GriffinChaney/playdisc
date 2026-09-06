@@ -1,7 +1,7 @@
 import { isRelPath } from './media';
 
 // Library snapshot <-> in-memory library. Pure: no IPC, no React. See
-// docs/LIBRARY_SYNC_PLAN.md (stage 3).
+// docs/LIBRARY_SYNC_PLAN.md (stages 3–4).
 //
 // A snapshot is one JSON document per machine, `<root>/.playdisc/sync/
 // <machineId>.json`, holding that machine's entire library: every track and
@@ -12,10 +12,17 @@ import { isRelPath } from './media';
 // rewrite on every like.
 //
 // Records are spread through (`{ ...t }` minus blobs), not whitelisted, so
-// schemaless additions (liked/likedAt, originalArtist, ...) ride along
-// automatically — same convention as patchTrack/updateTrack.
+// schemaless additions (liked/likedAt, originalArtist, updatedAt, notes
+// stamps…) ride along automatically — same convention as patchTrack.
+//
+// Format 2 (stage 4): `tracks` / `playlists` also carry tombstones
+// `{ id, deleted: true, updatedAt }`, and `libraryOrderUpdatedAt` rides
+// alongside `libraryOrder`. Format 1 documents (stage 3) are still readable —
+// their records just have no stamps, which the merge handles by falling
+// back to the document's `writtenAt` (see syncMerge.js).
 
-export const SNAPSHOT_FORMAT = 1;
+export const SNAPSHOT_FORMAT = 2;
+export const READABLE_FORMATS = new Set([1, 2]);
 
 const EXT_BY_TYPE = {
   'image/jpeg': 'jpg',
@@ -61,7 +68,14 @@ export async function blobHash(blob) {
 // { doc, art } — `doc` is the JSON-ready snapshot, `art` a Map of
 // "<hash>.<ext>" -> Blob for every art file the doc references (the caller
 // decides which of those actually need writing).
-export async function serializeLibrary({ tracks, playlists, libraryOrder, machineId }) {
+export async function serializeLibrary({
+  tracks,
+  playlists,
+  tombstones = [],
+  libraryOrder,
+  libraryOrderUpdatedAt = 0,
+  machineId
+}) {
   const art = new Map();
   const ref = async (blob) => {
     const hash = await blobHash(blob);
@@ -89,6 +103,12 @@ export async function serializeLibrary({ tracks, playlists, libraryOrder, machin
     outPlaylists.push({ ...rest, image: imageBlob ? await ref(imageBlob) : null });
   }
 
+  for (const t of tombstones) {
+    const entry = { id: t.id, deleted: true, updatedAt: t.updatedAt };
+    if (t.kind === 'track') outTracks.push(entry);
+    else if (t.kind === 'playlist') outPlaylists.push(entry);
+  }
+
   return {
     doc: {
       format: SNAPSHOT_FORMAT,
@@ -96,63 +116,54 @@ export async function serializeLibrary({ tracks, playlists, libraryOrder, machin
       writtenAt: Date.now(),
       tracks: outTracks,
       playlists: outPlaylists,
-      libraryOrder: Array.isArray(libraryOrder) ? libraryOrder : []
+      libraryOrder: Array.isArray(libraryOrder) ? libraryOrder : [],
+      libraryOrderUpdatedAt
     },
     art
   };
 }
 
-// Reverse of serializeLibrary. `readArt({ hash, ext })` resolves to a Blob or
-// null (missing art file -> the track just has no cover, which is the
-// honest state — the file may still be on its way through Dropbox).
-// `onProgress(done, total)` is optional. Each distinct art file is read once.
-export async function hydrateLibrary(doc, readArt, onProgress) {
-  if (!doc || doc.format !== SNAPSHOT_FORMAT) {
-    throw new Error(`unsupported snapshot format: ${doc?.format}`);
+// ---- reading records back --------------------------------------------------
+//
+// A record straight out of a snapshot is "snapshot-shaped": it carries
+// `{ hash, ext }` art refs under `artwork` / `originalArtwork` / `image`. A
+// live record carries `artworkBlob` / `originalArtworkBlob` / `imageBlob`.
+// The merge is shape-agnostic (it only compares stamps and ids), so the
+// winners it hands back may be either; App.jsx hydrates the snapshot-shaped
+// ones with `getBlob(ref)` (a synchronous lookup into art already read).
+
+export function isSnapshotShaped(rec) {
+  return !!rec && ('artwork' in rec || 'image' in rec);
+}
+
+export function artRefsOf(rec) {
+  const out = [];
+  for (const k of ['artwork', 'originalArtwork', 'image']) if (rec && rec[k]) out.push(rec[k]);
+  return out;
+}
+
+export function hydrateTrack(rec, getBlob) {
+  const { artwork, originalArtwork, ...rest } = rec;
+  const t = { ...rest, artworkBlob: artwork ? getBlob(artwork) : null };
+  if (originalArtwork !== undefined) {
+    t.originalArtworkBlob = originalArtwork ? getBlob(originalArtwork) : null;
   }
-  const memo = new Map();
-  const load = (r) => {
-    const key = artFileName(r);
-    if (!memo.has(key)) memo.set(key, readArt(r));
-    return memo.get(key);
-  };
+  return t;
+}
 
-  const total = (doc.tracks?.length || 0) + (doc.playlists?.length || 0);
-  let done = 0;
-  const tick = () => onProgress?.(++done, total);
-
-  const tracks = [];
-  for (const r of doc.tracks || []) {
-    const { artwork, originalArtwork, ...rest } = r;
-    const t = { ...rest, artworkBlob: artwork ? await load(artwork) : null };
-    if (originalArtwork !== undefined) {
-      t.originalArtworkBlob = originalArtwork ? await load(originalArtwork) : null;
-    }
-    tracks.push(t);
-    tick();
-  }
-
-  const playlists = [];
-  for (const r of doc.playlists || []) {
-    const { image, ...rest } = r;
-    playlists.push({ ...rest, imageBlob: image ? await load(image) : null });
-    tick();
-  }
-
-  return { tracks, playlists, libraryOrder: Array.isArray(doc.libraryOrder) ? doc.libraryOrder : [] };
+export function hydratePlaylist(rec, getBlob) {
+  const { image, ...rest } = rec;
+  return { ...rest, imageBlob: image ? getBlob(image) : null };
 }
 
 // The same sanity rule App.jsx applies to IndexedDB on load: every version
-// must carry a valid relPath. A snapshot that fails this is refused whole.
-export function findInvalidTrack(tracks) {
+// must carry a valid relPath. A remote track that fails this is never taken.
+export function isValidTrack(t) {
   return (
-    tracks.find(
-      (t) =>
-        !t ||
-        typeof t.id !== 'string' ||
-        !Array.isArray(t.versions) ||
-        !t.versions.length ||
-        t.versions.some((v) => !isRelPath(v?.relPath))
-    ) || null
+    !!t &&
+    typeof t.id === 'string' &&
+    Array.isArray(t.versions) &&
+    t.versions.length > 0 &&
+    t.versions.every((v) => isRelPath(v?.relPath))
   );
 }

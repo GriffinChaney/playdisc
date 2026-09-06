@@ -42,9 +42,12 @@ function getDB() {
 //     { id, title, originalTitle, relPath, duration, format, fingerprint, dateAdded }
 //     — relPath is relative to the per-machine library root (see media.js)
 //   ],
-//   notes: [ { id, text, complete, dateAdded } ],
+//   notes: [ { id, text, complete, dateAdded, updatedAt } ],
+//   deletedNotes: [ { id, updatedAt } ],  // note tombstones (sync merge)
+//   notesUpdatedAt: number,               // sync stamp for note order only
 //   tags: string[],
 //   dateAdded: number,
+//   updatedAt: number,         // sync stamp — see src/lib/syncMerge.js
 //   liked: boolean,            // schemaless addition, 2026-09-05 — absent on
 //                               // older records, treated as falsy (not liked)
 //   likedAt: number | undefined // set when liked; left as-is (not cleared) on unlike
@@ -75,7 +78,7 @@ export async function updateTrack(id, changes) {
 }
 
 // full-record write (replaces, never merges — a key absent from `record` is
-// dropped). Unused right now; the sync merge will want it.
+// dropped). The sync merge drains committed state through this.
 export async function replaceTrack(record) {
   const db = await getDB();
   await db.put(STORE, record);

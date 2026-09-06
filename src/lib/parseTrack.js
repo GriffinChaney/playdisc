@@ -27,6 +27,7 @@ export function buildImportedTrack({ name, meta, relPath, fp }) {
     versions: [version],
     notes: [],
     tags: [],
-    dateAdded: Date.now()
+    dateAdded: Date.now(),
+    updatedAt: Date.now() // sync merge stamp — see src/lib/syncMerge.js
   };
 }

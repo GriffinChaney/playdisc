@@ -52,6 +52,7 @@ export default function SettingsModal({
   libraryRoot,
   onChooseLibraryRoot,
   lastSnapshotAt = null,
+  lastSyncAt = null,
   trackCount = 0,
   onClose
 }) {
@@ -169,7 +170,7 @@ export default function SettingsModal({
         key: 'lib-sync',
         section: 'library',
         label: 'Sync snapshot',
-        keywords: 'library sync snapshot dropbox machine written json'
+        keywords: 'library sync snapshot dropbox machine written merged json'
       },
       {
         key: 'lib-reset',
@@ -434,7 +435,12 @@ export default function SettingsModal({
               </span>
             </div>
             <span className="settings-field-control settings-field-value">
-              {lastSnapshotAt ? `written ${new Date(lastSnapshotAt).toLocaleTimeString()}` : 'not written yet'}
+              {[
+                lastSnapshotAt ? `written ${new Date(lastSnapshotAt).toLocaleTimeString()}` : 'not written yet',
+                lastSyncAt ? `merged ${new Date(lastSyncAt).toLocaleTimeString()}` : null
+              ]
+                .filter(Boolean)
+                .join(' · ')}
             </span>
           </div>
         );
