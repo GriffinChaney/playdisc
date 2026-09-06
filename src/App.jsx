@@ -91,10 +91,11 @@ try {
 // applies remote changes while this is true (stage 5): a merge re-renders
 // whatever it touched, and a note being typed, a title mid-rename, a
 // playlist name half-entered must not be re-rendered or removed underneath
-// the cursor. Deferred merges resume on the next focusout. Fields where a
-// merge landing is harmless (the library search box, the search overlay,
-// Settings) opt out with data-sync-passive so a cursor parked in them
-// doesn't hold sync back.
+// the cursor. Fields where a merge landing is harmless (the library search
+// box, the search overlay, Settings, an EMPTY "add a note…" field — the
+// notes panel autofocuses that one, and reading notes must not block sync)
+// opt out with data-sync-passive so a cursor parked in them doesn't hold
+// sync back. Resumption of a deferred merge is in the trigger effect below.
 function editInProgress() {
   const el = document.activeElement;
   if (!(el instanceof HTMLElement)) return false;
@@ -902,28 +903,40 @@ export default function App() {
   // another machine's snapshot (or an art file) landing under .playdisc/
   // through Dropbox arrives as 'sync-dir-changed', already debounced. Focus
   // and wake-from-sleep ('resume', also via that channel) are belt and
-  // braces for anything the watcher could miss. A merge that was deferred
-  // because a text field had focus resumes on the next focusout.
+  // braces for anything the watcher could miss.
+  //
+  // Resuming a merge deferred by the edit guard: `focusout` alone is NOT
+  // enough. Chromium fires no focusout/blur when the focused element is
+  // REMOVED from the DOM (verified 2026-09-06: focus silently lands on
+  // <body>) — which is exactly what Escape-closing the notes panel or the
+  // versions modal does to its autofocused input. So every event that can
+  // end an edit is watched (keydown for Escape/Enter, mousedown for a click
+  // that closes or blurs, input for a field emptying back to passive), each
+  // re-checking after a tick so React has committed and activeElement has
+  // settled. Free when nothing is deferred: the flag check is the first
+  // line.
   useEffect(() => {
     if (libraryPhase !== 'ready' || !libraryReady || !window.electronAPI?.syncReadSnapshots) return;
     const onFocus = () => runSync({ reason: 'focus' });
     window.addEventListener('focus', onFocus);
     const offDir = window.electronAPI.onSyncDirChanged?.((p) => runSync({ reason: p?.reason || 'watch' }));
     const offFiles = window.electronAPI.onLibraryFilesChanged?.(() => setFileSweepTick((n) => n + 1));
-    const onFocusOut = () => {
+    let resumeTimer = null;
+    const maybeResume = () => {
       if (!syncDeferredForEditRef.current) return;
-      // activeElement updates after focusout; let it settle so the check in
-      // runSync sees where focus actually went (maybe another text field)
-      setTimeout(() => {
-        if (editInProgress()) return;
+      clearTimeout(resumeTimer);
+      resumeTimer = setTimeout(() => {
+        if (!syncDeferredForEditRef.current || editInProgress()) return;
         syncDeferredForEditRef.current = false;
         runSync({ reason: 'edit-done' });
       }, 0);
     };
-    document.addEventListener('focusout', onFocusOut, true);
+    const EDIT_END_EVENTS = ['focusout', 'keydown', 'mousedown', 'input'];
+    for (const ev of EDIT_END_EVENTS) document.addEventListener(ev, maybeResume, true);
     return () => {
+      clearTimeout(resumeTimer);
       window.removeEventListener('focus', onFocus);
-      document.removeEventListener('focusout', onFocusOut, true);
+      for (const ev of EDIT_END_EVENTS) document.removeEventListener(ev, maybeResume, true);
       offDir?.();
       offFiles?.();
     };

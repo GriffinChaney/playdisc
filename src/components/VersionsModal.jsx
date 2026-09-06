@@ -331,6 +331,7 @@ export default function VersionsModal({
             >
               <input
                 className="vm-note-input"
+                data-sync-passive={newNote ? undefined : ''}
                 placeholder="add a note…"
                 value={newNote}
                 onChange={(e) => setNewNote(e.target.value)}

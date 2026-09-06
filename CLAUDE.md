@@ -231,10 +231,21 @@ Already fixed — don't remove that config.
   content into place, so a file-level watch dies after the first update. Our own
   snapshot writes and `.tmp` files are skipped by name. `powerMonitor` `resume` and
   window `focus` are belt and braces on the same path. **A merge never applies while
-  a text field has focus** (`editInProgress()` in `App.jsx`, checked before the read
-  AND right before apply): the merge is deferred and resumes on the next `focusout`.
-  Fields where a landing merge is harmless (library search, search overlay, Settings)
-  opt out with `data-sync-passive`. Absent audio splits into MISSING (this machine
+  a text field is being edited** (`editInProgress()` in `App.jsx`, checked before the
+  read AND right before apply): the merge is deferred. Fields where a landing merge is
+  harmless opt out with `data-sync-passive` — library search, search overlay,
+  Settings, and (2026-09-06) the **"add a note…" field while it is EMPTY**: the notes
+  panel autofocuses it, and without that opt-out an open panel held every merge back
+  ("notes don't update live"); with text in it, it counts as an edit again. A deferred
+  merge resumes via `maybeResume` in the trigger effect, which listens to `focusout`,
+  `keydown`, `mousedown` AND `input` (capture, re-checked after a tick) — NOT
+  `focusout` alone: **Chromium fires no focusout/blur when the focused element is
+  removed from the DOM** (verified live), which is what Escape-closing the notes panel
+  or versions modal does to its autofocused input, so a focusout-only resume left
+  merges stuck until some unrelated field blurred. That, not stamping, was the
+  "checkbox doesn't sync" report — every note write path (`handleAddNote` /
+  `ToggleNote` / `EditNote` / `DeleteNote` / `ToggleNotePriority`) stamps the note;
+  reorder deliberately bumps only `notesUpdatedAt`. Absent audio splits into MISSING (this machine
   has seen the file before → relocate offered) and WAITING (never seen here → a
   remote track still on its way through Dropbox; "syncing…" state, no relocate) via
   `localStorage.seenRelPaths`. Dropbox "conflicted copy" snapshots are merged like any
