@@ -25,6 +25,9 @@ const FREQ_FFT_SIZE = 2048;
 const FREQ_BAND_LOW = [20, 160];
 const FREQ_BAND_MID = [300, 2000];
 const FREQ_BAND_HIGH = [6000, 16000];
+// getSpectrumFrame()'s log-frequency range — see that method below.
+const SPECTRUM_MIN_HZ = 40;
+const SPECTRUM_MAX_HZ = 16000;
 // Per-band envelope normalization (2026-09-04, replaced a fixed empirical
 // gain constant): raw FFT magnitude varies enormously between tracks and
 // between sections of one track, so mapping it directly to motion meant a
@@ -163,6 +166,12 @@ const Waveform = forwardRef(function Waveform(
   const bandEnvelopeRef = useRef({ low: 0, mid: 0, high: 0 });
   const bandEnvelopeInitRef = useRef(false);
   const bandEnvelopeLastTsRef = useRef(0);
+  // reused output buffer for getSpectrumFrame() (CRTVisualizer.jsx) —
+  // reallocated only if the caller ever asks for a different point count
+  // than last time, which in practice never happens at runtime (it's a
+  // tuning constant on the caller's side, not something that varies frame
+  // to frame)
+  const spectrumFrameRef = useRef(null);
 
   useEffect(() => {
     if (!containerRef.current || !audioUrl) return;
@@ -438,6 +447,65 @@ const Waveform = forwardRef(function Waveform(
         mid: reactive('mid'),
         high: reactive('high')
       };
+    },
+    // Full-spectrum version of getFrequencyBands, for CRTVisualizer.jsx's
+    // waterfall — each line there is a whole frequency frame, not 3 collapsed
+    // bands, so this returns `pointCount` magnitude values log-spaced across
+    // MIN_SPECTRUM_HZ..MAX_SPECTRUM_HZ (audio content spreads out
+    // logarithmically — a linear bin mapping would cram almost all visible
+    // energy into the first few output points). Same FFT/window/PCM source
+    // as getFrequencyBands (no separate AudioContext, no
+    // createMediaElementSource — see that method's own comment for why).
+    // Raw magnitude, not envelope-normalized against a running "normal
+    // level" the way the 3-band version is — that per-band normalization
+    // doesn't generalize cleanly to ~150 independent bins, and the
+    // visualizer applies its own log-compression + track-peak scaling
+    // instead (see SPECTRUM_* constants in CRTVisualizer.jsx).
+    getSpectrumFrame: (pointCount) => {
+      const channel = decodedChannelRef.current;
+      const ws = wsRef.current;
+      if (!channel || !ws || !pointCount) return null;
+
+      const sampleRate = sampleRateRef.current;
+      if (!fftRef.current || fftRef.current.sampleRate !== sampleRate) {
+        fftRef.current = new FFT(FREQ_FFT_SIZE, sampleRate, 'hann');
+      }
+      const fft = fftRef.current;
+      const buffer = fftBufferRef.current;
+
+      const centerSample = Math.floor(ws.getCurrentTime() * sampleRate);
+      const start = Math.max(0, Math.min(channel.length - FREQ_FFT_SIZE, centerSample - FREQ_FFT_SIZE / 2));
+      for (let i = 0; i < FREQ_FFT_SIZE; i++) {
+        const s = start + i;
+        buffer[i] = s < channel.length ? channel[s] : 0;
+      }
+
+      let spectrum;
+      try {
+        spectrum = fft.calculateSpectrum(buffer);
+      } catch {
+        return null; // e.g. a track shorter than one FFT window
+      }
+
+      if (!spectrumFrameRef.current || spectrumFrameRef.current.length !== pointCount) {
+        spectrumFrameRef.current = new Float32Array(pointCount);
+      }
+      const out = spectrumFrameRef.current;
+      const binWidth = sampleRate / FREQ_FFT_SIZE;
+      const nyquist = sampleRate / 2;
+      const minHz = Math.min(SPECTRUM_MIN_HZ, nyquist - 1);
+      const maxHz = Math.min(SPECTRUM_MAX_HZ, nyquist);
+      const logRange = Math.log(maxHz / minHz);
+      for (let p = 0; p < pointCount; p++) {
+        const loHz = minHz * Math.exp((logRange * p) / pointCount);
+        const hiHz = minHz * Math.exp((logRange * (p + 1)) / pointCount);
+        const i0 = Math.max(0, Math.floor(loHz / binWidth));
+        const i1 = Math.max(i0, Math.min(spectrum.length - 1, Math.floor(hiHz / binWidth)));
+        let sum = 0;
+        for (let i = i0; i <= i1; i++) sum += spectrum[i];
+        out[p] = sum / (i1 - i0 + 1);
+      }
+      return out;
     }
   }));
 

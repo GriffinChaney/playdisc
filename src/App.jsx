@@ -8,6 +8,7 @@ import PlaylistEditModal from './components/PlaylistEditModal';
 import NowPlaying from './components/NowPlaying';
 import GearIcon from './components/GearIcon';
 import FocusView from './components/FocusView';
+import CRTVisualizer from './components/CRTVisualizer';
 import MiniPlayer from './components/MiniPlayer';
 import BackgroundPlayBar from './components/BackgroundPlayBar';
 import Waveform from './components/Waveform';
@@ -90,7 +91,7 @@ export default function App() {
   // playback — only double-clicking (or hitting play while browsing) does.
   const [currentTrackId, setCurrentTrackId] = useState(null);
   const [playingTrackId, setPlayingTrackId] = useState(null);
-  const [view, setView] = useState('sidebar'); // 'sidebar' | 'focus' | 'mini'
+  const [view, setView] = useState('sidebar'); // 'sidebar' | 'focus' | 'mini' | 'visualizer'
   const viewRef = useRef(view);
   viewRef.current = view;
 
@@ -2500,10 +2501,12 @@ export default function App() {
       // since macOS's Option-modifies-key-value behavior can otherwise turn
       // e.key into a composed character instead of a plain space. Declines
       // to open over another modal (Settings, or one of the three tracked
-      // in modalStateRef) rather than stacking two modal-ish surfaces.
+      // in modalStateRef) or the CRT visualizer (2026-09-06 — "controls on
+      // screen: none" is the whole point of that view) rather than
+      // stacking a modal-ish surface on top.
       if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.code === 'Space') {
         e.preventDefault();
-        if (!anyModalOpen) setSearchOverlayOpen(true);
+        if (!anyModalOpen && view !== 'visualizer') setSearchOverlayOpen(true);
         return;
       }
 
@@ -2531,6 +2534,20 @@ export default function App() {
 
       // Cmd+, (open settings) is handled by the native app menu accelerator
       // in electron/main.js, not here — see keybindings.js.
+
+      // Escape exits the CRT visualizer back to fullscreen SPECIFICALLY —
+      // checked before the generic "leave fullscreen/mini" case right
+      // below, which would otherwise also match view==='visualizer' (it's
+      // just "anything that isn't sidebar") and send it to sidebar instead
+      // of back to focus. Cmd+W for the same exit is handled independently,
+      // inside CRTVisualizer.jsx itself (its own capture-phase listener,
+      // same shape as SettingsModal/SearchOverlay) — the two don't inspect
+      // each other's state, same rule as everywhere else Cmd+W is handled.
+      if (e.key === 'Escape' && view === 'visualizer') {
+        e.preventDefault();
+        setView('focus');
+        return;
+      }
 
       // Escape leaves fullscreen / mini and returns to the general view.
       // (In the general view, Escape is left to the search field + selection.)
@@ -2980,9 +2997,16 @@ export default function App() {
         repeatMode={repeatMode}
         onCycleRepeat={handleCycleRepeat}
         onOpenArtist={openArtist}
+        onOpenVisualizer={() => setView('visualizer')}
         movementIntensity={backgroundMovement}
         getFrequencyBands={() => waveformRef.current?.getFrequencyBands()}
       />
+      {view === 'visualizer' && (
+        <CRTVisualizer
+          getSpectrumFrame={(n) => waveformRef.current?.getSpectrumFrame(n)}
+          onExit={() => setView('focus')}
+        />
+      )}
       <MiniPlayer
         active={view === 'mini'}
         track={playingTrack}

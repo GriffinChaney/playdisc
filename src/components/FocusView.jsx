@@ -8,6 +8,7 @@ import WaveformSlot from './WaveformSlot';
 import ShuffleIcon from './ShuffleIcon';
 import RestartIcon from './RestartIcon';
 import RepeatIcon from './RepeatIcon';
+import CRTIcon from './CRTIcon';
 
 function formatTime(seconds = 0) {
   const m = Math.floor(seconds / 60);
@@ -34,6 +35,7 @@ export default function FocusView({
   repeatMode,
   onCycleRepeat,
   onOpenArtist,
+  onOpenVisualizer,
   movementIntensity = 0,
   getFrequencyBands,
   // Always mounted — App.jsx CSS-hides this view (`view-hidden`) instead of
@@ -82,6 +84,17 @@ export default function FocusView({
       <button className="back-btn" onClick={onExitFocus}>
         ← library
       </button>
+
+      {onOpenVisualizer && (
+        <button
+          className="focus-visualizer-btn"
+          onClick={onOpenVisualizer}
+          aria-label="CRT visualizer"
+          title="CRT visualizer"
+        >
+          <CRTIcon />
+        </button>
+      )}
 
       <div
         className="focus-artwork"
