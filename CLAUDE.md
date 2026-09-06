@@ -82,7 +82,8 @@ playdisc/                # repo lives at ~/Developer/playdisc (was ~/Developer/s
 │       ├── useObjectUrl.js    # hook: Blob -> object URL, auto-revoked
 │       ├── keybindings.js     # DEFAULT_KEYBINDINGS, load/save/format helpers
 │       ├── artworkTilt.js     # shared mouse-tilt handlers for album art
-│       └── likedBackdrop.js   # fixed (non-cover-derived) header gradient for the Liked view
+│       ├── likedBackdrop.js   # fixed (non-cover-derived) header gradient for the Liked view
+│       └── artistBackdrop.js  # per-artist header gradient, hashed from the artist's name
 ├── vite.config.js        # dev server port 5173; ignores release/ in the watcher
 ├── index.html             # <title>Playdisc</title>
 └── package.json           # name: "playdisc", productName: "Playdisc"
@@ -271,10 +272,10 @@ persisted to `localStorage.navWidth`) / `1fr` / `var(--np-width)` (fixed 278px).
 **`'focus'` and `'mini'` views are untouched** — `.focus-view` still spans
 `grid-column: 1 / -1`, `.mini-player` is still `position: fixed; inset: 0`.
 
-- `activeView`: `{ type: 'imported' }`, `{ type: 'playlist', id }`, or `{ type: 'liked' }`
-  — which left-nav item the middle column shows. "Imported" = the **entire library**
-  (newest-first), not "songs not in a playlist". Purely a view; never changes
-  `currentTrackId`/`playingTrackId`.
+- `activeView`: `{ type: 'imported' }`, `{ type: 'playlist', id }`, `{ type: 'liked' }`, or
+  `{ type: 'artist', name }` — which left-nav item (or, for `'artist'`, which *ad hoc*
+  page) the middle column shows. "Imported" = the **entire library** (newest-first), not
+  "songs not in a playlist". Purely a view; never changes `currentTrackId`/`playingTrackId`.
 - **Liked / favorites** (2026-09-05): `liked: boolean` + `likedAt: number|undefined` on
   the track record (see Track record shape below) — schemaless, no `DB_VERSION` bump,
   same as `originalArtist`/`originalArtworkBlob`. Toggled via `handleSetLiked(id,
@@ -306,6 +307,59 @@ persisted to `localStorage.navWidth`) / `1fr` / `var(--np-width)` (fixed 278px).
   'liked'}` as a third case alongside `'playlist'`/`'library'` throughout `App.jsx`
   (`contextFromActiveView`, `orderedContextTracks`, `handlePlayLiked`, the header
   play/pause button) — shuffle is deliberately NOT liked-weighted, it stays unbiased.
+- **Artist pages** (2026-09-06): `{ type: 'artist', name }` — a fourth `activeView` case,
+  threaded through `App.jsx` exactly the way `'liked'` was added as a third one
+  (`shownTracks`, `activeSort`/`activeSortDir` via their own `artistSort`/`artistSortDir`
+  state, `contextFromActiveView`, `orderedContextTracks`, `handlePlayArtist` alongside
+  `handlePlayLiked`, `headerViewPlaying`, `handleHeaderPlayPause`) — playback, shuffle,
+  and skip all treat it as a real context, not a filtered view of another one. Unlike
+  Liked, membership is a **live filter** (`tracks.filter(t => t.artist === name)`), not a
+  snapshot — a track's artist only ever changes via the deliberate rename flow in
+  `VersionsModal`, not a quick misclick, so there's no vanishing-row concern to guard
+  against. No sidebar entry — it's not one of the left-nav zones, just a page you land on
+  (see "getting there/back" below).
+  - **Header**: reuses `LibraryList` itself (a new `isArtistView` branch alongside
+    `isLikedView`/`isPlaylistView`, not a separate component) so every per-row
+    interaction — select, play, tag, queue, like, delete, right-click menu — comes for
+    free and nothing about the existing views' code paths changed. `isFullHeader` is
+    unconditionally true for it (same as Liked — no "compact" state ever applies). The
+    gradient is `src/lib/artistBackdrop.js`'s `artistBackdropStyle(name)`: the artist's
+    name is HASHED (djb2) to a hue 0–359 — never randomized, so the same artist always
+    lands on the same hue and different artists visibly differ — then rendered as a fixed
+    monochromatic ramp of tones at that hue over a dark base, the same "radial blobs over
+    a dark base" construction as `likedBackdropStyle()`. Retune the look at
+    `ARTIST_GRADIENT_BASE_S`/`ARTIST_GRADIENT_BASE_L`/`ARTIST_GRADIENT_TONES` in that file
+    only; `meshBackdropStyle`/`dominantColor.js`/the real extraction pipeline are
+    untouched, same rule `likedBackdrop.js` follows. Sort options are the same set as a
+    playlist view minus `'custom'` (no manual `trackIds` array to hand-drag, same reason
+    Liked has none either); default is `'added'`/desc, not `'artist'` — every row here
+    already shares this page's own artist, so that mode would just degrade to a plain
+    title sort as the first thing you see.
+  - **Getting there**: click an artist name anywhere it appears —
+    `TrackItem.jsx`'s `.track-artist`, `LibraryList.jsx`'s `GridItem`'s `.grid-artist`,
+    `NowPlaying.jsx`'s `.np-artist`, `FocusView.jsx`'s `.focus-artist` — each wired to
+    `onOpenArtist` (ultimately `App.jsx`'s `openArtist(name)`). The row-based ones
+    `stopPropagation()` on both click and dblclick so opening the artist page never also
+    selects or plays that row. The quick search overlay's artist results (see below) and
+    "Imported"/"Liked Songs" Views results reuse this same path.
+  - **Getting back**: Escape only — no dedicated back button (one was built, then
+    explicitly dropped: "Escape already returns me to the previous view and that's
+    enough," not worth the UI weight). Checked in `App.jsx`'s global keydown effect right
+    after the existing fullscreen/mini-exit check (`if (e.key === 'Escape' &&
+    activeView.type === 'artist')`), so it loses to Settings/the search overlay (each
+    owns Escape entirely while open) and to `LibraryList`'s own search-box Escape
+    handling (local, stops propagation) exactly the way every other Escape consumer in
+    this app already nests. `App.jsx`'s `artistPageReturn` state captures the exact
+    `{ view, activeView }` present the moment the page was first opened — chained
+    artist → artist navigation (e.g. via search) does not overwrite that captured point,
+    so it always unwinds to wherever you actually started — and a small safety-net effect
+    clears it whenever `activeView.type !== 'artist'`, so navigating away directly via the
+    sidebar (which bypasses this Escape path entirely) can't leave it stale for the next
+    visit. **Scroll position is deliberately NOT restored** — every other view switch in
+    this app already resets scroll to the top by design (`LibraryList`'s `listKey`
+    effect), so there's no existing "remember where I was" mechanism to hook into; adding
+    one only for this exit path would be new, inconsistent behavior, not a restoration of
+    something that already existed.
 - `playlists`: array of `{ id, name, trackIds: string[], pinned, sortIndex, createdAt, updatedAt }`.
   Left-nav order = `pinned desc, sortIndex asc` (`sortIndex` backfills to `createdAt`
   for old records). Drag-reorder in `PlaylistNav` (`handleReorderPlaylists`) renumbers
@@ -512,16 +566,29 @@ no audio and needs no `WaveformSlot`-style persistence).
   that skipped `stopPropagation()` let Cmd+W fall through and close the
   window on the same keypress. Any new modal-ish overlay should copy this
   shape, not invent a fifth mechanism.)
-- **Results**: tracks (title/artist), playlists (name), and artists — there's
-  no artist entity in the data model, so the artist list is built on the fly
-  in `SearchOverlay.jsx` as the distinct, case-insensitively deduped set of
-  non-empty `track.artist` values (first-seen casing kept, with a track
-  count). Each of the three groups is capped independently at 8
-  (`RESULTS_PER_GROUP`), not one global cap — otherwise a broad query could
-  let tracks (there are far more of them than playlists or artists) crowd out
-  the other two groups entirely. Grouped under muted uppercase section
-  headers rather than a per-row type badge, matching `PlaylistNav`'s
-  `.nav-section-label` look.
+- **Results**: tracks (title/artist), a **Views** group, and artists. Views
+  merges playlists (name) with two synthetic entries, Imported and Liked
+  Songs (2026-09-06) — same "thing you navigate to" as a playlist, just not
+  user-created, which is also why the group is labeled "Views" and not
+  "Playlists" (stopped fitting once it held two things that aren't
+  playlists). There's no artist entity in the data model, so the artist list
+  is built on the fly in `SearchOverlay.jsx` as the distinct,
+  case-insensitively deduped set of non-empty `track.artist` values
+  (first-seen casing kept, with a track count). Each group is capped
+  independently at 8 (`RESULTS_PER_GROUP`), not one global cap — otherwise a
+  broad query could let tracks (there are far more of them than playlists or
+  artists) crowd out the other groups entirely. Grouped under muted
+  uppercase section headers rather than a per-row type badge, matching
+  `PlaylistNav`'s `.nav-section-label` look — see `groupOf()` in
+  `SearchOverlay.jsx` for the result-type -> group-label mapping (Imported
+  and Liked Songs have their own dispatch `type`s, `'imported'`/`'liked'`,
+  distinct from `'playlist'`, but share its group). Within Views only,
+  results are ranked by match strength (`matchRank()`: exact match, then
+  prefix, then plain substring) rather than left in filter order — so typing
+  "liked" surfaces Liked Songs ahead of some playlist that merely contains
+  those letters. Tracks and artists don't get this ranking; a short fragment
+  of a longer title/name is the normal way to search those, so "contains" is
+  already the expected match, not a weak one.
 - **Selecting a track** goes through `landOnTrack(id)` in `App.jsx`, which
   generalizes `handleExpandTrack`'s already-existing deferred-scroll
   mechanism (`pendingScrollTargetRef` + `scrollRequestTick`, see "Other
@@ -534,13 +601,17 @@ no audio and needs no `WaveformSlot`-style persistence).
   otherwise goes to `{ type: 'imported' }`, since Imported always contains
   every track by definition (see `activeView` above) — there's no need to
   rank among multiple playlists that might also contain it.
-- **Selecting an artist** goes through `openArtist(name)` in `App.jsx` —
-  currently just `{ type: 'imported' }` + `setLibrarySearchQuery(name)`
-  (there's no artist page yet). This is deliberately the ONE place that
-  "what does selecting an artist do" lives — `handleSelectSearchResult`'s
-  dispatch (`track` → `landOnTrack`, `playlist` → `setActiveView`, `artist` →
-  `openArtist`) never needs to change when a real artist page exists; only
-  `openArtist`'s body does.
+- **Selecting an artist** goes through `openArtist(name)` in `App.jsx` — this
+  was originally a placeholder (`{ type: 'imported' }` +
+  `setLibrarySearchQuery(name)`, "there's no artist page yet") and, as
+  planned, only `openArtist`'s own body changed once real artist pages
+  shipped (see "Artist pages" under "Library view = 3 columns" above) —
+  `handleSelectSearchResult`'s dispatch (`track` → `landOnTrack`, `playlist`
+  → `setActiveView`, `artist` → `openArtist`) never needed to change.
+  Selecting Imported or Liked Songs from the Views group goes through the
+  same `handleSelectSearchResult`, with two more branches
+  (`result.type === 'imported'`/`'liked'`) that just `setActiveView`
+  directly, same as a playlist result does.
 - **Keyboard**: arrows navigate, Enter selects the highlighted result
   (highlighted defaults to index 0, reset on every query change so Enter
   works immediately after typing), Cmd+1–9 jump straight to results 1–9.
