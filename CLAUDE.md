@@ -498,7 +498,12 @@ persisted to `localStorage.navWidth`) / `1fr` / `var(--np-width)` (fixed 278px).
   fully redundant with `next`/`prev` itself. `loadKeybindings()` runs a
   one-time versioned migration, `migrateKeybindings()`, for installs with a
   saved `d`/`u` next/prev override or a customized `nextAlt`/`prevAlt` from
-  before this change.)
+  before this change.) **`playPause`'s keyboard handling is the one exception** to
+  "the big dispatcher reads `keybindings.<action>.key`" — it moved out into its own
+  keydown/keyup effect for the hold-for-2x feature (2026-09-06, see "Audio / playback
+  / visualization system" → "Hold space for 2x"), since tap-vs-hold can't be decided
+  in a plain keydown-fires-immediately branch. It still reads `keybindings.playPause.key`
+  to know which key it owns — rebinding play/pause moves the hold gesture with it.
 - `theme`: `'dark' | 'light'`, persisted to `localStorage`, applied as
   `document.documentElement.dataset.theme`.
 - `expandedTrackId`: which track row is "zoomed" (Z key / `expandTrack`),
@@ -707,9 +712,54 @@ All of this lives in `src/components/Waveform.jsx`.
   visual bits (EQ loop, `getAmplitude()`) read from these refs rather than re-decoding.
 - **Imperative handle** (via `forwardRef`/`useImperativeHandle`): `play`, `pause`,
   `toggle`, `isPlaying`, `seekTo(fraction)`, `skip(seconds)`, `setVolume`, `getVolume`,
-  `getCurrentTime`, `getDuration`, and `getAmplitude()` (single 0..1 loudness reading
+  `getCurrentTime`, `getDuration`, `setPlaybackRate(rate, preservePitch)` (2026-09-06 —
+  see "Hold space for 2x" below), and `getAmplitude()` (single 0..1 loudness reading
   at the current playhead — used by `BackgroundPlayBar`'s mini meter, not just the
   main EQ).
+- **Hold space for 2x, tape-style** (2026-09-06): `setPlaybackRate` forwards straight
+  to wavesurfer's own `setPlaybackRate(rate, preservePitch)`, which sets the underlying
+  `<audio>` element's `playbackRate`/`preservesPitch` directly (see
+  `node_modules/wavesurfer.js/dist/player.js`) — the **unprefixed, standard** property.
+  Confirmed live in this Electron 31.7.7 renderer, not assumed:
+  `'preservesPitch' in HTMLMediaElement.prototype` is `true`;
+  `webkitPreservesPitch`/`mozPreservesPitch` are both `false`, not present — no
+  vendor-prefixed fallback needed on this Chromium version. `preservePitch: false` is
+  what makes pitch rise with speed (the tape/record effect); `true` is the normal
+  browser default, used to reset back to 1x. Playhead tracking needed no extra work —
+  `playbackRate` is a native `<audio>` property, so `currentTime` already advances
+  correctly at 2x, and everything reading it (the progress bar, the EQ/frequency-band
+  sampling above) just follows along; nothing here is 2x-aware.
+
+  The tap-vs-hold detection lives in `App.jsx`, not here: play/pause's keyboard
+  handling was pulled out of the big keybindings dispatcher into its own dedicated
+  keydown/keyup effect (a plain keydown-fires-immediately branch can't tell a tap from
+  the first instant of a hold). `keydown` starts a 200ms timer (comfortably below
+  macOS's own ~500-600ms key-repeat delay, so a snappy tap can't accidentally cross
+  it); if it's still held when the timer fires AND something's actually playing, it
+  calls `setPlaybackRate(2, false)`. `keyup` checks whether the timer had already
+  fired — if not, it's a tap and calls the exact same `handleTogglePlay()` a plain
+  press always did; if so, it just resets the rate via `resetSpaceHold()` without
+  touching play state. `e.repeat` (true for OS auto-repeat while a key is held) gates
+  whether a *new* hold starts tracking, but **`e.preventDefault()` still runs on every
+  qualifying keydown, repeats included** — get that order wrong (checking `e.repeat`
+  before `preventDefault()`, as an early return) and only the first keydown of a hold
+  is ever prevented, so every auto-repeat after it falls through to space's default
+  browser action (scroll the nearest scrollable ancestor — the track list or the grid,
+  same fix covers both): invisible on a quick tap, a rapid repeated scroll for the
+  whole duration of a hold. Root-caused live, not guessed, after exactly that shipped
+  once. `isTypingTarget()` (a module-level function, shared with the main dispatcher
+  rather than reimplemented) still wins over all of this — a space in a text field
+  always just types a space.
+
+  `resetSpaceHold()` is the one place a hold ever gets undone, called from: a real
+  `keyup`; `handleFinish` (track ending, including repeat-one restarting the *same*
+  track — the reset has to run before that branch too); a `useEffect` on
+  `[playingTrackId, view]` (track switch or view change by any means); the instant
+  Settings/the search overlay/any modal opens, however it was opened; and a `window`
+  `'blur'` listener — specifically for Cmd+Tabbing away mid-hold, where **no `keyup`
+  for the held key ever reaches this window at all** (the OS keeps tracking that
+  keypress once focus leaves), so `blur` is the only signal available for that case,
+  independent of whatever key state the OS still thinks is active.
 - **Scroll-to-scrub**: `onWheel` on the waveform's wrapper, proportional to
   `e.deltaY` (`skip(-e.deltaY * 0.01)`, clamped to ±2s per event) — deliberately *not*
   a fixed jump, after a flat "3 seconds per wheel event" was reported as too coarse
