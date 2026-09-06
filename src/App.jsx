@@ -12,6 +12,7 @@ import MiniPlayer from './components/MiniPlayer';
 import BackgroundPlayBar from './components/BackgroundPlayBar';
 import Waveform from './components/Waveform';
 import SettingsModal from './components/SettingsModal';
+import SearchOverlay from './components/SearchOverlay';
 import VolumeIcon from './components/VolumeIcon';
 import ImportOverlay from './components/ImportOverlay';
 import ImportToast from './components/ImportToast';
@@ -170,6 +171,12 @@ export default function App() {
   const searchInputRef = useRef(null);
   const [pendingFocusSearch, setPendingFocusSearch] = useState(false);
   const [expandedTrackId, setExpandedTrackId] = useState(null);
+  // Option+Space quick-search overlay (2026-09-06) — see the global keydown
+  // effect below for the trigger and SearchOverlay.jsx for the UI. Always
+  // starts closed on mount/reopen (no "remember last query" — the component
+  // itself starts its query state fresh every time it mounts, since it's
+  // conditionally rendered, not just CSS-hidden).
+  const [searchOverlayOpen, setSearchOverlayOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // true while Settings was opened from mini mode, so closing it returns
   // there instead of leaving the window in the normal view. Transient by
@@ -786,6 +793,70 @@ export default function App() {
     target.scrollIntoView({ block: 'center' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollRequestTick]);
+
+  // Search-overlay "go to this track" (2026-09-06) — same landing state as
+  // pressing z on it (browsed + expanded + centered), generalized to an
+  // arbitrary id instead of always playingTrackId||currentTrackId, and
+  // preceded by a view switch when needed. Reuses the exact same deferred
+  // scroll mechanism as handleExpandTrack above (pendingScrollTargetRef +
+  // scrollRequestTick) rather than duplicating it — the effect at line ~771
+  // already handles "wait for the commit, then measure/scroll," which is
+  // exactly as true here as it is for Z, including right after a view
+  // switch remounts LibraryList with a different track list.
+  //
+  // Which view to land in: stay put if the CURRENT view already contains
+  // the track (Imported always does, trivially, since "Imported" = the
+  // whole library, not "not in a playlist" — see activeView docs; the
+  // current playlist or Liked only "contain" it if the track is actually
+  // in them) — this avoids an unnecessary context switch away from where
+  // you're already looking when the track happens to be visible right
+  // there. Otherwise Imported is the one landing spot guaranteed to work
+  // for every track regardless of which playlists (if any) it's in, so
+  // there's no need to guess/rank among multiple playlists that might
+  // contain it.
+  const landOnTrack = useCallback(
+    (id) => {
+      const track = tracks.find((t) => t.id === id);
+      if (!track) return;
+      setView('sidebar');
+      const stayPut =
+        activeView.type === 'imported' ||
+        (activeView.type === 'liked' && !!track.liked) ||
+        (activeView.type === 'playlist' &&
+          playlists.find((p) => p.id === activeView.id)?.trackIds.includes(id));
+      if (!stayPut) setActiveView({ type: 'imported' });
+      setCurrentTrackId(id);
+      if (libraryViewMode !== 'grid') setExpandedTrackId(id); // grid has no expand panel — see handleExpandTrack
+      pendingScrollTargetRef.current = id;
+      setScrollRequestTick((n) => n + 1);
+    },
+    [tracks, activeView, playlists, libraryViewMode]
+  );
+
+  // Search-overlay "go to this artist." There's no artist entity/page yet
+  // (see CLAUDE.md) — this is deliberately the ONLY place that knowledge
+  // lives, so wiring a real artist page in later is a one-function swap
+  // (this body changes to setActiveView({ type: 'artist', name }) or
+  // similar) with no change needed in SearchOverlay or how it's called.
+  const openArtist = useCallback((artistName) => {
+    setView('sidebar');
+    setActiveView({ type: 'imported' });
+    setLibrarySearchQuery(artistName);
+  }, []);
+
+  // Single dispatch point the search overlay calls on Enter/click — kept
+  // here (not in the overlay) so it stays a dumb search+list component,
+  // consistent with the rest of the app's props-in/callbacks-out shape.
+  const handleSelectSearchResult = useCallback(
+    (result) => {
+      if (result.type === 'track') landOnTrack(result.id);
+      else if (result.type === 'playlist') {
+        setView('sidebar');
+        setActiveView({ type: 'playlist', id: result.id });
+      } else if (result.type === 'artist') openArtist(result.name);
+    },
+    [landOnTrack, openArtist]
+  );
 
   // if the active playlist is deleted elsewhere, fall back to Imported
   useEffect(() => {
@@ -2214,7 +2285,31 @@ export default function App() {
   // global shortcuts, driven by the user-configurable keybindings map
   useEffect(() => {
     function handleKeyDown(e) {
-      if (settingsOpen) return; // the settings modal owns key handling while open
+      // the settings modal / search overlay each own key handling while
+      // open (their own capture-phase listener handles Escape/Cmd+W/etc.
+      // for themselves — see SettingsModal.jsx and SearchOverlay.jsx) —
+      // this mirrors settingsOpen exactly rather than inventing a second
+      // mechanism, per the Cmd+W lesson below.
+      if (settingsOpen || searchOverlayOpen) return;
+
+      // Option+Space opens the quick-search overlay (2026-09-06) —
+      // deliberately NOT Electron's globalShortcut (system-wide, and
+      // already a source of real conflicts elsewhere in this app — see
+      // the F7/F8/F9 media-key handling); a plain renderer keydown only
+      // ever fires while this window is actually focused, which is exactly
+      // "open when Playdisc is focused, otherwise do nothing" with no
+      // extra code. Fixed, not in the rebindable keybindings map — same
+      // precedent as Cmd+W and Cmd+, below, both deliberately excluded from
+      // DEFAULT_KEYBINDINGS. e.code (not e.key) for the physical Space key,
+      // since macOS's Option-modifies-key-value behavior can otherwise turn
+      // e.key into a composed character instead of a plain space. Declines
+      // to open over another modal (Settings, or one of the three tracked
+      // in modalStateRef) rather than stacking two modal-ish surfaces.
+      if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.code === 'Space') {
+        e.preventDefault();
+        if (!anyModalOpen) setSearchOverlayOpen(true);
+        return;
+      }
 
       // Cmd/Ctrl+W: the main window has no Cmd+W of its own — buildAppMenu()
       // replaces the File menu (no role: 'close') and role: 'windowMenu' on
@@ -2349,6 +2444,8 @@ export default function App() {
     currentTrackId,
     keybindings,
     settingsOpen,
+    searchOverlayOpen,
+    anyModalOpen,
     view,
     handleSetVolume,
     handleTogglePlay,
@@ -2612,6 +2709,14 @@ export default function App() {
       )}
       {importToast && (
         <ImportToast toast={importToast} onDismiss={dismissImportToast} />
+      )}
+      {searchOverlayOpen && (
+        <SearchOverlay
+          tracks={tracks}
+          playlists={playlists}
+          onSelectResult={handleSelectSearchResult}
+          onClose={() => setSearchOverlayOpen(false)}
+        />
       )}
       {settingsOpen && (
         <SettingsModal
