@@ -48,6 +48,7 @@ export default function SettingsModal({
   keybindings,
   onSetKeybindings,
   onResetKeybindings,
+  onResetLibrary,
   trackCount = 0,
   onClose
 }) {
@@ -145,6 +146,12 @@ export default function SettingsModal({
         section: 'library',
         label: 'Tracks in library',
         keywords: 'library tracks count songs number total'
+      },
+      {
+        key: 'lib-reset',
+        section: 'library',
+        label: 'Reset library',
+        keywords: 'library reset wipe clear erase delete database fresh start'
       },
       {
         key: 'version',
@@ -379,6 +386,21 @@ export default function SettingsModal({
             </span>
           </div>
         );
+      case 'lib-reset':
+        return (
+          <div className="settings-field" key={key}>
+            <div className="settings-field-main">
+              <span className="settings-field-label">Reset library</span>
+              <span className="settings-field-desc">
+                Forgets every track, playlist, version, note and tag. Audio files on disk are left in
+                place. Keybindings and appearance settings are kept.
+              </span>
+            </div>
+            <button className="settings-reset-btn settings-field-control" onClick={onResetLibrary}>
+              Reset library…
+            </button>
+          </div>
+        );
       case 'version':
         return (
           <div className="settings-field" key={key}>
@@ -430,6 +452,7 @@ export default function SettingsModal({
             <h3 className="settings-section-title">Library</h3>
             {renderField('lib-location')}
             {renderField('lib-count')}
+            {renderField('lib-reset')}
           </>
         );
       case 'about':

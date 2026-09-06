@@ -20,12 +20,10 @@ export default function ImportToast({ toast, onDismiss }) {
     };
   }, [toast.id, onDismiss]);
 
-  const { count, error, failed, skipped, migrated, migrationError } = toast;
-  const isError = error || migrationError;
+  const { count, error, failed, skipped } = toast;
+  const isError = !!error;
   let text;
-  if (migrationError) text = 'Library move failed — nothing was lost';
-  else if (error) text = 'Import failed';
-  else if (migrated != null) text = `Moved ${migrated} ${migrated === 1 ? 'track' : 'tracks'} to disk`;
+  if (error) text = 'Import failed';
   else {
     const extras = [failed && `${failed} failed`, skipped && `${skipped} already in library`]
       .filter(Boolean)

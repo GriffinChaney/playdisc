@@ -23,11 +23,11 @@ import {
   addTrack,
   getAllTracks,
   updateTrack,
-  replaceTrack,
   deleteTrack,
   getAllPlaylists,
   putPlaylist,
-  deletePlaylistRecord
+  deletePlaylistRecord,
+  resetLibraryDatabase
 } from './lib/db';
 import { buildImportedTrack } from './lib/parseTrack';
 import {
@@ -40,7 +40,6 @@ import {
   importTitle,
   allVersions,
   extFromName,
-  extFromBlob,
   sniffExt
 } from './lib/media';
 import { useArtworkPalette } from './lib/useDominantColor';
@@ -515,181 +514,10 @@ export default function App() {
     );
   }, []);
 
-  // One-time migration: tracks used to store their audio as a Blob in
-  // IndexedDB. Move every legacy blob out to ~/Music/Sona Library and turn
-  // it into a single implicit version. All files are written and verified
-  // on disk BEFORE any blob is dropped, so a partial failure loses nothing.
-  const migrationRanRef = useRef(false);
-  useEffect(() => {
-    if (migrationRanRef.current) return;
-    if (localStorage.getItem('sona:mediaMigration') === 'v1') return;
-    const legacy = tracks.filter((t) => t.audioBlob && !t.versions);
-    if (!tracks.length && legacy.length === 0) return; // tracks not loaded yet
-    if (legacy.length === 0) {
-      localStorage.setItem('sona:mediaMigration', 'v1');
-      return;
-    }
-    if (!window.electronAPI?.mediaWriteBytes) return; // dev browser — retry when packaged
-    migrationRanRef.current = true;
-
-    (async () => {
-      setImportProgress({ done: 0, total: legacy.length, label: 'Moving your library to disk…' });
-      const written = [];
-      try {
-        for (let i = 0; i < legacy.length; i++) {
-          const t = legacy[i];
-          const buf = await t.audioBlob.arrayBuffer();
-          const bytes = new Uint8Array(buf);
-          const fp = await fingerprint(buf);
-          const ext = sniffExt(buf) || extFromBlob(t.audioBlob) || 'mp3';
-          const { storedPath } = await window.electronAPI.mediaWriteBytes({
-            bytes,
-            artist: t.artist,
-            title: t.title,
-            label: 'original',
-            ext
-          });
-          written.push({ track: t, storedPath, fp });
-          setImportProgress({ done: i + 1, total: legacy.length, label: 'Moving your library to disk…' });
-        }
-        // verify every file actually landed before we touch a single blob
-        const exists = await window.electronAPI.mediaExists(written.map((w) => w.storedPath));
-        if (!written.every((w) => exists[w.storedPath])) {
-          throw new Error('some files did not write');
-        }
-        const rewritten = [];
-        for (const w of written) {
-          const v = makeVersion({
-            title: w.track.title,
-            filePath: w.storedPath,
-            duration: w.track.duration || 0,
-            format: w.track.audio || null,
-            fp: w.fp
-          });
-          const rec = { ...w.track, versions: [v], activeVersionId: v.id };
-          delete rec.audioBlob;
-          await replaceTrack(rec);
-          rewritten.push(rec);
-        }
-        setTracks((prev) => prev.map((t) => rewritten.find((r) => r.id === t.id) || t));
-        localStorage.setItem('sona:mediaMigration', 'v1');
-        setImportToast({ id: Date.now(), migrated: rewritten.length });
-      } catch (err) {
-        console.error('[migration] aborted, nothing dropped:', err);
-        migrationRanRef.current = false;
-        setImportToast({ id: Date.now(), migrationError: true });
-      } finally {
-        setImportProgress(null);
-      }
-    })();
-  }, [tracks]);
-
-  // v2 fixup: early builds wrote every migrated file as ".mp3" regardless of
-  // its real container. Sniff each on disk and rename (WAV rips -> .wav etc),
-  // updating the stored paths. Runs once, after the v1 migration.
-  const extFixRanRef = useRef(false);
-  useEffect(() => {
-    if (extFixRanRef.current) return;
-    if (localStorage.getItem('sona:mediaMigration') !== 'v1') return;
-    if (localStorage.getItem('sona:extFix') === 'done') return;
-    if (!window.electronAPI?.mediaFixExtension) return;
-    if (!tracks.some((t) => t.versions?.length)) return;
-    extFixRanRef.current = true;
-    (async () => {
-      const updated = [];
-      for (const t of tracksRef.current) {
-        let changed = false;
-        const versions = [];
-        for (const v of t.versions || []) {
-          const next = await window.electronAPI.mediaFixExtension(v.filePath);
-          if (next && next !== v.filePath) {
-            versions.push({ ...v, filePath: next });
-            changed = true;
-          } else {
-            versions.push(v);
-          }
-        }
-        if (changed) {
-          const rec = { ...t, versions };
-          await replaceTrack(rec);
-          updated.push(rec);
-        }
-      }
-      if (updated.length) {
-        setTracks((prev) => prev.map((t) => updated.find((u) => u.id === t.id) || t));
-      }
-      localStorage.setItem('sona:extFix', 'done');
-    })();
-  }, [tracks]);
-
-  // Backfill (v2): give every version a title + immutable originalTitle by
-  // re-reading its file on disk. A file WITH an embedded tag title takes that
-  // tag (fixes proper releases that the old filename-only rule mangled); a
-  // file with NO tag keeps whatever title it has (WIP bounces stay on their
-  // filename). Any hand-rename on a tagged file is reset here — re-rename it,
-  // it's two clicks now. On-disk filenames are re-synced to match.
-  const versionTitleRanRef = useRef(false);
-  useEffect(() => {
-    if (versionTitleRanRef.current) return;
-    if (localStorage.getItem('sona:versionTitles') === 'v2') return;
-    if (!tracks.some((t) => t.versions?.length)) return;
-    if (!window.electronAPI?.readAudioFile) return; // dev browser — retry when packaged
-    versionTitleRanRef.current = true;
-    (async () => {
-      const allV = tracksRef.current.flatMap((t) => (t.versions || []).map(() => 1));
-      let done = 0;
-      setImportProgress({ done: 0, total: allV.length, label: 'Refreshing version titles…' });
-      const updated = [];
-      for (const t of tracksRef.current) {
-        let changed = false;
-        const versions = [];
-        for (const v of t.versions || []) {
-          let next = v;
-          try {
-            let title = v.title || t.title;
-            let taggedTitle = null;
-            if (v.filePath && !v.filePath.startsWith('blob:')) {
-              const bytes = await window.electronAPI.readAudioFile(v.filePath);
-              const meta = await readAudioMeta(bytes, v.filePath.split('/').pop() || '');
-              taggedTitle = meta.taggedTitle;
-              if (taggedTitle) title = taggedTitle;
-            }
-            const originalTitle = taggedTitle || v.originalTitle || title;
-            let filePath = v.filePath;
-            if (title !== v.title && filePath && window.electronAPI?.mediaRename) {
-              filePath = await window.electronAPI.mediaRename({ filePath, title }).catch(() => v.filePath);
-            }
-            if (title !== v.title || originalTitle !== v.originalTitle || filePath !== v.filePath) {
-              next = { ...v, title, originalTitle, filePath };
-              changed = true;
-            }
-          } catch (err) {
-            console.warn('[versionTitles] skipped', v.filePath, err);
-          }
-          versions.push(next);
-          setImportProgress({ done: ++done, total: allV.length, label: 'Refreshing version titles…' });
-        }
-        if (changed) {
-          const activeT = versions.find((x) => x.id === t.activeVersionId) || versions[0];
-          const rec = { ...t, versions, title: activeT?.title || t.title };
-          await replaceTrack(rec);
-          updated.push(rec);
-        }
-      }
-      if (updated.length) {
-        setTracks((prev) => prev.map((t) => updated.find((u) => u.id === t.id) || t));
-      }
-      localStorage.setItem('sona:versionTitles', 'v2');
-      setImportProgress(null);
-    })();
-  }, [tracks]);
-
   // sweep for active-version files that have gone missing from disk
   useEffect(() => {
     if (!window.electronAPI?.mediaExists) return;
-    const paths = tracks
-      .map((t) => activeVersion(t)?.filePath)
-      .filter((p) => p && !p.startsWith('blob:'));
+    const paths = tracks.map((t) => activeVersion(t)?.filePath).filter(Boolean);
     if (!paths.length) return;
     let cancelled = false;
     window.electronAPI.mediaExists([...new Set(paths)]).then((res) => {
@@ -1023,6 +851,37 @@ export default function App() {
   const handleResetKeybindings = useCallback(() => {
     localStorage.removeItem('keybindings');
     setKeybindingsState(DEFAULT_KEYBINDINGS);
+  }, []);
+
+  // Settings > Library > "Reset library…" — wipe the database and every
+  // localStorage key that references track ids, then reload the renderer so
+  // all derived state (playing/current/expanded ids, history, shuffle order,
+  // the liked-view snapshot…) starts from nothing, instead of trying to
+  // unwind each piece by hand. Per-machine preferences (theme, keybindings,
+  // layout, volume, sort prefs) are deliberately kept. Audio files on disk
+  // are NOT deleted — this is the "start fresh" path for the library-sync
+  // rework, and the old files are simply orphaned.
+  const handleResetLibrary = useCallback(async () => {
+    const ok = window.confirm(
+      'Reset the library?\n\nEvery track, playlist, version, note and tag will be forgotten. Audio files on disk are left in place. Keybindings and appearance settings are kept.'
+    );
+    if (!ok) return;
+    waveformRef.current?.pause();
+    try {
+      await resetLibraryDatabase();
+    } catch (err) {
+      console.error('[reset] database reset failed:', err);
+      window.alert('Reset failed — nothing was changed. See the console for details.');
+      return;
+    }
+    for (const key of ['libraryOrder', 'playHistory']) {
+      try {
+        localStorage.removeItem(key);
+      } catch {
+        /* localStorage unavailable */
+      }
+    }
+    window.location.reload();
   }, []);
 
   // native menu "Settings…" / Cmd+, (electron/main.js) opens the same modal
@@ -3061,6 +2920,7 @@ export default function App() {
           keybindings={keybindings}
           onSetKeybindings={handleSetKeybinding}
           onResetKeybindings={handleResetKeybindings}
+          onResetLibrary={handleResetLibrary}
           trackCount={tracks.length}
           onClose={handleCloseSettings}
         />

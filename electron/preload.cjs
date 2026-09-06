@@ -28,11 +28,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // --- media library (versioning) ---
   selectAudioFile: () => ipcRenderer.invoke('select-audio-file'),
   mediaCopyIn: (opts) => ipcRenderer.invoke('media:copy-in', opts),
-  mediaWriteBytes: (opts) => ipcRenderer.invoke('media:write-bytes', opts),
   mediaExists: (paths) => ipcRenderer.invoke('media:exists', paths),
   mediaDelete: (filePath) => ipcRenderer.invoke('media:delete', filePath),
   mediaRename: (opts) => ipcRenderer.invoke('media:rename', opts),
-  mediaFixExtension: (filePath) => ipcRenderer.invoke('media:fix-extension', filePath),
   mediaLibraryDir: () => ipcRenderer.invoke('media:library-dir'),
   revealLibraryDir: () => ipcRenderer.invoke('media:reveal-library'),
 
