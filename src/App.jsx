@@ -19,6 +19,7 @@ import ImportToast from './components/ImportToast';
 import VersionsModal from './components/VersionsModal';
 import CoverEditModal from './components/CoverEditModal';
 import ChoiceModal from './components/ChoiceModal';
+import LibrarySetup from './components/LibrarySetup';
 import {
   addTrack,
   getAllTracks,
@@ -27,11 +28,14 @@ import {
   deleteTrack,
   getAllPlaylists,
   putPlaylist,
-  deletePlaylistRecord
+  deletePlaylistRecord,
+  resetLibraryDatabase
 } from './lib/db';
 import { buildImportedTrack } from './lib/parseTrack';
 import {
   mediaUrl,
+  assertRelPath,
+  isRelPath,
   readAudioMeta,
   fingerprint,
   makeVersion,
@@ -40,7 +44,6 @@ import {
   importTitle,
   allVersions,
   extFromName,
-  extFromBlob,
   sniffExt
 } from './lib/media';
 import { useArtworkPalette } from './lib/useDominantColor';
@@ -49,6 +52,18 @@ import { sortLibrary, reconcileLibraryOrder } from './lib/librarySort';
 import { noteRank } from './lib/notes';
 import { invalidateArtworkHash } from './lib/artworkHash';
 import { fisherYates } from './lib/shuffle';
+import {
+  serializeLibrary,
+  artFileName,
+  artType,
+  artRefsOf,
+  isSnapshotShaped,
+  hydrateTrack,
+  hydratePlaylist,
+  isValidTrack,
+  READABLE_FORMATS
+} from './lib/syncSnapshot';
+import { stampAfter, mergeLibraries, applyMergedRecords, mergeTombstones } from './lib/syncMerge';
 
 // One-time: earlier builds could persist a hand-dragged column width (often
 // from an accidental grab of a resize handle, or — before this fix — a
@@ -72,6 +87,23 @@ try {
 // what counts as "typing." Excludes the volume <input type="range"> — if
 // it happens to have focus, arrow keys/space should still drive the normal
 // handlers below rather than the browser's native range-input behavior.
+// Is the user mid-edit in a text field right now? The sync merge never
+// applies remote changes while this is true (stage 5): a merge re-renders
+// whatever it touched, and a note being typed, a title mid-rename, a
+// playlist name half-entered must not be re-rendered or removed underneath
+// the cursor. Fields where a merge landing is harmless (the library search
+// box, the search overlay, Settings, an EMPTY "add a note…" field — the
+// notes panel autofocuses that one, and reading notes must not block sync)
+// opt out with data-sync-passive so a cursor parked in them doesn't hold
+// sync back. Resumption of a deferred merge is in the trigger effect below.
+function editInProgress() {
+  const el = document.activeElement;
+  if (!(el instanceof HTMLElement)) return false;
+  if (el.dataset.syncPassive !== undefined) return false;
+  if (el.tagName === 'INPUT') return !['range', 'checkbox', 'radio', 'file', 'button', 'submit'].includes(el.type);
+  return el.tagName === 'TEXTAREA' || el.isContentEditable;
+}
+
 function isTypingTarget(e) {
   const target = e.target;
   return (
@@ -131,6 +163,25 @@ export default function App() {
       return [];
     }
   });
+  // Sync stamp for libraryOrder as a whole (newest order wins whole, see
+  // syncMerge.js). Bumped ONLY by a real drag in handleReorderLibrary, never
+  // by the reconcile effect below — otherwise an import on one machine would
+  // out-stamp a drag on the other.
+  const [libraryOrderUpdatedAt, setLibraryOrderUpdatedAt] = useState(() => {
+    const n = Number(localStorage.getItem('libraryOrderUpdatedAt'));
+    return Number.isFinite(n) ? n : 0;
+  });
+  // Deleted tracks/playlists, kept so the delete propagates through this
+  // machine's snapshot instead of the other machine's copy resurrecting it:
+  // [{ id, kind: 'track' | 'playlist', updatedAt }]. Never pruned (tiny).
+  const [tombstones, setTombstones] = useState(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem('syncTombstones') || '[]');
+      return Array.isArray(raw) ? raw : [];
+    } catch {
+      return [];
+    }
+  });
   // Liked view's own sort — separate from librarySort since its default and
   // options differ ('likedAt' isn't meaningful anywhere else). No custom
   // order: Liked isn't backed by a manual trackIds array, it's a live filter
@@ -173,6 +224,9 @@ export default function App() {
   const librarySortRef = useRef(librarySort);
   const librarySortDirRef = useRef(librarySortDir);
   const libraryOrderRef = useRef(libraryOrder);
+  const libraryOrderUpdatedAtRef = useRef(libraryOrderUpdatedAt);
+  const tombstonesRef = useRef(tombstones);
+  const currentTrackIdRef = useRef(currentTrackId);
   const likedSortRef = useRef(likedSort);
   const likedSortDirRef = useRef(likedSortDir);
   const artistSortRef = useRef(artistSort);
@@ -189,6 +243,9 @@ export default function App() {
   librarySortRef.current = librarySort;
   librarySortDirRef.current = librarySortDir;
   libraryOrderRef.current = libraryOrder;
+  libraryOrderUpdatedAtRef.current = libraryOrderUpdatedAt;
+  tombstonesRef.current = tombstones;
+  currentTrackIdRef.current = currentTrackId;
   likedSortRef.current = likedSort;
   likedSortDirRef.current = likedSortDir;
   artistSortRef.current = artistSort;
@@ -267,8 +324,52 @@ export default function App() {
   // multi-choice confirm (e.g. merge / copy / cancel when adding a version
   // from a file that's already its own track). null when nothing to ask.
   const [choiceConfig, setChoiceConfig] = useState(null);
-  // filePaths of active versions whose file is missing from disk
+  // relPaths of active versions whose file is missing from disk
   const [missingPaths, setMissingPaths] = useState(() => new Set());
+  // relPaths of active versions whose file has NEVER been seen on this
+  // machine's disk — a remote track whose audio is still on its way through
+  // Dropbox. Shown as "syncing", not "missing", and relocate isn't offered.
+  // A file that WAS here once and is now absent is genuinely missing.
+  // `seenRelPaths` in localStorage remembers which files this machine has
+  // seen, across launches.
+  const [waitingPaths, setWaitingPaths] = useState(() => new Set());
+  const seenPathsRef = useRef(null);
+  // bumped by main's watcher whenever audio files land / move under the
+  // root, so the missing-file sweep re-runs without a tracks change
+  const [fileSweepTick, setFileSweepTick] = useState(0);
+  // The per-machine library root, from electron/main.js: undefined while
+  // loading, then { root: string|null, exists: boolean, machineId }. The
+  // renderer never uses `root` for anything but display — every path it
+  // holds is relative to it (see media.js assertRelPath).
+  const [libraryRoot, setLibraryRoot] = useState(undefined);
+  // true when IndexedDB holds records from before the relative-path rework
+  // (a version without a valid relPath). Those records are NOT loaded into
+  // `tracks` — nothing here can play, rename, delete or sync them correctly,
+  // and any write path would make it worse — so the app blocks behind
+  // <LibrarySetup> until the library is reset. Deliberately no auto-migration:
+  // the sync plan starts from a wiped library on both machines.
+  const [legacyLibrary, setLegacyLibrary] = useState(false);
+  // In the packaged app, nothing path-based may run until a root exists on
+  // disk. In the plain dev browser (no electronAPI) there's no root concept
+  // and no playback anyway, so don't block the UI there.
+  const libraryReady = !window.electronAPI || !!libraryRoot?.exists;
+  const setupGate = legacyLibrary || (!!window.electronAPI && libraryRoot !== undefined && !libraryRoot.exists);
+  const libraryRootRef = useRef(libraryRoot);
+  libraryRootRef.current = libraryRoot;
+  // Library lifecycle for sync (stages 3–4):
+  //   'loading' — IndexedDB not read yet
+  //   'sync'    — IndexedDB read; waiting for a root, then the initial merge
+  //               of every other machine's snapshot (which is also what fills
+  //               an empty library on a new machine)
+  //   'ready'   — normal operation; the snapshot writer is armed
+  //   'blocked' — legacy records, see legacyLibrary
+  // The writer runs ONLY in 'ready'. Anything earlier would snapshot an
+  // empty or half-merged library as if it were this machine's truth.
+  const [libraryPhase, setLibraryPhase] = useState('loading');
+  // when this machine's snapshot was last written / other machines' last
+  // merged in (Settings > Library)
+  const [lastSnapshotAt, setLastSnapshotAt] = useState(null);
+  const [lastSyncAt, setLastSyncAt] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
   // 0-100: fullscreen background drift/audio-reaction intensity (see
   // useGradientDrift). Default 61 (2026-09-05, was 50 — retuned by feel;
@@ -509,201 +610,449 @@ export default function App() {
   }
 
   useEffect(() => {
-    getAllTracks().then(setTracks);
-    getAllPlaylists().then((pls) =>
-      setPlaylists(pls.map((p) => ({ pinned: false, sortIndex: p.createdAt, ...p })))
-    );
+    Promise.all([getAllTracks(), getAllPlaylists()]).then(([all, pls]) => {
+      // see legacyLibrary above — a single pre-rework record blocks the
+      // whole library rather than loading a mix of usable and unusable rows
+      const legacy = all.filter(
+        (t) => !Array.isArray(t.versions) || !t.versions.length || t.versions.some((v) => !isRelPath(v.relPath))
+      );
+      if (legacy.length) {
+        console.error(
+          `[library] ${legacy.length} of ${all.length} tracks predate the relative-path rework (no valid version.relPath) — refusing to load; reset the library to continue. First offender:`,
+          legacy[0]
+        );
+        setLegacyLibrary(true);
+        setLibraryPhase('blocked');
+        return;
+      }
+      setTracks(all);
+      setPlaylists(pls.map((p) => ({ pinned: false, sortIndex: p.createdAt, ...p })));
+      // empty or not, the other machines' snapshots get merged in first —
+      // see the initial sync effect below
+      setLibraryPhase('sync');
+    });
+    window.electronAPI?.getLibraryRoot?.().then(setLibraryRoot);
   }, []);
 
-  // One-time migration: tracks used to store their audio as a Blob in
-  // IndexedDB. Move every legacy blob out to ~/Music/Sona Library and turn
-  // it into a single implicit version. All files are written and verified
-  // on disk BEFORE any blob is dropped, so a partial failure loses nothing.
-  const migrationRanRef = useRef(false);
-  useEffect(() => {
-    if (migrationRanRef.current) return;
-    if (localStorage.getItem('sona:mediaMigration') === 'v1') return;
-    const legacy = tracks.filter((t) => t.audioBlob && !t.versions);
-    if (!tracks.length && legacy.length === 0) return; // tracks not loaded yet
-    if (legacy.length === 0) {
-      localStorage.setItem('sona:mediaMigration', 'v1');
+  // Settings / first-launch gate: native folder picker in main. A cancel
+  // leaves things as they were.
+  const handleChooseLibraryRoot = useCallback(async () => {
+    const res = await window.electronAPI?.chooseLibraryRoot?.();
+    if (res) setLibraryRoot(res);
+  }, []);
+
+  // ---- library sync (docs/LIBRARY_SYNC_PLAN.md, stages 3–4) ----
+  //
+  // Reading = fold every OTHER machine's snapshot into ours with the pure
+  // merge in syncMerge.js (newest wins per item, tombstones, per-note
+  // stamps), hydrate whatever it took from a remote (art read back from the
+  // art files), then apply. Runs once at launch — that run also stamps any
+  // record from before stage 4, and is what fills an empty library from
+  // another machine's snapshot (stage 3's "bootstrap" is just a merge into
+  // nothing) — and again whenever the window regains focus.
+  //
+  // Apply goes through state UPDATERS (applyMergedRecords re-checks each
+  // item against whatever the list is by then), and IndexedDB is written
+  // from the COMMITTED state by the drain effects next to handleDeleteTrack
+  // — so the database mirrors exactly what React ended up with, whichever
+  // side won at apply time. A remote record whose art isn't on disk yet is
+  // deferred whole (`accept` below): taking it with a null cover would
+  // stamp "no cover" as this machine's newest truth and the art would never
+  // arrive. It's retried on the next merge.
+  const knownArtRef = useRef(null); // Set of "<hash>.<ext>" | null until listed
+  const syncBusyRef = useRef(false);
+  const syncAgainRef = useRef(false); // a merge was requested mid-merge
+  const syncSkippedRef = useRef(false); // an apply skipped an item that moved; merge again
+  const lastSyncStartRef = useRef(0);
+  const initialSyncDoneRef = useRef(false);
+  // ids the last merge touched, drained to IndexedDB once state has committed
+  const pendingSyncTrackIdsRef = useRef(new Set());
+  const pendingSyncPlaylistIdsRef = useRef(new Set());
+
+  const syncDeferredForEditRef = useRef(false); // a merge waited for an edit to finish
+  const runSync = useCallback(async ({ initial = false, reason = 'focus' } = {}) => {
+    if (syncBusyRef.current) {
+      syncAgainRef.current = true;
       return;
     }
-    if (!window.electronAPI?.mediaWriteBytes) return; // dev browser — retry when packaged
-    migrationRanRef.current = true;
+    // never apply under a live edit (see editInProgress) — checked here
+    // before the read, and again right before apply since the read is async
+    if (!initial && editInProgress()) {
+      syncDeferredForEditRef.current = true;
+      console.log(`[sync] deferred (${reason}): an edit is in progress; will merge when it ends`);
+      return;
+    }
+    // focus can fire in bursts (clicking between windows); one read a second is plenty
+    if (reason === 'focus' && Date.now() - lastSyncStartRef.current < 1000) return;
+    syncBusyRef.current = true;
+    lastSyncStartRef.current = Date.now();
+    const wasEmpty = tracksRef.current.length === 0 && playlistsRef.current.length === 0;
+    try {
+      const [snaps, artNames] = await Promise.all([
+        window.electronAPI.syncReadSnapshots(),
+        window.electronAPI.syncListArt()
+      ]);
+      knownArtRef.current = new Set(artNames);
+      const own = snaps.find((s) => s.own);
+      // Dropbox conflicted copies are merged like any other snapshot and
+      // then removed — but only once a merge run has actually consumed them
+      // in full (no record deferred waiting for art), so nothing they carry
+      // is lost.
+      const conflicted = snaps.filter((s) => s.conflicted && s.doc).map((s) => s.file);
+      const cleanupConflicts = (deferred) => {
+        if (!conflicted.length || deferred) return;
+        window.electronAPI.syncDeleteConflictedCopies?.(conflicted).catch((err) =>
+          console.warn('[sync] conflicted-copy cleanup failed:', err)
+        );
+      };
+      const remotes = snaps
+        .filter((s) => !s.own && s.doc)
+        .sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0))
+        .filter((s) => {
+          if (READABLE_FORMATS.has(s.doc.format)) return true;
+          console.warn(`[sync] skipping ${s.file}: unsupported snapshot format ${s.doc.format}`);
+          return false;
+        })
+        .map((s) => ({ file: s.file, doc: s.doc, fallbackStamp: s.doc.writtenAt || 0 }));
 
+      // Records from before stage 4 carry no updatedAt. On the first stage-4
+      // launch they're stamped ONCE with this machine's last snapshot's
+      // writtenAt — the newest anything here could have been edited — NOT
+      // Date.now(), which would out-stamp every real edit the other machine
+      // made since. A remote pre-stage-4 record reads the same way, off its
+      // own snapshot's writtenAt (fallbackStamp above). Either upgrade
+      // order converges.
+      const fallback = initial ? own?.doc?.writtenAt || 0 : 0;
+      const basedOnTracks = new Map(tracksRef.current.map((t) => [t.id, t]));
+      const basedOnPlaylists = new Map(playlistsRef.current.map((p) => [p.id, p]));
+      const basedOnTombstones = tombstonesRef.current;
+      const known = knownArtRef.current;
+      const artHere = (rec) => artRefsOf(rec).every((r) => known.has(artFileName(r)));
+      const accept = (kind, rec) => (kind === 'track' ? isValidTrack(rec) : true) && artHere(rec);
+      const result = mergeLibraries({
+        local: {
+          tracks: tracksRef.current,
+          playlists: playlistsRef.current,
+          tombstones: basedOnTombstones,
+          libraryOrder: libraryOrderRef.current,
+          libraryOrderUpdatedAt: libraryOrderUpdatedAtRef.current,
+          fallbackStamp: fallback
+        },
+        remotes,
+        accept
+      });
+      const nRemote =
+        result.changedTracks.size +
+        result.deletedTracks.size +
+        result.changedPlaylists.size +
+        result.deletedPlaylists.size;
+      const nRemoteTracks = result.changedTracks.size;
+      if (initial) {
+        for (const t of result.tracks) {
+          if (typeof t.updatedAt !== 'number') result.changedTracks.set(t.id, { ...t, updatedAt: fallback });
+        }
+        for (const p of result.playlists) {
+          if (typeof p.updatedAt !== 'number') result.changedPlaylists.set(p.id, { ...p, updatedAt: fallback });
+        }
+      }
+      const nothing =
+        !result.changedTracks.size &&
+        !result.deletedTracks.size &&
+        !result.changedPlaylists.size &&
+        !result.deletedPlaylists.size &&
+        !result.tombstonesChanged &&
+        !result.libraryOrderChanged;
+      if (nothing) {
+        if (result.deferred) {
+          console.log(`[sync] nothing to merge; ${result.deferred} remote record(s) still waiting for their art files`);
+        }
+        cleanupConflicts(result.deferred);
+        return;
+      }
+
+      // hydrate remote winners: read each art file they reference, once
+      const need = new Set();
+      for (const rec of [...result.changedTracks.values(), ...result.changedPlaylists.values()]) {
+        if (isSnapshotShaped(rec)) for (const r of artRefsOf(rec)) need.add(artFileName(r));
+      }
+      const blobs = new Map();
+      for (const name of need) {
+        const bytes = await window.electronAPI.syncReadArt(name);
+        if (bytes) blobs.set(name, new Blob([bytes], { type: artType(name.split('.').pop()) }));
+        else console.warn('[sync] art file vanished between listing and reading:', name);
+      }
+      const getBlob = (r) => blobs.get(artFileName(r)) || null;
+
+      // the read took time; an edit may have started meanwhile
+      if (!initial && editInProgress()) {
+        syncDeferredForEditRef.current = true;
+        console.log('[sync] deferred at apply: an edit is in progress; will merge when it ends');
+        return;
+      }
+      const changedTracks = new Map();
+      for (const [id, rec] of result.changedTracks) {
+        changedTracks.set(id, isSnapshotShaped(rec) ? hydrateTrack(rec, getBlob) : rec);
+      }
+      const changedPlaylists = new Map();
+      for (const [id, rec] of result.changedPlaylists) {
+        changedPlaylists.set(
+          id,
+          isSnapshotShaped(rec) ? { pinned: false, sortIndex: rec.createdAt, ...hydratePlaylist(rec, getBlob) } : rec
+        );
+      }
+
+      // The playing track's active file may be about to change under the
+      // engine (a version switch or rename on the other machine). Keep it
+      // playing from 0, same as restartIfPlaying — audioUrl follows state,
+      // so the reload itself needs nothing more. Rare, accepted (plan).
+      const pid = playingTrackIdRef.current;
+      if (pid && changedTracks.has(pid)) {
+        const before = activeVersion(basedOnTracks.get(pid))?.relPath;
+        const after = activeVersion(changedTracks.get(pid))?.relPath;
+        if (before !== after) {
+          shouldAutoPlayRef.current = isPlayingRef.current;
+          setCurrentTime(0);
+        }
+      }
+
+      if (changedTracks.size || result.deletedTracks.size) {
+        for (const id of changedTracks.keys()) pendingSyncTrackIdsRef.current.add(id);
+        for (const id of result.deletedTracks.keys()) pendingSyncTrackIdsRef.current.add(id);
+        setTracks((prev) => {
+          const r = applyMergedRecords(prev, {
+            changed: changedTracks,
+            deleted: result.deletedTracks,
+            basedOn: basedOnTracks
+          });
+          if (r.skipped) syncSkippedRef.current = true;
+          return r.records;
+        });
+      }
+      if (changedPlaylists.size || result.deletedPlaylists.size) {
+        for (const id of changedPlaylists.keys()) pendingSyncPlaylistIdsRef.current.add(id);
+        for (const id of result.deletedPlaylists.keys()) pendingSyncPlaylistIdsRef.current.add(id);
+        setPlaylists((prev) => {
+          const r = applyMergedRecords(prev, {
+            changed: changedPlaylists,
+            deleted: result.deletedPlaylists,
+            basedOn: basedOnPlaylists
+          });
+          if (r.skipped) syncSkippedRef.current = true;
+          return r.records;
+        });
+      }
+      if (result.tombstonesChanged) {
+        setTombstones((prev) =>
+          prev === basedOnTombstones ? result.tombstones : mergeTombstones(prev, result.tombstones)
+        );
+      }
+      if (result.libraryOrderChanged) {
+        setLibraryOrder(result.libraryOrder);
+        setLibraryOrderUpdatedAt(result.libraryOrderUpdatedAt);
+      }
+
+      console.log(
+        `[sync] merged ${remotes.length} snapshot(s): ${result.changedTracks.size} track(s) changed, ${result.deletedTracks.size} deleted; ${result.changedPlaylists.size} playlist(s) changed, ${result.deletedPlaylists.size} deleted` +
+          (result.libraryOrderChanged ? '; library order' : '') +
+          (result.deferred ? `; ${result.deferred} deferred (art not here yet)` : '')
+      );
+      if (nRemote) {
+        setImportToast(
+          wasEmpty && initial
+            ? { id: Date.now(), loaded: nRemoteTracks, loadedFrom: 'Dropbox' }
+            : { id: Date.now(), synced: nRemote }
+        );
+      }
+      cleanupConflicts(result.deferred);
+    } catch (err) {
+      console.error('[sync] merge failed:', err);
+    } finally {
+      syncBusyRef.current = false;
+      setLastSyncAt(Date.now());
+      if (syncAgainRef.current) {
+        syncAgainRef.current = false;
+        runSync({ reason: 'again' });
+      }
+    }
+  }, []);
+
+  // Initial merge, once per launch, the moment IndexedDB is read AND a root
+  // exists (the root can arrive later — first launch goes empty db -> choose
+  // folder -> merge). Only then is the snapshot writer armed.
+  useEffect(() => {
+    if (libraryPhase !== 'sync' || !libraryReady || initialSyncDoneRef.current) return;
+    initialSyncDoneRef.current = true;
+    if (!window.electronAPI?.syncReadSnapshots) {
+      setLibraryPhase('ready'); // dev browser: nothing to merge from
+      return;
+    }
     (async () => {
-      setImportProgress({ done: 0, total: legacy.length, label: 'Moving your library to disk…' });
-      const written = [];
+      if (tracksRef.current.length === 0 && playlistsRef.current.length === 0) {
+        setImportProgress({ done: 0, total: 1, label: 'Loading library from Dropbox…' });
+      }
       try {
-        for (let i = 0; i < legacy.length; i++) {
-          const t = legacy[i];
-          const buf = await t.audioBlob.arrayBuffer();
-          const bytes = new Uint8Array(buf);
-          const fp = await fingerprint(buf);
-          const ext = sniffExt(buf) || extFromBlob(t.audioBlob) || 'mp3';
-          const { storedPath } = await window.electronAPI.mediaWriteBytes({
-            bytes,
-            artist: t.artist,
-            title: t.title,
-            label: 'original',
-            ext
-          });
-          written.push({ track: t, storedPath, fp });
-          setImportProgress({ done: i + 1, total: legacy.length, label: 'Moving your library to disk…' });
-        }
-        // verify every file actually landed before we touch a single blob
-        const exists = await window.electronAPI.mediaExists(written.map((w) => w.storedPath));
-        if (!written.every((w) => exists[w.storedPath])) {
-          throw new Error('some files did not write');
-        }
-        const rewritten = [];
-        for (const w of written) {
-          const v = makeVersion({
-            title: w.track.title,
-            filePath: w.storedPath,
-            duration: w.track.duration || 0,
-            format: w.track.audio || null,
-            fp: w.fp
-          });
-          const rec = { ...w.track, versions: [v], activeVersionId: v.id };
-          delete rec.audioBlob;
-          await replaceTrack(rec);
-          rewritten.push(rec);
-        }
-        setTracks((prev) => prev.map((t) => rewritten.find((r) => r.id === t.id) || t));
-        localStorage.setItem('sona:mediaMigration', 'v1');
-        setImportToast({ id: Date.now(), migrated: rewritten.length });
-      } catch (err) {
-        console.error('[migration] aborted, nothing dropped:', err);
-        migrationRanRef.current = false;
-        setImportToast({ id: Date.now(), migrationError: true });
+        await runSync({ initial: true, reason: 'launch' });
       } finally {
         setImportProgress(null);
+        setLibraryPhase('ready');
       }
     })();
-  }, [tracks]);
+  }, [libraryPhase, libraryReady, runSync]);
 
-  // v2 fixup: early builds wrote every migrated file as ".mp3" regardless of
-  // its real container. Sniff each on disk and rename (WAV rips -> .wav etc),
-  // updating the stored paths. Runs once, after the v1 migration.
-  const extFixRanRef = useRef(false);
+  // When to read (stage 5). The live signal is main's directory watcher:
+  // another machine's snapshot (or an art file) landing under .playdisc/
+  // through Dropbox arrives as 'sync-dir-changed', already debounced. Focus
+  // and wake-from-sleep ('resume', also via that channel) are belt and
+  // braces for anything the watcher could miss.
+  //
+  // Resuming a merge deferred by the edit guard: `focusout` alone is NOT
+  // enough. Chromium fires no focusout/blur when the focused element is
+  // REMOVED from the DOM (verified 2026-09-06: focus silently lands on
+  // <body>) — which is exactly what Escape-closing the notes panel or the
+  // versions modal does to its autofocused input. So every event that can
+  // end an edit is watched (keydown for Escape/Enter, mousedown for a click
+  // that closes or blurs, input for a field emptying back to passive), each
+  // re-checking after a tick so React has committed and activeElement has
+  // settled. Free when nothing is deferred: the flag check is the first
+  // line.
   useEffect(() => {
-    if (extFixRanRef.current) return;
-    if (localStorage.getItem('sona:mediaMigration') !== 'v1') return;
-    if (localStorage.getItem('sona:extFix') === 'done') return;
-    if (!window.electronAPI?.mediaFixExtension) return;
-    if (!tracks.some((t) => t.versions?.length)) return;
-    extFixRanRef.current = true;
-    (async () => {
-      const updated = [];
-      for (const t of tracksRef.current) {
-        let changed = false;
-        const versions = [];
-        for (const v of t.versions || []) {
-          const next = await window.electronAPI.mediaFixExtension(v.filePath);
-          if (next && next !== v.filePath) {
-            versions.push({ ...v, filePath: next });
-            changed = true;
-          } else {
-            versions.push(v);
-          }
-        }
-        if (changed) {
-          const rec = { ...t, versions };
-          await replaceTrack(rec);
-          updated.push(rec);
-        }
-      }
-      if (updated.length) {
-        setTracks((prev) => prev.map((t) => updated.find((u) => u.id === t.id) || t));
-      }
-      localStorage.setItem('sona:extFix', 'done');
-    })();
-  }, [tracks]);
+    if (libraryPhase !== 'ready' || !libraryReady || !window.electronAPI?.syncReadSnapshots) return;
+    const onFocus = () => runSync({ reason: 'focus' });
+    window.addEventListener('focus', onFocus);
+    const offDir = window.electronAPI.onSyncDirChanged?.((p) => runSync({ reason: p?.reason || 'watch' }));
+    const offFiles = window.electronAPI.onLibraryFilesChanged?.(() => setFileSweepTick((n) => n + 1));
+    let resumeTimer = null;
+    const maybeResume = () => {
+      if (!syncDeferredForEditRef.current) return;
+      clearTimeout(resumeTimer);
+      resumeTimer = setTimeout(() => {
+        if (!syncDeferredForEditRef.current || editInProgress()) return;
+        syncDeferredForEditRef.current = false;
+        runSync({ reason: 'edit-done' });
+      }, 0);
+    };
+    const EDIT_END_EVENTS = ['focusout', 'keydown', 'mousedown', 'input'];
+    for (const ev of EDIT_END_EVENTS) document.addEventListener(ev, maybeResume, true);
+    return () => {
+      clearTimeout(resumeTimer);
+      window.removeEventListener('focus', onFocus);
+      for (const ev of EDIT_END_EVENTS) document.removeEventListener(ev, maybeResume, true);
+      offDir?.();
+      offFiles?.();
+    };
+  }, [libraryPhase, libraryReady, runSync]);
 
-  // Backfill (v2): give every version a title + immutable originalTitle by
-  // re-reading its file on disk. A file WITH an embedded tag title takes that
-  // tag (fixes proper releases that the old filename-only rule mangled); a
-  // file with NO tag keeps whatever title it has (WIP bounces stay on their
-  // filename). Any hand-rename on a tagged file is reset here — re-rename it,
-  // it's two clicks now. On-disk filenames are re-synced to match.
-  const versionTitleRanRef = useRef(false);
-  useEffect(() => {
-    if (versionTitleRanRef.current) return;
-    if (localStorage.getItem('sona:versionTitles') === 'v2') return;
-    if (!tracks.some((t) => t.versions?.length)) return;
-    if (!window.electronAPI?.readAudioFile) return; // dev browser — retry when packaged
-    versionTitleRanRef.current = true;
-    (async () => {
-      const allV = tracksRef.current.flatMap((t) => (t.versions || []).map(() => 1));
-      let done = 0;
-      setImportProgress({ done: 0, total: allV.length, label: 'Refreshing version titles…' });
-      const updated = [];
-      for (const t of tracksRef.current) {
-        let changed = false;
-        const versions = [];
-        for (const v of t.versions || []) {
-          let next = v;
-          try {
-            let title = v.title || t.title;
-            let taggedTitle = null;
-            if (v.filePath && !v.filePath.startsWith('blob:')) {
-              const bytes = await window.electronAPI.readAudioFile(v.filePath);
-              const meta = await readAudioMeta(bytes, v.filePath.split('/').pop() || '');
-              taggedTitle = meta.taggedTitle;
-              if (taggedTitle) title = taggedTitle;
-            }
-            const originalTitle = taggedTitle || v.originalTitle || title;
-            let filePath = v.filePath;
-            if (title !== v.title && filePath && window.electronAPI?.mediaRename) {
-              filePath = await window.electronAPI.mediaRename({ filePath, title }).catch(() => v.filePath);
-            }
-            if (title !== v.title || originalTitle !== v.originalTitle || filePath !== v.filePath) {
-              next = { ...v, title, originalTitle, filePath };
-              changed = true;
-            }
-          } catch (err) {
-            console.warn('[versionTitles] skipped', v.filePath, err);
-          }
-          versions.push(next);
-          setImportProgress({ done: ++done, total: allV.length, label: 'Refreshing version titles…' });
-        }
-        if (changed) {
-          const activeT = versions.find((x) => x.id === t.activeVersionId) || versions[0];
-          const rec = { ...t, versions, title: activeT?.title || t.title };
-          await replaceTrack(rec);
-          updated.push(rec);
-        }
-      }
-      if (updated.length) {
-        setTracks((prev) => prev.map((t) => updated.find((u) => u.id === t.id) || t));
-      }
-      localStorage.setItem('sona:versionTitles', 'v2');
-      setImportProgress(null);
-    })();
-  }, [tracks]);
+  // Writer: this machine's snapshot is rewritten (debounced) after any
+  // change to tracks / playlists / tombstones / the hand-dragged library
+  // order. Art bytes go over IPC only for files main doesn't already have
+  // (knownArtRef is refreshed from disk by every merge and grows with each
+  // write). Writes are serialized; a change landing mid-write marks it
+  // dirty and the loop goes round again, so the last write always reflects
+  // the latest state.
+  const snapshotTimerRef = useRef(null);
+  const snapshotBusyRef = useRef(false);
+  const snapshotDirtyRef = useRef(false);
 
-  // sweep for active-version files that have gone missing from disk
+  const flushSnapshot = useCallback(async () => {
+    if (snapshotBusyRef.current) return;
+    snapshotBusyRef.current = true;
+    try {
+      while (snapshotDirtyRef.current) {
+        snapshotDirtyRef.current = false;
+        const machineId = libraryRootRef.current?.machineId;
+        if (!machineId) return;
+        const { doc, art } = await serializeLibrary({
+          tracks: tracksRef.current,
+          playlists: playlistsRef.current,
+          tombstones: tombstonesRef.current,
+          libraryOrder: libraryOrderRef.current,
+          libraryOrderUpdatedAt: libraryOrderUpdatedAtRef.current,
+          machineId
+        });
+        const known = knownArtRef.current || new Set();
+        const newArt = [];
+        for (const [name, blob] of art) {
+          if (known.has(name)) continue;
+          newArt.push({ name, bytes: new Uint8Array(await blob.arrayBuffer()) });
+        }
+        const res = await window.electronAPI.syncWriteSnapshot({ json: JSON.stringify(doc), art: newArt });
+        for (const a of newArt) known.add(a.name);
+        knownArtRef.current = known;
+        setLastSnapshotAt(doc.writtenAt);
+        console.log(
+          `[sync] wrote ${res.file}: ${doc.tracks.length} tracks, ${doc.playlists.length} playlists, ${res.bytes} bytes, ${res.artWritten} new art file(s)`
+        );
+      }
+    } catch (err) {
+      console.error('[sync] snapshot write failed:', err);
+    } finally {
+      snapshotBusyRef.current = false;
+    }
+  }, []);
+
   useEffect(() => {
-    if (!window.electronAPI?.mediaExists) return;
-    const paths = tracks
-      .map((t) => activeVersion(t)?.filePath)
-      .filter((p) => p && !p.startsWith('blob:'));
+    if (libraryPhase !== 'ready' || !libraryReady || !window.electronAPI?.syncWriteSnapshot) return;
+    clearTimeout(snapshotTimerRef.current);
+    snapshotTimerRef.current = setTimeout(() => {
+      snapshotDirtyRef.current = true;
+      flushSnapshot();
+    }, 500);
+    return () => clearTimeout(snapshotTimerRef.current);
+  }, [tracks, playlists, tombstones, libraryOrder, libraryOrderUpdatedAt, libraryPhase, libraryReady, flushSnapshot]);
+
+  // sweep for active-version files that have gone missing from disk. Waits
+  // for the root: main throws on every media IPC without one, and a legacy
+  // record never gets this far (it isn't in `tracks`). assertRelPath is the
+  // loud failure for anything that slipped past the load-time check.
+  //
+  // Absent files split two ways (stage 5): a path this machine has seen on
+  // disk before is MISSING (moved or deleted — offer relocate); one it has
+  // never seen is WAITING — a remote track whose audio hasn't come through
+  // Dropbox yet. Re-runs when tracks change and whenever main's watcher
+  // reports files landing under the root (fileSweepTick).
+  useEffect(() => {
+    if (!window.electronAPI?.mediaExists || !libraryReady) return;
+    const paths = tracks.map((t) => assertRelPath(activeVersion(t)?.relPath, 'missing-file sweep'));
     if (!paths.length) return;
     let cancelled = false;
     window.electronAPI.mediaExists([...new Set(paths)]).then((res) => {
       if (cancelled) return;
-      const missing = new Set(Object.entries(res).filter(([, ok]) => !ok).map(([p]) => p));
-      setMissingPaths((prev) => {
-        if (prev.size === missing.size && [...missing].every((p) => prev.has(p))) return prev;
-        return missing;
-      });
+      if (!seenPathsRef.current) {
+        try {
+          seenPathsRef.current = new Set(JSON.parse(localStorage.getItem('seenRelPaths') || '[]'));
+        } catch {
+          seenPathsRef.current = new Set();
+        }
+      }
+      const seen = seenPathsRef.current;
+      let seenChanged = false;
+      const missing = new Set();
+      const waiting = new Set();
+      for (const [p, ok] of Object.entries(res)) {
+        if (ok) {
+          if (!seen.has(p)) {
+            seen.add(p);
+            seenChanged = true;
+          }
+        } else if (seen.has(p)) missing.add(p);
+        else waiting.add(p);
+      }
+      if (seenChanged) {
+        try {
+          localStorage.setItem('seenRelPaths', JSON.stringify([...seen]));
+        } catch {
+          /* best effort */
+        }
+      }
+      const same = (prev, next) => prev.size === next.size && [...next].every((p) => prev.has(p));
+      setMissingPaths((prev) => (same(prev, missing) ? prev : missing));
+      setWaitingPaths((prev) => (same(prev, waiting) ? prev : waiting));
+      if (waiting.size) console.log(`[sync] ${waiting.size} track file(s) still on their way through Dropbox`);
     });
     return () => {
       cancelled = true;
     };
-  }, [tracks]);
+  }, [tracks, libraryReady, fileSweepTick]);
 
   useEffect(() => {
     localStorage.setItem('libraryViewMode', libraryViewMode);
@@ -727,6 +1076,14 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('libraryOrder', JSON.stringify(libraryOrder));
   }, [libraryOrder]);
+
+  useEffect(() => {
+    localStorage.setItem('libraryOrderUpdatedAt', String(libraryOrderUpdatedAt));
+  }, [libraryOrderUpdatedAt]);
+
+  useEffect(() => {
+    localStorage.setItem('syncTombstones', JSON.stringify(tombstones));
+  }, [tombstones]);
 
   // keep the saved custom order in step with the real library (imports,
   // deletes) — cheap, returns the same array when nothing changed. Skips
@@ -753,6 +1110,7 @@ export default function App() {
   }, []);
 
   const handleReorderLibrary = useCallback((fromIndex, insertBeforeIndex) => {
+    setLibraryOrderUpdatedAt((prev) => stampAfter({ updatedAt: prev }));
     setLibraryOrder((prev) => {
       const next = [...prev];
       const [moved] = next.splice(fromIndex, 1);
@@ -1025,6 +1383,46 @@ export default function App() {
     setKeybindingsState(DEFAULT_KEYBINDINGS);
   }, []);
 
+  // Settings > Library > "Reset library…" — wipe the database and every
+  // localStorage key that references track ids, then reload the renderer so
+  // all derived state (playing/current/expanded ids, history, shuffle order,
+  // the liked-view snapshot…) starts from nothing, instead of trying to
+  // unwind each piece by hand. Per-machine preferences (theme, keybindings,
+  // layout, volume, sort prefs) are deliberately kept. Audio files on disk
+  // are NOT deleted — this is the "start fresh" path for the library-sync
+  // rework, and the old files are simply orphaned.
+  const handleResetLibrary = useCallback(async () => {
+    const ok = window.confirm(
+      'Reset the library?\n\nEvery track, playlist, version, note and tag will be forgotten. Audio files on disk are left in place. Keybindings and appearance settings are kept.'
+    );
+    if (!ok) return;
+    waveformRef.current?.pause();
+    // stop the snapshot writer first so a debounced write can't land
+    // between the wipe and the reload and re-snapshot the old library
+    clearTimeout(snapshotTimerRef.current);
+    snapshotDirtyRef.current = false;
+    try {
+      await resetLibraryDatabase();
+      // this machine's own snapshot goes too — otherwise the reload would
+      // immediately bootstrap the wiped library right back from it. Other
+      // machines' snapshots stay and DO bootstrap this one (that's the
+      // "set up the second Mac" path).
+      await window.electronAPI?.syncDeleteOwnSnapshot?.();
+    } catch (err) {
+      console.error('[reset] database reset failed:', err);
+      window.alert('Reset failed — nothing was changed. See the console for details.');
+      return;
+    }
+    for (const key of ['libraryOrder', 'libraryOrderUpdatedAt', 'syncTombstones', 'playHistory', 'seenRelPaths']) {
+      try {
+        localStorage.removeItem(key);
+      } catch {
+        /* localStorage unavailable */
+      }
+    }
+    window.location.reload();
+  }, []);
+
   // native menu "Settings…" / Cmd+, (electron/main.js) opens the same modal
   // everywhere. Mini mode is a real, physically tiny OS window (see the
   // enterMiniMode/exitMiniMode effect below) that the normal-sized settings
@@ -1092,10 +1490,14 @@ export default function App() {
   // Changing the active version changes this URL, which recreates the
   // WaveSurfer instance -> playback restarts from 0 (intended: different
   // mixes don't line up).
+  // mediaUrl throws on a version without a valid relPath — deliberately, see
+  // media.js. Nothing is handed to the audio engine until the root exists.
   const playingVersion = activeVersion(playingTrack);
-  const audioUrl = mediaUrl(playingVersion?.filePath);
+  const audioUrl = libraryReady && playingVersion ? mediaUrl(playingVersion.relPath) : null;
   const currentMissing =
-    !!currentTrack && missingPaths.has(activeVersion(currentTrack)?.filePath);
+    !!currentTrack && missingPaths.has(activeVersion(currentTrack)?.relPath);
+  const currentWaiting =
+    !!currentTrack && waitingPaths.has(activeVersion(currentTrack)?.relPath);
   // colors sampled from the PLAYING track's cover, fed to the waveform + EQ
   // visualizer (null when the track has no artwork -> default heatmap colors)
   const playingPalette = useArtworkPalette(playingTrack?.artworkBlob);
@@ -1232,7 +1634,7 @@ export default function App() {
           existing.add(fp);
           const meta = await readAudioMeta(bytes, item.name);
           const fileTitle = importTitle(meta, item.name);
-          const { storedPath } = await window.electronAPI.mediaCopyIn({
+          const { relPath } = await window.electronAPI.mediaCopyIn({
             srcPath: item.path,
             artist: meta.artist || 'unknown artist',
             title: fileTitle,
@@ -1241,7 +1643,7 @@ export default function App() {
             label: fileTitle,
             ext: sniffExt(bytes) || extFromName(item.name)
           });
-          const track = buildImportedTrack({ name: item.name, meta, storedPath, fp });
+          const track = buildImportedTrack({ name: item.name, meta, relPath, fp });
           await addTrack(track);
           added.push(track);
         } catch (err) {
@@ -1447,10 +1849,22 @@ export default function App() {
     setCurrentTime(0);
   }, [playingTrackId]);
 
-  // merge `changes` into a track, in state and IndexedDB
+  // merge `changes` into a track, in state and IndexedDB, stamped for the
+  // sync merge (syncMerge.js): `updatedAt` = stampAfter(previous), so the
+  // edit beats the value it was based on even under clock skew. Notes are
+  // the exception — a notes-only change bumps `notesUpdatedAt` (which
+  // side's note ORDER wins) and leaves `updatedAt` alone, so it can never
+  // out-stamp a like/rename/tag made on the other machine; notes merge by
+  // id with their own stamps, which the note handlers below set.
   const patchTrack = useCallback((id, changes) => {
-    setTracks((prev) => prev.map((t) => (t.id === id ? { ...t, ...changes } : t)));
-    updateTrack(id, changes);
+    const prev = tracksRef.current.find((t) => t.id === id);
+    const keys = Object.keys(changes);
+    const notesOnly = keys.length > 0 && keys.every((k) => k === 'notes' || k === 'deletedNotes');
+    const stamped = notesOnly
+      ? { ...changes, notesUpdatedAt: stampAfter({ updatedAt: prev?.notesUpdatedAt }) }
+      : { ...changes, updatedAt: stampAfter(prev) };
+    setTracks((list) => list.map((t) => (t.id === id ? { ...t, ...stamped } : t)));
+    updateTrack(id, stamped);
   }, []);
 
   // liked/favorites. likedAt is only ever set (on like) — left as-is on
@@ -1463,34 +1877,33 @@ export default function App() {
     [patchTrack]
   );
 
-  const handleAddTag = useCallback(async (id, tag) => {
-    setTracks((prev) =>
-      prev.map((t) => (t.id === id && !t.tags.includes(tag) ? { ...t, tags: [...t.tags, tag] } : t))
-    );
-    const track = tracks.find((t) => t.id === id);
-    if (track && !track.tags.includes(tag)) {
-      await updateTrack(id, { tags: [...track.tags, tag] });
-    }
-  }, [tracks]);
+  // tags go through patchTrack like every other track edit, so they're
+  // stamped for sync (they used to call updateTrack directly)
+  const handleAddTag = useCallback(
+    (id, tag) => {
+      const t = tracksRef.current.find((x) => x.id === id);
+      if (t && !t.tags.includes(tag)) patchTrack(id, { tags: [...t.tags, tag] });
+    },
+    [patchTrack]
+  );
 
-  const handleRemoveTag = useCallback(async (id, tag) => {
-    setTracks((prev) => prev.map((t) => (t.id === id ? { ...t, tags: t.tags.filter((tg) => tg !== tag) } : t)));
-    const track = tracks.find((t) => t.id === id);
-    if (track) {
-      await updateTrack(id, { tags: track.tags.filter((tg) => tg !== tag) });
-    }
-  }, [tracks]);
+  const handleRemoveTag = useCallback(
+    (id, tag) => {
+      const t = tracksRef.current.find((x) => x.id === id);
+      if (t && t.tags.includes(tag)) patchTrack(id, { tags: t.tags.filter((tg) => tg !== tag) });
+    },
+    [patchTrack]
+  );
 
   // removes a tag from every track that has it, deleting the whole group at once
-  const handleDeleteTagGroup = useCallback(async (tag) => {
-    const affected = tracks.filter((t) => t.tags.includes(tag));
-    setTracks((prev) =>
-      prev.map((t) => (t.tags.includes(tag) ? { ...t, tags: t.tags.filter((tg) => tg !== tag) } : t))
-    );
-    for (const t of affected) {
-      await updateTrack(t.id, { tags: t.tags.filter((tg) => tg !== tag) });
-    }
-  }, [tracks]);
+  const handleDeleteTagGroup = useCallback(
+    (tag) => {
+      for (const t of tracksRef.current) {
+        if (t.tags.includes(tag)) patchTrack(t.id, { tags: t.tags.filter((tg) => tg !== tag) });
+      }
+    },
+    [patchTrack]
+  );
 
   // manually-queued up-next tracks, consumed before falling back to plain
   // library order. Each entry is { qid, trackId } rather than a bare track
@@ -1528,7 +1941,8 @@ export default function App() {
   // the whole record through to IndexedDB. Deleting a playlist never touches
   // the tracks it referenced.
   const persistPlaylist = useCallback((pl) => {
-    const withStamp = { ...pl, updatedAt: Date.now() };
+    // sync stamp: always beats the record this edit was based on (syncMerge.js)
+    const withStamp = { ...pl, updatedAt: stampAfter(playlistsRef.current.find((p) => p.id === pl.id)) };
     setPlaylists((prev) => {
       const i = prev.findIndex((p) => p.id === pl.id);
       return i === -1 ? [...prev, withStamp] : prev.map((p) => (p.id === pl.id ? withStamp : p));
@@ -1606,8 +2020,10 @@ export default function App() {
   );
 
   const handleDeletePlaylist = useCallback((id) => {
+    const pl = playlistsRef.current.find((p) => p.id === id);
     setPlaylists((prev) => prev.filter((p) => p.id !== id));
     deletePlaylistRecord(id);
+    setTombstones((prev) => mergeTombstones(prev, [{ id, kind: 'playlist', updatedAt: stampAfter(pl) }]));
     setPlaybackContext((ctx) => (ctx.type === 'playlist' && ctx.id === id ? { type: 'library' } : ctx));
   }, []);
 
@@ -1660,13 +2076,12 @@ export default function App() {
       if (at === -1) return prev;
       if (!before) at += 1;
       const ordered = [...rest.slice(0, at), dragged, ...rest.slice(at)];
-      const now = Date.now();
       const nextSi = new Map(ordered.map((p, i) => [p.id, i * 1000]));
       let touched = false;
       const next = prev.map((p) => {
         if (!nextSi.has(p.id) || p.sortIndex === nextSi.get(p.id)) return p;
         touched = true;
-        const updated = { ...p, sortIndex: nextSi.get(p.id), updatedAt: now };
+        const updated = { ...p, sortIndex: nextSi.get(p.id), updatedAt: stampAfter(p) };
         putPlaylist(updated);
         return updated;
       });
@@ -2134,21 +2549,24 @@ export default function App() {
       const v = t?.versions.find((x) => x.id === versionId);
       const title = (rawTitle || '').trim();
       if (!t || !v || !title || title === v.title) return;
-      // rename the file on disk to match, best-effort (DB path stays truth)
-      let filePath = v.filePath;
-      if (filePath && window.electronAPI?.mediaRename) {
+      // rename the file on disk to match, best-effort (DB path stays truth).
+      // Best-effort covers filesystem failures only: a version without a
+      // valid relPath throws here, before anything is touched, on purpose.
+      let relPath = assertRelPath(v.relPath, 'rename version');
+      if (window.electronAPI?.mediaRename) {
         try {
-          filePath = await window.electronAPI.mediaRename({ filePath, title });
-        } catch {
-          filePath = v.filePath;
+          relPath = assertRelPath(await window.electronAPI.mediaRename({ relPath, title }), 'rename version result');
+        } catch (err) {
+          console.error('[media] rename failed, keeping the old filename:', err);
+          relPath = v.relPath;
         }
       }
       const isActive = t.activeVersionId === versionId;
       patchTrack(trackId, {
-        versions: t.versions.map((x) => (x.id === versionId ? { ...x, title, filePath } : x)),
+        versions: t.versions.map((x) => (x.id === versionId ? { ...x, title, relPath } : x)),
         ...(isActive ? { title } : {})
       });
-      if (isActive && filePath !== v.filePath) restartIfPlaying(trackId);
+      if (isActive && relPath !== v.relPath) restartIfPlaying(trackId);
     },
     [patchTrack, restartIfPlaying]
   );
@@ -2187,7 +2605,7 @@ export default function App() {
         extra = { title: next.title || t.title, duration: next.duration, audio: next.format };
       }
       patchTrack(trackId, { versions: remaining, activeVersionId, ...extra });
-      if (gone?.filePath) window.electronAPI?.mediaDelete(gone.filePath);
+      if (gone) window.electronAPI?.mediaDelete(assertRelPath(gone.relPath, 'delete version'));
       if (activeVersionId !== t.activeVersionId) restartIfPlaying(trackId);
     },
     [patchTrack, restartIfPlaying]
@@ -2222,7 +2640,7 @@ export default function App() {
 
       // copy the picked file into this track's folder as a new active version
       const addSeparateCopy = async () => {
-        const { storedPath } = await window.electronAPI.mediaCopyIn({
+        const { relPath } = await window.electronAPI.mediaCopyIn({
           srcPath: entry.path,
           artist: t.artist,
           title: t.title,
@@ -2231,7 +2649,7 @@ export default function App() {
         });
         const newVersion = makeVersion({
           title,
-          filePath: storedPath,
+          relPath,
           duration: meta.duration,
           format: meta.format,
           fp
@@ -2258,6 +2676,7 @@ export default function App() {
         });
         await deleteTrack(src.id);
         setTracks((prev) => prev.filter((x) => x.id !== src.id));
+        setTombstones((prev) => mergeTombstones(prev, [{ id: src.id, kind: 'track', updatedAt: stampAfter(src) }]));
         playlistsRef.current.forEach((pl) => {
           if (pl.trackIds.includes(src.id)) {
             persistPlaylist({
@@ -2301,21 +2720,27 @@ export default function App() {
       const picked = await readPicked();
       if (!picked) return;
       const { entry, bytes, fp, meta } = picked;
-      const { storedPath } = await window.electronAPI.mediaCopyIn({
+      const { relPath } = await window.electronAPI.mediaCopyIn({
         srcPath: entry.path,
         artist: t.artist,
         title: t.title,
         label: v.title || 'original',
         ext: sniffExt(bytes) || extFromName(entry.name)
       });
-      const nextV = { ...v, filePath: storedPath, duration: meta.duration, format: meta.format, fingerprint: fp };
+      const nextV = {
+        ...v,
+        relPath: assertRelPath(relPath, 'relocate version'),
+        duration: meta.duration,
+        format: meta.format,
+        fingerprint: fp
+      };
       patchTrack(trackId, {
         versions: t.versions.map((x) => (x.id === versionId ? nextV : x)),
         ...(t.activeVersionId === versionId ? { duration: nextV.duration, audio: nextV.format } : {})
       });
       setMissingPaths((prev) => {
         const next = new Set(prev);
-        next.delete(v.filePath);
+        next.delete(v.relPath);
         return next;
       });
       restartIfPlaying(trackId);
@@ -2327,17 +2752,24 @@ export default function App() {
     (trackId, text) => {
       const t = tracksRef.current.find((x) => x.id === trackId);
       if (!t || !text.trim()) return;
-      const note = { id: crypto.randomUUID(), text: text.trim(), complete: false, dateAdded: Date.now() };
+      const now = Date.now();
+      const note = { id: crypto.randomUUID(), text: text.trim(), complete: false, dateAdded: now, updatedAt: now };
       patchTrack(trackId, { notes: [...(t.notes || []), note] });
     },
     [patchTrack]
   );
+  // Every note edit stamps THAT note (`updatedAt: stampAfter(note)`) — notes
+  // merge by id across machines, see syncMerge.js. A delete leaves a
+  // tombstone in `deletedNotes` so the other machine's copy doesn't bring
+  // the note back.
   const handleToggleNote = useCallback(
     (trackId, noteId) => {
       const t = tracksRef.current.find((x) => x.id === trackId);
       if (!t) return;
       patchTrack(trackId, {
-        notes: (t.notes || []).map((n) => (n.id === noteId ? { ...n, complete: !n.complete } : n))
+        notes: (t.notes || []).map((n) =>
+          n.id === noteId ? { ...n, complete: !n.complete, updatedAt: stampAfter(n) } : n
+        )
       });
     },
     [patchTrack]
@@ -2347,7 +2779,7 @@ export default function App() {
       const t = tracksRef.current.find((x) => x.id === trackId);
       if (!t) return;
       patchTrack(trackId, {
-        notes: (t.notes || []).map((n) => (n.id === noteId ? { ...n, text } : n))
+        notes: (t.notes || []).map((n) => (n.id === noteId ? { ...n, text, updatedAt: stampAfter(n) } : n))
       });
     },
     [patchTrack]
@@ -2355,8 +2787,12 @@ export default function App() {
   const handleDeleteNote = useCallback(
     (trackId, noteId) => {
       const t = tracksRef.current.find((x) => x.id === trackId);
-      if (!t) return;
-      patchTrack(trackId, { notes: (t.notes || []).filter((n) => n.id !== noteId) });
+      const gone = (t?.notes || []).find((n) => n.id === noteId);
+      if (!t || !gone) return;
+      patchTrack(trackId, {
+        notes: t.notes.filter((n) => n.id !== noteId),
+        deletedNotes: [...(t.deletedNotes || []), { id: noteId, updatedAt: stampAfter(gone) }]
+      });
     },
     [patchTrack]
   );
@@ -2366,7 +2802,7 @@ export default function App() {
       if (!t) return;
       patchTrack(trackId, {
         notes: (t.notes || []).map((n) =>
-          n.id === noteId ? { ...n, priority: !n.priority } : n
+          n.id === noteId ? { ...n, priority: !n.priority, updatedAt: stampAfter(n) } : n
         )
       });
     },
@@ -2405,32 +2841,106 @@ export default function App() {
     [patchTrack]
   );
 
-  const handleDeleteTrack = useCallback(async (id) => {
-    const t = tracksRef.current.find((x) => x.id === id);
-    (t?.versions || []).forEach((v) => v.filePath && window.electronAPI?.mediaDelete(v.filePath));
-    await deleteTrack(id);
-    setTracks((prev) => prev.filter((t) => t.id !== id));
-    if (id === playingTrackId) {
-      waveformRef.current?.pause();
-      setPlayingTrackId(null);
-      setIsPlaying(false);
-      setCurrentTime(0);
-      setDuration(0);
-    }
-    if (id === currentTrackId) {
-      setCurrentTrackId(null);
-    }
-    const filtered = historyRef.current.filter((h) => h.trackId !== id);
-    if (filtered.length !== historyRef.current.length) {
-      commitHistory(filtered, Math.min(historyIndexRef.current, filtered.length));
-    }
-    // drop the deleted track from every playlist that referenced it
-    playlistsRef.current.forEach((pl) => {
-      if (pl.trackIds.includes(id)) {
-        persistPlaylist({ ...pl, trackIds: pl.trackIds.filter((t) => t !== id) });
+  // Forget a set of track ids everywhere transient state points at them:
+  // playback, the browsed track, the zoomed row, open modals, the queue,
+  // history. Shared by a local delete and a delete merged in from the other
+  // machine. Files and the database are the callers' business.
+  const dropTrackRefs = useCallback(
+    (ids) => {
+      const gone = new Set(ids);
+      if (gone.has(playingTrackIdRef.current)) {
+        waveformRef.current?.pause();
+        setPlayingTrackId(null);
+        setIsPlaying(false);
+        setCurrentTime(0);
+        setDuration(0);
       }
-    });
-  }, [currentTrackId, playingTrackId, commitHistory, persistPlaylist]);
+      if (gone.has(currentTrackIdRef.current)) setCurrentTrackId(null);
+      setExpandedTrackId((id) => (gone.has(id) ? null : id));
+      setVersionsModalTrackId((id) => (gone.has(id) ? null : id));
+      setCoverEditTrackIds((open) => {
+        if (!open) return open;
+        const kept = open.filter((id) => !gone.has(id));
+        return kept.length === open.length ? open : kept.length ? kept : null;
+      });
+      setQueue((q) => (q.some((e) => gone.has(e.trackId)) ? q.filter((e) => !gone.has(e.trackId)) : q));
+      const filtered = historyRef.current.filter((h) => !gone.has(h.trackId));
+      if (filtered.length !== historyRef.current.length) {
+        commitHistory(filtered, Math.min(historyIndexRef.current, filtered.length));
+      }
+    },
+    [commitHistory]
+  );
+
+  const handleDeleteTrack = useCallback(
+    async (id) => {
+      const t = tracksRef.current.find((x) => x.id === id);
+      (t?.versions || []).forEach((v) => window.electronAPI?.mediaDelete(assertRelPath(v.relPath, 'delete track')));
+      await deleteTrack(id);
+      setTracks((prev) => prev.filter((x) => x.id !== id));
+      // recorded, not just removed — so the other machine's copy can't
+      // resurrect it on the next merge (syncMerge.js)
+      setTombstones((prev) => mergeTombstones(prev, [{ id, kind: 'track', updatedAt: stampAfter(t) }]));
+      dropTrackRefs([id]);
+      // drop the deleted track from every playlist that referenced it
+      playlistsRef.current.forEach((pl) => {
+        if (pl.trackIds.includes(id)) {
+          persistPlaylist({ ...pl, trackIds: pl.trackIds.filter((x) => x !== id) });
+        }
+      });
+    },
+    [dropTrackRefs, persistPlaylist]
+  );
+
+  // Drain the last merge to IndexedDB from COMMITTED state: whichever side
+  // won at apply time is what's in `tracks` / `playlists` now, so write
+  // exactly that (full-record replace, never a partial update). A track the
+  // merge removed gets its references dropped here, same as a local delete
+  // — but NOT its files: the machine that deleted it already removed those
+  // and Dropbox carries that over. A skipped apply (an item moved under the
+  // merge) queues one more merge.
+  useEffect(() => {
+    const pend = pendingSyncTrackIdsRef.current;
+    if (pend.size) {
+      pendingSyncTrackIdsRef.current = new Set();
+      const gone = [];
+      for (const id of pend) {
+        const t = tracks.find((x) => x.id === id);
+        if (t) replaceTrack(t);
+        else {
+          deleteTrack(id);
+          gone.push(id);
+        }
+      }
+      if (gone.length) dropTrackRefs(gone);
+    }
+    if (syncSkippedRef.current) {
+      syncSkippedRef.current = false;
+      runSync({ reason: 'retry' });
+    }
+  }, [tracks, dropTrackRefs, runSync]);
+
+  useEffect(() => {
+    const pend = pendingSyncPlaylistIdsRef.current;
+    if (pend.size) {
+      pendingSyncPlaylistIdsRef.current = new Set();
+      for (const id of pend) {
+        const p = playlists.find((x) => x.id === id);
+        if (p) {
+          putPlaylist(p);
+          continue;
+        }
+        deletePlaylistRecord(id);
+        setPlaybackContext((ctx) => (ctx.type === 'playlist' && ctx.id === id ? { type: 'library' } : ctx));
+        setActiveView((av) => (av.type === 'playlist' && av.id === id ? { type: 'imported' } : av));
+        setEditingPlaylistId((cur) => (cur === id ? null : cur));
+      }
+    }
+    if (syncSkippedRef.current) {
+      syncSkippedRef.current = false;
+      runSync({ reason: 'retry' });
+    }
+  }, [playlists, runSync]);
 
   // focus the search box once we're back in sidebar view after cmd+s
   useEffect(() => {
@@ -2485,8 +2995,9 @@ export default function App() {
       // open (their own capture-phase listener handles Escape/Cmd+W/etc.
       // for themselves — see SettingsModal.jsx and SearchOverlay.jsx) —
       // this mirrors settingsOpen exactly rather than inventing a second
-      // mechanism, per the Cmd+W lesson below.
-      if (settingsOpen || searchOverlayOpen) return;
+      // mechanism, per the Cmd+W lesson below. The library-setup gate is
+      // blocking by definition — no shortcut may act behind it.
+      if (settingsOpen || searchOverlayOpen || setupGate) return;
 
       // Option+Space opens the quick-search overlay (2026-09-06) —
       // deliberately NOT Electron's globalShortcut (system-wide, and
@@ -2654,6 +3165,7 @@ export default function App() {
     settingsOpen,
     searchOverlayOpen,
     anyModalOpen,
+    setupGate,
     view,
     activeView,
     closeArtistPage,
@@ -2699,7 +3211,7 @@ export default function App() {
   useEffect(() => {
     function handleKeyDown(e) {
       if (eventToKeyString(e) !== keybindings.playPause.key) return;
-      if (settingsOpen || searchOverlayOpen || anyModalOpen) return;
+      if (settingsOpen || searchOverlayOpen || anyModalOpen || setupGate) return;
       if (isTypingTarget(e)) return;
       // Every qualifying keydown, including OS auto-repeat while held — not
       // just the first. Space's default browser action is "scroll the
@@ -2746,7 +3258,7 @@ export default function App() {
       document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('keyup', handleKeyUp);
     };
-  }, [keybindings, settingsOpen, searchOverlayOpen, anyModalOpen, handleTogglePlay, resetSpaceHold]);
+  }, [keybindings, settingsOpen, searchOverlayOpen, anyModalOpen, setupGate, handleTogglePlay, resetSpaceHold]);
 
   // Reset on track switch or a view change (fullscreen/mini, back-to-
   // sidebar, the artist-page Escape/back path) — holding space, then
@@ -2947,6 +3459,7 @@ export default function App() {
         onCycleRepeat={handleCycleRepeat}
         onOpenArtist={openArtist}
         mediaMissing={currentMissing}
+        mediaWaiting={currentWaiting}
         onRelocate={() => {
           const v = activeVersion(currentTrack);
           if (v) handleRelocateVersion(currentTrack.id, v.id);
@@ -3061,8 +3574,21 @@ export default function App() {
           keybindings={keybindings}
           onSetKeybindings={handleSetKeybinding}
           onResetKeybindings={handleResetKeybindings}
+          onResetLibrary={handleResetLibrary}
+          libraryRoot={libraryRoot}
+          onChooseLibraryRoot={handleChooseLibraryRoot}
+          lastSnapshotAt={lastSnapshotAt}
+          lastSyncAt={lastSyncAt}
           trackCount={tracks.length}
           onClose={handleCloseSettings}
+        />
+      )}
+      {setupGate && (
+        <LibrarySetup
+          legacy={legacyLibrary}
+          libraryRoot={libraryRoot}
+          onChooseRoot={handleChooseLibraryRoot}
+          onResetLibrary={handleResetLibrary}
         />
       )}
       <ContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} />
@@ -3076,6 +3602,7 @@ export default function App() {
       <VersionsModal
         track={tracks.find((t) => t.id === versionsModalTrackId) || null}
         missingPaths={missingPaths}
+        waitingPaths={waitingPaths}
         onClose={() => setVersionsModalTrackId(null)}
         onAddVersion={handleAddVersion}
         onSetActiveVersion={handleSetActiveVersion}

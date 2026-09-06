@@ -25,16 +25,48 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // folder import never serializes everything through IPC in one message
   readAudioFile: (filePath) => ipcRenderer.invoke('read-audio-file', filePath),
 
-  // --- media library (versioning) ---
+  // --- media library ---
+  // Every path that crosses this bridge in either direction is a `relPath`
+  // relative to the configured library root (POSIX slashes) — EXCEPT
+  // selectAudioFile / selectAudioImport / readAudioFile, which deal in
+  // absolute paths of *source* files picked in a native dialog. Main throws
+  // on any relPath that isn't a clean path inside the root.
   selectAudioFile: () => ipcRenderer.invoke('select-audio-file'),
-  mediaCopyIn: (opts) => ipcRenderer.invoke('media:copy-in', opts),
-  mediaWriteBytes: (opts) => ipcRenderer.invoke('media:write-bytes', opts),
-  mediaExists: (paths) => ipcRenderer.invoke('media:exists', paths),
-  mediaDelete: (filePath) => ipcRenderer.invoke('media:delete', filePath),
-  mediaRename: (opts) => ipcRenderer.invoke('media:rename', opts),
-  mediaFixExtension: (filePath) => ipcRenderer.invoke('media:fix-extension', filePath),
-  mediaLibraryDir: () => ipcRenderer.invoke('media:library-dir'),
+  mediaCopyIn: (opts) => ipcRenderer.invoke('media:copy-in', opts), // -> { relPath }
+  mediaExists: (relPaths) => ipcRenderer.invoke('media:exists', relPaths),
+  mediaDelete: (relPath) => ipcRenderer.invoke('media:delete', relPath),
+  mediaRename: (opts) => ipcRenderer.invoke('media:rename', opts), // { relPath, title } -> relPath
   revealLibraryDir: () => ipcRenderer.invoke('media:reveal-library'),
+  // the per-machine library root: { root, exists, machineId }. chooseLibraryRoot
+  // opens the native folder picker and returns the same shape, or null on cancel.
+  getLibraryRoot: () => ipcRenderer.invoke('library:get-root'),
+  chooseLibraryRoot: () => ipcRenderer.invoke('library:choose-root'),
+
+  // --- library sync snapshots (<root>/.playdisc/, see main.js) ---
+  syncListArt: () => ipcRenderer.invoke('sync:list-art'),
+  // { json, art: [{ name, bytes }] } -> { file, artWritten, bytes }
+  syncWriteSnapshot: (payload) => ipcRenderer.invoke('sync:write-snapshot', payload),
+  // -> [{ file, own, doc }]
+  syncReadSnapshots: () => ipcRenderer.invoke('sync:read-snapshots'),
+  syncReadArt: (name) => ipcRenderer.invoke('sync:read-art', name), // -> bytes | null
+  syncDeleteOwnSnapshot: () => ipcRenderer.invoke('sync:delete-own-snapshot'),
+  // conflicted copies (Dropbox) that the renderer has merged; main only ever
+  // deletes names that look like conflicted copies
+  syncDeleteConflictedCopies: (names) => ipcRenderer.invoke('sync:delete-conflicted-copies', names),
+  // Live watching (main.js fsWatch on the library root, debounced). Each
+  // returns an unsubscribe fn. Payload: { files: string[], reason }.
+  //   sync-dir-changed      -> something under .playdisc/ changed (or 'resume')
+  //   library-files-changed -> audio files arrived / moved / vanished
+  onSyncDirChanged: (cb) => {
+    const listener = (_event, payload) => cb(payload);
+    ipcRenderer.on('sync-dir-changed', listener);
+    return () => ipcRenderer.removeListener('sync-dir-changed', listener);
+  },
+  onLibraryFilesChanged: (cb) => {
+    const listener = (_event, payload) => cb(payload);
+    ipcRenderer.on('library-files-changed', listener);
+    return () => ipcRenderer.removeListener('library-files-changed', listener);
+  },
 
   // --- app / settings ---
   appVersion: () => ipcRenderer.invoke('app:version'),

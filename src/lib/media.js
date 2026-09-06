@@ -1,10 +1,45 @@
 import { parseBlob } from 'music-metadata-browser';
 import { fingerprint } from './mediaFingerprint';
 
-// Playback URL for a stored file — served by the playdisc-media:// protocol in
-// electron/main.js (streams from ~/Music/Sona Library with range support).
-export function mediaUrl(filePath) {
-  return filePath ? `playdisc-media://f/${encodeURIComponent(filePath)}` : null;
+// Every stored audio path is a `relPath`: relative to the per-machine library
+// root (chosen in Settings, held by electron/main.js), POSIX slashes, e.g.
+// "Artist — Title/title.wav". The renderer never holds an absolute path.
+//
+// This is the renderer-side half of the "fail loudly" contract from
+// docs/LIBRARY_SYNC_PLAN.md: a record that somehow still carries an absolute
+// path (or nothing at all) must throw at the first use, not silently
+// produce a URL that 403s or an `undefined` that skips a delete.
+export function assertRelPath(relPath, what = 'library path') {
+  if (typeof relPath !== 'string' || !relPath.length) {
+    throw new Error(`${what}: expected a relative path, got ${JSON.stringify(relPath)}`);
+  }
+  if (relPath.startsWith('/') || relPath.includes('\\') || /^[a-zA-Z]:/.test(relPath)) {
+    throw new Error(`${what}: expected a path relative to the library folder, got an absolute path: ${relPath}`);
+  }
+  if (relPath.split('/').some((seg) => seg === '..' || seg === '')) {
+    throw new Error(`${what}: malformed relative path: ${relPath}`);
+  }
+  return relPath;
+}
+
+// non-throwing form, for "is this record even usable" checks (the legacy
+// library gate in App.jsx)
+export function isRelPath(relPath) {
+  try {
+    assertRelPath(relPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Playback URL for a stored file — served by the playdisc-media:// protocol
+// in electron/main.js, which resolves the relPath against the root with the
+// same guards (range requests supported). Throws on a bad relPath; callers
+// pass null/undefined only when there's genuinely no version to play.
+export function mediaUrl(relPath) {
+  if (relPath == null) return null;
+  return `playdisc-media://f/${encodeURIComponent(assertRelPath(relPath, 'mediaUrl'))}`;
 }
 
 const MIME_EXT = {
@@ -103,7 +138,7 @@ export function importTitle(meta, name) {
 export function makeVersion({
   title = 'untitled',
   originalTitle,
-  filePath,
+  relPath,
   duration = 0,
   format = null,
   fp = null
@@ -112,7 +147,7 @@ export function makeVersion({
     id: crypto.randomUUID(),
     title,
     originalTitle: originalTitle ?? title,
-    filePath,
+    relPath: assertRelPath(relPath, 'makeVersion'),
     duration,
     format,
     fingerprint: fp,

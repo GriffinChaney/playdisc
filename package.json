@@ -10,6 +10,7 @@
     "build": "vite build",
     "electron:dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron .\"",
     "electron:build": "vite build && electron-builder",
+    "test": "node --test 'test/**/*.test.mjs'",
     "backup": "bash scripts/backup.sh",
     "postinstall": "node scripts/sign-dev-electron.cjs"
   },

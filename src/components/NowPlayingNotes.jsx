@@ -156,8 +156,13 @@ export default function NowPlayingNotes({
             ))}
           </div>
           <form className="np-notes-add" onSubmit={submit}>
+            {/* passive to the sync edit guard while EMPTY — a cursor parked
+                here (it autofocuses with the panel) must not hold merges
+                back; only a note actually being typed does. See
+                editInProgress() in App.jsx. */}
             <input
               autoFocus
+              data-sync-passive={draft ? undefined : ''}
               placeholder="add a note…"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}

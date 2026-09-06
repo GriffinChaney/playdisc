@@ -48,6 +48,11 @@ export default function SettingsModal({
   keybindings,
   onSetKeybindings,
   onResetKeybindings,
+  onResetLibrary,
+  libraryRoot,
+  onChooseLibraryRoot,
+  lastSnapshotAt = null,
+  lastSyncAt = null,
   trackCount = 0,
   onClose
 }) {
@@ -57,8 +62,11 @@ export default function SettingsModal({
   const [captureMode, setCaptureMode] = useState(false); // waiting for a keypress
   const [listeningFor, setListeningFor] = useState(null); // action being rebound
 
-  const [libDir, setLibDir] = useState('');
   const [version, setVersion] = useState('');
+  // the per-machine library root — App owns it (it's also what the
+  // first-launch gate reads); this pane just shows it and offers the picker
+  const libDir = libraryRoot?.root || '';
+  const libDirMissing = !!libraryRoot?.root && !libraryRoot?.exists;
 
   // 5 points/notch — a few points, not 1 (too fine to feel) and not 20 (too
   // coarse). See useWheelSlider above for why this can't just be onWheel.
@@ -111,9 +119,21 @@ export default function SettingsModal({
   }
 
   useEffect(() => {
-    window.electronAPI?.mediaLibraryDir?.().then(setLibDir).catch(() => {});
     window.electronAPI?.appVersion?.().then(setVersion).catch(() => {});
   }, []);
+
+  // Changing the root with tracks already in the library only makes sense
+  // if the folder itself was moved — every stored path is relative to it,
+  // so pointing at some other folder makes every track "missing" at once.
+  function changeLibraryRoot() {
+    if (trackCount > 0 && !libDirMissing) {
+      const ok = window.confirm(
+        `Change the library folder?\n\nYour ${trackCount} tracks keep their paths relative to the folder, so only do this if you moved the folder itself. Pointing at a different folder will make every track show as missing.`
+      );
+      if (!ok) return;
+    }
+    onChooseLibraryRoot?.();
+  }
 
   const searching = query.trim().length > 0 || capturedKey != null;
 
@@ -145,6 +165,18 @@ export default function SettingsModal({
         section: 'library',
         label: 'Tracks in library',
         keywords: 'library tracks count songs number total'
+      },
+      {
+        key: 'lib-sync',
+        section: 'library',
+        label: 'Sync snapshot',
+        keywords: 'library sync snapshot dropbox machine written merged json'
+      },
+      {
+        key: 'lib-reset',
+        section: 'library',
+        label: 'Reset library',
+        keywords: 'library reset wipe clear erase delete database fresh start'
       },
       {
         key: 'version',
@@ -332,6 +364,7 @@ export default function SettingsModal({
               {editingBgValue ? (
                 <input
                   ref={bgValueInputRef}
+                  data-sync-passive=""
                   className="settings-slider-value settings-slider-value-input"
                   value={bgValueDraft}
                   onChange={(e) => setBgValueDraft(e.target.value)}
@@ -357,15 +390,27 @@ export default function SettingsModal({
           <div className="settings-field" key={key}>
             <div className="settings-field-main">
               <span className="settings-field-label">Music library folder</span>
-              <span className="settings-field-desc">{libDir || '—'}</span>
+              <span className="settings-field-desc">
+                {libDir || 'Not set'}
+                {libDirMissing ? ' · folder not found' : ''}
+              </span>
             </div>
-            <button
-              className="settings-linkish settings-field-control"
-              onClick={() => window.electronAPI?.revealLibraryDir?.()}
-              disabled={!window.electronAPI?.revealLibraryDir}
-            >
-              Reveal in Finder
-            </button>
+            <span className="settings-field-control settings-field-buttons">
+              <button
+                className="settings-linkish"
+                onClick={changeLibraryRoot}
+                disabled={!window.electronAPI?.chooseLibraryRoot}
+              >
+                {libDir ? 'Change…' : 'Choose…'}
+              </button>
+              <button
+                className="settings-linkish"
+                onClick={() => window.electronAPI?.revealLibraryDir?.()}
+                disabled={!libDir || libDirMissing || !window.electronAPI?.revealLibraryDir}
+              >
+                Reveal in Finder
+              </button>
+            </span>
           </div>
         );
       case 'lib-count':
@@ -377,6 +422,42 @@ export default function SettingsModal({
             <span className="settings-field-control settings-field-value">
               {trackCount.toLocaleString()}
             </span>
+          </div>
+        );
+      case 'lib-sync':
+        return (
+          <div className="settings-field" key={key}>
+            <div className="settings-field-main">
+              <span className="settings-field-label">Sync snapshot</span>
+              <span className="settings-field-desc">
+                {libraryRoot?.machineId
+                  ? `.playdisc/sync/${libraryRoot.machineId}.json in the library folder`
+                  : 'Available once a library folder is set'}
+              </span>
+            </div>
+            <span className="settings-field-control settings-field-value">
+              {[
+                lastSnapshotAt ? `written ${new Date(lastSnapshotAt).toLocaleTimeString()}` : 'not written yet',
+                lastSyncAt ? `merged ${new Date(lastSyncAt).toLocaleTimeString()}` : null
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+          </div>
+        );
+      case 'lib-reset':
+        return (
+          <div className="settings-field" key={key}>
+            <div className="settings-field-main">
+              <span className="settings-field-label">Reset library</span>
+              <span className="settings-field-desc">
+                Forgets every track, playlist, version, note and tag. Audio files on disk are left in
+                place. Keybindings and appearance settings are kept.
+              </span>
+            </div>
+            <button className="settings-reset-btn settings-field-control" onClick={onResetLibrary}>
+              Reset library…
+            </button>
           </div>
         );
       case 'version':
@@ -430,6 +511,8 @@ export default function SettingsModal({
             <h3 className="settings-section-title">Library</h3>
             {renderField('lib-location')}
             {renderField('lib-count')}
+            {renderField('lib-sync')}
+            {renderField('lib-reset')}
           </>
         );
       case 'about':
@@ -474,6 +557,7 @@ export default function SettingsModal({
 
         <div className="settings-search">
           <input
+            data-sync-passive=""
             className={`settings-search-input${captureMode ? ' capturing' : ''}`}
             placeholder={
               captureMode

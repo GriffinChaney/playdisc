@@ -1,4 +1,4 @@
-import { openDB } from 'idb';
+import { openDB, deleteDB } from 'idb';
 
 const DB_NAME = 'my-music-player';
 const DB_VERSION = 2;
@@ -39,18 +39,23 @@ function getDB() {
 //   audio: {...} | null,       // mirrors the active version's format info
 //   activeVersionId: string,
 //   versions: [                // >=1; an unversioned track has one implicit
-//     { id, label, filePath, duration, format, fingerprint, dateAdded }
+//     { id, title, originalTitle, relPath, duration, format, fingerprint, dateAdded }
+//     — relPath is relative to the per-machine library root (see media.js)
 //   ],
-//   notes: [ { id, text, complete, dateAdded } ],
+//   notes: [ { id, text, complete, dateAdded, updatedAt } ],
+//   deletedNotes: [ { id, updatedAt } ],  // note tombstones (sync merge)
+//   notesUpdatedAt: number,               // sync stamp for note order only
 //   tags: string[],
 //   dateAdded: number,
+//   updatedAt: number,         // sync stamp — see src/lib/syncMerge.js
 //   liked: boolean,            // schemaless addition, 2026-09-05 — absent on
 //                               // older records, treated as falsy (not liked)
 //   likedAt: number | undefined // set when liked; left as-is (not cleared) on unlike
 // }
-// Audio bytes live on disk (~/Music/Sona Library), NOT in IndexedDB — see
-// electron/main.js. Records from before the migration still carry audioBlob
-// until the one-time migration in App.jsx rewrites them.
+// Audio bytes live on disk under the library root, NOT in IndexedDB — see
+// electron/main.js. The blob->file / extension / version-title migrations
+// that used to run over old records were removed on the library-sync branch
+// (fresh start, nothing to migrate); every record now has `versions`.
 
 export async function addTrack(track) {
   const db = await getDB();
@@ -72,8 +77,8 @@ export async function updateTrack(id, changes) {
   return updated;
 }
 
-// full-record write — used by the blob->file migration, which needs to
-// *remove* audioBlob, not just merge new keys over it
+// full-record write (replaces, never merges — a key absent from `record` is
+// dropped). The sync merge drains committed state through this.
 export async function replaceTrack(record) {
   const db = await getDB();
   await db.put(STORE, record);
@@ -109,4 +114,23 @@ export async function putPlaylist(playlist) {
 export async function deletePlaylistRecord(id) {
   const db = await getDB();
   await db.delete(PLAYLISTS, id);
+}
+
+// Drop the whole database (tracks + playlists). Settings > Library > "Reset
+// library…". Closes our own connection first — deleteDB blocks for as long
+// as any connection is open, and ours is the only one. The caller reloads
+// the renderer afterwards so every piece of derived state starts clean; a
+// later getDB() would otherwise re-create an empty v2 database lazily,
+// which is also fine. Audio files on disk are NOT touched here.
+export async function resetLibraryDatabase() {
+  if (dbPromise) {
+    const db = await dbPromise;
+    db.close();
+    dbPromise = null;
+  }
+  await deleteDB(DB_NAME, {
+    blocked() {
+      console.warn('[db] reset blocked by another open connection');
+    }
+  });
 }

@@ -23,6 +23,7 @@ function fmtDate(ms) {
 export default function VersionsModal({
   track,
   missingPaths,
+  waitingPaths,
   onClose,
   onAddVersion,
   onSetActiveVersion,
@@ -160,7 +161,9 @@ export default function VersionsModal({
           <div className="vm-list">
             {versions.map((v) => {
               const isActive = v.id === track.activeVersionId;
-              const missing = missingPaths?.has(v.filePath);
+              const missing = missingPaths?.has(v.relPath);
+              // on its way through Dropbox — not playable yet, but not lost
+              const waiting = !missing && waitingPaths?.has(v.relPath);
               return (
                 <div key={v.id} className={`vm-row${isActive ? ' active' : ''}`}>
                   <button
@@ -171,7 +174,7 @@ export default function VersionsModal({
                   >
                     <span className={isActive ? 'on' : ''} />
                   </button>
-                  <div className="vm-row-main" onClick={() => !missing && onSetActiveVersion(track.id, v.id)}>
+                  <div className="vm-row-main" onClick={() => !missing && !waiting && onSetActiveVersion(track.id, v.id)}>
                     {editingTitleId === v.id ? (
                       <input
                         autoFocus
@@ -201,6 +204,8 @@ export default function VersionsModal({
                     <span className="vm-meta">
                       {missing ? (
                         <span className="vm-missing">file missing</span>
+                      ) : waiting ? (
+                        <span className="vm-waiting">syncing from Dropbox…</span>
                       ) : (
                         fmtDur(v.duration)
                       )}
@@ -326,6 +331,7 @@ export default function VersionsModal({
             >
               <input
                 className="vm-note-input"
+                data-sync-passive={newNote ? undefined : ''}
                 placeholder="add a note…"
                 value={newNote}
                 onChange={(e) => setNewNote(e.target.value)}

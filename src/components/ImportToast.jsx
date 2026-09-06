@@ -20,13 +20,17 @@ export default function ImportToast({ toast, onDismiss }) {
     };
   }, [toast.id, onDismiss]);
 
-  const { count, error, failed, skipped, migrated, migrationError } = toast;
-  const isError = error || migrationError;
+  const { count, error, failed, skipped, loaded, loadedFrom, synced } = toast;
+  const isError = !!error;
   let text;
-  if (migrationError) text = 'Library move failed — nothing was lost';
-  else if (error) text = 'Import failed';
-  else if (migrated != null) text = `Moved ${migrated} ${migrated === 1 ? 'track' : 'tracks'} to disk`;
-  else {
+  if (error) text = 'Import failed';
+  else if (loaded != null) {
+    // first sync on an empty library: filled from the other machine's snapshot
+    text = `Loaded ${loaded} ${loaded === 1 ? 'track' : 'tracks'} from ${loadedFrom || 'a library snapshot'}`;
+  } else if (synced != null) {
+    // a later merge brought changes in from another machine
+    text = `Synced ${synced} ${synced === 1 ? 'change' : 'changes'} from Dropbox`;
+  } else {
     const extras = [failed && `${failed} failed`, skipped && `${skipped} already in library`]
       .filter(Boolean)
       .join(', ');

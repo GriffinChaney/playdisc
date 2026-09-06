@@ -148,6 +148,109 @@ Already fixed — don't remove that config.
   This was a deliberate correction after the first mini-player implementation (an
   in-window widget) was explicitly rejected by the user as leaving "a huge big grey
   empty box."
+- **Library root + relative paths (branch `library-sync`, stage 2, 2026-09-06 —
+  see `docs/LIBRARY_SYNC_PLAN.md`).** Audio files live under ONE per-machine
+  folder, the *library root*, chosen in Settings › Library (or the first-launch
+  gate) via a native folder picker and stored by main in
+  `<userData>/config.json` (`{ libraryRoot, machineId }` — `machineId` is a
+  generated UUID for the upcoming sync files). That root is the **only absolute
+  path in the app**. Every version stores `relPath` (POSIX slashes, e.g.
+  `"Artist — Title/title.wav"`), and every media IPC + the
+  `playdisc-media://f/<encoded relPath>` protocol resolve it in main via
+  `resolveRel()`, which throws on anything absolute, backslashed, `..`-y, or
+  escaping the root. Renderer side, `assertRelPath()` in `src/lib/media.js` does
+  the same check at every use (`mediaUrl`, `makeVersion`, rename/delete/relocate,
+  the missing-file sweep). **A record with an old absolute `filePath` fails
+  loudly, never silently** — that's the point of the rename, don't add fallbacks.
+  App.jsx refuses to load a library containing any version without a valid
+  `relPath` (`legacyLibrary`) and blocks behind `LibrarySetup.jsx` until "Reset
+  library"; a missing/unset root blocks the same way until a folder is chosen.
+  Only *source* files picked in a dialog (`selectAudioImport`, `selectAudioFile`,
+  `readAudioFile`) are ever absolute. Import still **copies in** (adopt-in-place
+  is a later stage).
+- **Sync snapshots (stage 3).** Each machine writes its whole library to
+  `<root>/.playdisc/sync/<machineId>.json`, debounced 500 ms after any change to
+  `tracks` / `playlists` / `tombstones` / `libraryOrder`(+`UpdatedAt`), serialized
+  from the refs by `flushSnapshot` in `App.jsx` (writes are serialized; a change
+  mid-write marks it dirty and it goes round again). Blobs never enter the JSON:
+  `src/lib/syncSnapshot.js` turns `artworkBlob` / `originalArtworkBlob` / playlist
+  `imageBlob` into `{ hash, ext }` refs to immutable
+  `<root>/.playdisc/art/<sha256>.<ext>` files (written once, `wx` flag, only for
+  names main doesn't already have — `knownArtRef`). The absent / `null` / blob
+  tri-state of `originalArtworkBlob` is preserved exactly. Snapshot `format` is 2
+  since stage 4 (tombstones inline in the arrays, `libraryOrderUpdatedAt`); format 1
+  is still readable. Reset library also deletes this machine's own snapshot, so a
+  reset doesn't resurrect from itself.
+- **Sync merge (stage 4, 2026-09-06).** `src/lib/syncMerge.js` is the pure merge —
+  **no IPC, no React, tested by `npm test` (`test/syncMerge.test.mjs`, plain
+  `node --test`; the repo has no other test setup). Change the rules there, add a
+  case there.** Rules: every track/playlist carries `updatedAt`; **newest wins per
+  item, whole record; a tie keeps the local copy** (strictly newer replaces). Deletes
+  are tombstones `{ id, deleted: true, updatedAt }` in the same arrays (locally the
+  `tombstones` state, `[{ id, kind, updatedAt }]` in `localStorage.syncTombstones`,
+  never pruned); an edit newer than the delete resurrects. **Notes are the exception
+  to whole-record**: they merge by note id with their own `note.updatedAt`, deletes
+  go to `track.deletedNotes`, and note ORDER follows the side with the newer
+  `track.notesUpdatedAt` — so a note edit here and a like there don't collide. That
+  is why `patchTrack` stamps a notes-only change with `notesUpdatedAt` and everything
+  else with `updatedAt`. Every local edit stamps `stampAfter(prev)` =
+  `max(Date.now(), prev.updatedAt + 1)`, so an edit beats what it was based on even
+  under clock skew. `libraryOrder` is one array with one stamp (`libraryOrderUpdatedAt`,
+  bumped ONLY by a drag, never by the reconcile effect). The tag handlers now go
+  through `patchTrack` (they used to call `updateTrack` directly and would have been
+  unstamped).
+  **Reading** (`runSync` in `App.jsx`): once at launch (`libraryPhase` `'sync'` →
+  `'ready'`; this is also what fills an empty library, the old "bootstrap" is just a
+  merge into nothing) and on every window `focus`, throttled to 1/s. Every OTHER
+  machine's snapshot is folded in; the winners a remote produced are hydrated (art
+  read from the art files) and applied through state **updaters**
+  (`applyMergedRecords` re-checks each item against whatever the list is by then —
+  an import landing mid-merge composes instead of being clobbered), and IndexedDB is
+  written from the **committed** state by the drain effects next to
+  `handleDeleteTrack` (full-record `replaceTrack`, never a partial `updateTrack`), so
+  the database mirrors what React ended up with whichever side won. A remote record
+  whose art file isn't on disk yet is **deferred whole** (`accept`), never taken with
+  a null cover — that would stamp "no cover" as our newest truth and the art would
+  never arrive. A remotely deleted track goes through `dropTrackRefs` (playing,
+  browsed, zoomed, modals, queue, history) but its files are NOT touched — the
+  deleting machine did that and Dropbox carries it over. A remote change to the
+  playing track's active file restarts it from 0 (accepted, per the plan).
+  **Pre-stage-4 records have no stamps.** The first stage-4 launch stamps them ONCE
+  with this machine's own last snapshot `writtenAt` (never `Date.now()`, which would
+  out-stamp every edit the other machine made since); a remote pre-stage-4 record
+  reads with its snapshot's `writtenAt`. Either upgrade order converges. Don't
+  "simplify" that to 0 — with 0-vs-0 ties going local, the other machine's edits
+  would never arrive.
+- **Live sync triggers (stage 5, 2026-09-06).** `electron/main.js` keeps ONE recursive
+  `fs.watch` on the library root (`startLibraryWatch`, FSEvents-backed, restarted on
+  error and whenever the root is chosen). Events are debounced 400 ms and sorted into
+  two renderer channels: `sync-dir-changed` for anything under `.playdisc/` (another
+  machine's snapshot or an art file landing → `runSync`) and `library-files-changed`
+  for everything else (audio arriving/moving → the missing-file sweep re-runs via
+  `fileSweepTick`). It watches the DIRECTORY, never a file — Dropbox renames incoming
+  content into place, so a file-level watch dies after the first update. Our own
+  snapshot writes and `.tmp` files are skipped by name. `powerMonitor` `resume` and
+  window `focus` are belt and braces on the same path. **A merge never applies while
+  a text field is being edited** (`editInProgress()` in `App.jsx`, checked before the
+  read AND right before apply): the merge is deferred. Fields where a landing merge is
+  harmless opt out with `data-sync-passive` — library search, search overlay,
+  Settings, and (2026-09-06) the **"add a note…" field while it is EMPTY**: the notes
+  panel autofocuses it, and without that opt-out an open panel held every merge back
+  ("notes don't update live"); with text in it, it counts as an edit again. A deferred
+  merge resumes via `maybeResume` in the trigger effect, which listens to `focusout`,
+  `keydown`, `mousedown` AND `input` (capture, re-checked after a tick) — NOT
+  `focusout` alone: **Chromium fires no focusout/blur when the focused element is
+  removed from the DOM** (verified live), which is what Escape-closing the notes panel
+  or versions modal does to its autofocused input, so a focusout-only resume left
+  merges stuck until some unrelated field blurred. That, not stamping, was the
+  "checkbox doesn't sync" report — every note write path (`handleAddNote` /
+  `ToggleNote` / `EditNote` / `DeleteNote` / `ToggleNotePriority`) stamps the note;
+  reorder deliberately bumps only `notesUpdatedAt`. Absent audio splits into MISSING (this machine
+  has seen the file before → relocate offered) and WAITING (never seen here → a
+  remote track still on its way through Dropbox; "syncing…" state, no relocate) via
+  `localStorage.seenRelPaths`. Dropbox "conflicted copy" snapshots are merged like any
+  other and then deleted through `sync:delete-conflicted-copies`, only after a run
+  with nothing deferred, and main refuses to delete anything not named like one.
 - Console forwarding: `win.webContents.on('console-message', ...)` pipes all renderer
   `console.*` output to the terminal running `electron:dev`, regardless of whether
   DevTools is open. DevTools no longer auto-opens on launch (was previously
@@ -642,7 +745,10 @@ no audio and needs no `WaveformSlot`-style persistence).
   dateAdded: number,     // epoch ms; sort key for library order
   liked: boolean,        // schemaless, 2026-09-05 — absent on older records reads as
                           //   not-liked, no backfill/migration. See activeView above.
-  likedAt: number|undefined // epoch ms, set on like; left as-is (not cleared) on unlike
+  likedAt: number|undefined, // epoch ms, set on like; left as-is (not cleared) on unlike
+  updatedAt: number,     // sync stamp (stage 4) — see "Sync merge" above
+  notesUpdatedAt: number,    // sync stamp for note ORDER only
+  deletedNotes: [{ id, updatedAt }] // note tombstones; `notes` holds only live notes
 }
 ```
 

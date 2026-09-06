@@ -1852,6 +1852,11 @@ body {
 .settings-field-control {
   flex-shrink: 0;
 }
+.settings-field-buttons {
+  display: inline-flex;
+  gap: 14px;
+  align-items: center;
+}
 .settings-field-value {
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
@@ -3571,6 +3576,9 @@ body {
 .vm-missing {
   color: #e5715c;
 }
+.vm-waiting {
+  color: var(--text-muted);
+}
 .vm-reset {
   border: none;
   background: none;
@@ -3686,6 +3694,13 @@ body {
   align-items: center;
   justify-content: center;
   color: #e5715c;
+  font-size: 12px;
+}
+.waveform-placeholder-overlay.waiting {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
   font-size: 12px;
 }
 .waveform-placeholder-overlay.missing button {
@@ -3934,6 +3949,35 @@ body {
 .prompt-modal-btn.danger {
   border-color: var(--danger, #d9524a);
   color: var(--danger, #d9524a);
+}
+
+/* ---------- Library setup gate (LibrarySetup.jsx) ---------- */
+
+.library-setup-overlay {
+  /* above Settings (and every other modal), see LibrarySetup.jsx */
+  z-index: 10000;
+}
+.library-setup {
+  width: 400px;
+  gap: 10px;
+}
+.library-setup-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.library-setup-body {
+  margin: 0 0 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.library-setup-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--text-primary);
+  word-break: break-all;
 }
 .prompt-modal-btn.danger:hover {
   background: var(--danger, #d9524a);
