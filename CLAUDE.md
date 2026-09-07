@@ -793,8 +793,13 @@ persisted to `localStorage.navWidth`) / `1fr` / `var(--np-width)` (fixed 278px).
     are empty. Deleting a tag group drops it from the exclusions too. Look:
     `.tag-filter-item.excluded` keeps the outline shape with the name struck
     through and muted — no fill, no red, no accent. Neither state persists
-    across restarts (same as `activeTag`). Drag-reorder of chips is disabled
-    while any exclusion is active, same as while a tag is included.
+    across restarts (same as `activeTag`). **Track-row** drag-reorder
+    (`reorderEnabled` in `LibraryList.jsx`) is disabled while any exclusion is
+    active, exactly as it already was under an include or a search: the visible
+    list is filtered, so a drop index into it would be wrong. **Chip**
+    drag-reorder is unaffected — it's gated only on `onReorderTags` existing,
+    never on any filter, because it reorders the global tag order and a drop
+    between chips has nothing to do with which tracks are showing.
 
 ### Other App.jsx state
 
