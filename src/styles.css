@@ -3210,6 +3210,48 @@ body {
   color: #f4f4f2;
 }
 
+/* tag filter chips (playlist / Liked / artist headers) — same washout as
+   the sort button/view toggle above: --border and --text-secondary/-muted
+   are tuned against --bg and nearly disappear over a saturated gradient.
+   Only the UNSELECTED chips need pinning; the selected chip is already a
+   solid var(--text-primary)-on-var(--bg) fill (near-white pill / near-black
+   text in dark theme), which reads fine as-is and stays well clear of the
+   translucent unselected treatment below — no need to push it further. */
+.library-list.has-backdrop .tag-filter > button:not(.active) {
+  color: #f4f4f2;
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.1);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+}
+.library-list.has-backdrop .tag-filter > button:not(.active):hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+.library-list.has-backdrop .tag-filter-item:not(.active) {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.1);
+}
+.library-list.has-backdrop .tag-filter-item:not(.active):hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+.library-list.has-backdrop .tag-filter-item:not(.active) .tag-filter-select {
+  color: #f4f4f2;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+}
+/* the × stays a notch quieter than the label (same relative hierarchy as
+   --text-muted vs --text-secondary in the no-backdrop case). This selector
+   is more specific than the plain `.tag-filter-delete:hover` rule above, so
+   without a matching :hover rule of its own it would silently WIN during a
+   real hover too and cancel the red danger color — verified live (computed
+   color stayed the pinned light value while genuinely hovering) before
+   adding the override below. */
+.library-list.has-backdrop .tag-filter-item:not(.active) .tag-filter-delete {
+  color: rgba(244, 244, 242, 0.75);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+}
+.library-list.has-backdrop .tag-filter-item:not(.active) .tag-filter-delete:hover {
+  color: #ff6b6b;
+}
+
 /* ---------- Playlist edit modal ---------- */
 .pl-edit-modal {
   width: 460px;
