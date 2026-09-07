@@ -374,6 +374,16 @@ body {
   flex: 1;
   user-select: none;
   -webkit-user-select: none;
+  /* .library-list's own 20px right padding reads as an obvious empty
+     gutter, but a scrollbar tracks its OWN element's edge, not an
+     ancestor's padding — so without this, the browser draws it at
+     .track-list's edge (flush against the rightmost row content) instead
+     of out in that gutter. Reclaim the gutter as .track-list's own box
+     (negative margin) and re-inset the rows by the same amount (matching
+     padding) so nothing moves visually except where the scrollbar lands —
+     now inside the gutter, over blank background, never over a row. */
+  margin-right: -20px;
+  padding-right: 20px;
 }
 
 .track-item {
@@ -3838,6 +3848,15 @@ body {
   scrollbar-gutter: stable;
   padding: 4px 2px 2px;
   align-content: start;
+  /* same reclaimed-gutter trick as .track-list above, so the scrollbar
+     lands in .library-list's 20px right padding instead of at .track-grid's
+     own (much closer) edge. `scrollbar-gutter: stable` is kept too — it
+     still stops the 4-column grid from narrowing when a classic scrollbar
+     appears; this just relocates where the reserved lane actually sits.
+     22px = the original 2px right padding above + the reclaimed 20px, so
+     tiles land in exactly the same place as before. */
+  margin-right: -20px;
+  padding-right: 22px;
 }
 .grid-item {
   cursor: pointer;
