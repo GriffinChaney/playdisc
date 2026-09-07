@@ -10,6 +10,7 @@ import GearIcon from './components/GearIcon';
 import FocusView from './components/FocusView';
 import MiniPlayer from './components/MiniPlayer';
 import BackgroundPlayBar from './components/BackgroundPlayBar';
+import UpdateToast from './components/UpdateToast';
 import Waveform from './components/Waveform';
 import SettingsModal from './components/SettingsModal';
 import SearchOverlay from './components/SearchOverlay';
@@ -67,6 +68,7 @@ import {
   READABLE_FORMATS
 } from './lib/syncSnapshot';
 import { stampAfter, mergeLibraries, applyMergedRecords, mergeTombstones } from './lib/syncMerge';
+import { checkForUpdate } from './lib/updateCheck';
 
 // One-time: earlier builds could persist a hand-dragged column width (often
 // from an accidental grab of a resize handle, or — before this fix — a
@@ -388,6 +390,47 @@ export default function App() {
   const [lastSnapshotAt, setLastSnapshotAt] = useState(null);
   const [lastSyncAt, setLastSyncAt] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
+  // Beta-distribution update notice: { current, latest, htmlUrl } once a
+  // launch-time check finds a newer GitHub release than this build, else
+  // null. See the mount-once effect below and CLAUDE.md "Beta distribution
+  // & update checks". Dismissing stamps localStorage with the dismissed tag
+  // (handleDismissUpdateBanner) so THAT release stops nagging, but a still
+  // newer one will surface normally.
+  const [updateBanner, setUpdateBanner] = useState(null);
+  // Mount-once launch check. Never touches libraryPhase/setup gating —
+  // update availability has nothing to do with whether the library is
+  // ready, and this must be able to run (and fail) independently of it.
+  // checkForUpdate() itself never throws; the try/catch here only guards
+  // window.electronAPI.appVersion() and the localStorage read, so a failure
+  // anywhere in this chain can never block launch or surface an error.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const version = await window.electronAPI?.appVersion?.();
+        if (!version || cancelled) return;
+        const result = await checkForUpdate(version);
+        if (cancelled || result.error || !result.updateAvailable) return;
+        if (localStorage.getItem('dismissedUpdateVersion') === result.latest) return;
+        setUpdateBanner({ current: result.current, latest: result.latest, htmlUrl: result.htmlUrl });
+      } catch {
+        // offline, blocked, or malformed response — silent, matches
+        // checkForUpdate's own never-throws contract
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const handleDismissUpdateBanner = useCallback(() => {
+    setUpdateBanner((prev) => {
+      if (prev) localStorage.setItem('dismissedUpdateVersion', prev.latest);
+      return null;
+    });
+  }, []);
+  const handleOpenUpdateRelease = useCallback(() => {
+    if (updateBanner?.htmlUrl) window.electronAPI?.openExternal?.(updateBanner.htmlUrl);
+  }, [updateBanner]);
   // 0-100: fullscreen background drift/audio-reaction intensity (see
   // useGradientDrift). Default 61 (2026-09-05, was 50 — retuned by feel;
   // existing saved values are untouched, this only changes what a fresh
@@ -3590,6 +3633,14 @@ export default function App() {
         movementIntensity={backgroundMovement}
         getFrequencyBands={() => waveformRef.current?.getFrequencyBands()}
       />
+      {updateBanner && view === 'sidebar' && (
+        <UpdateToast
+          current={updateBanner.current}
+          latest={updateBanner.latest}
+          onOpen={handleOpenUpdateRelease}
+          onDismiss={handleDismissUpdateBanner}
+        />
+      )}
       {playingTrack && !isViewingPlayingTrack && view !== 'mini' && (
         <BackgroundPlayBar
           track={playingTrack}

@@ -12,6 +12,7 @@
     "electron:build": "vite build && electron-builder",
     "test": "node --test 'test/**/*.test.mjs'",
     "backup": "bash scripts/backup.sh",
+    "release": "node scripts/release.mjs",
     "postinstall": "node scripts/sign-dev-electron.cjs"
   },
   "dependencies": {
@@ -41,7 +42,11 @@
       "output": "release"
     },
     "mac": {
-      "icon": "build/icon.png"
+      "icon": "build/icon.png",
+      "target": ["dmg"]
+    },
+    "dmg": {
+      "artifactName": "${productName}-${version}.dmg"
     },
     "afterPack": "scripts/afterPack.cjs"
   },

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { eventToKeyString, formatKeyLabel } from '../lib/keybindings';
 import { useWheelSlider } from '../lib/useWheelSlider';
+import { checkForUpdate, withV } from '../lib/updateCheck';
 
 // Settings surface: a sidebar of sections + a content pane, with a search
 // bar across the top that filters settings from every section into a flat
@@ -63,6 +64,13 @@ export default function SettingsModal({
   const [listeningFor, setListeningFor] = useState(null); // action being rebound
 
   const [version, setVersion] = useState('');
+  // Manual "Check for updates" — same checkForUpdate() the launch-time
+  // banner uses, but always reports a result (up to date / available /
+  // couldn't check), regardless of any dismissed-version stamp in
+  // localStorage, so this button is the way to verify the check actually
+  // works without waiting for a real newer release.
+  const [updateCheckState, setUpdateCheckState] = useState('idle'); // 'idle' | 'checking' | 'done'
+  const [updateCheckResult, setUpdateCheckResult] = useState(null); // result of checkForUpdate()
   // the per-machine library root — App owns it (it's also what the
   // first-launch gate reads); this pane just shows it and offers the picker
   const libDir = libraryRoot?.root || '';
@@ -121,6 +129,15 @@ export default function SettingsModal({
   useEffect(() => {
     window.electronAPI?.appVersion?.().then(setVersion).catch(() => {});
   }, []);
+
+  async function handleCheckForUpdates() {
+    setUpdateCheckState('checking');
+    setUpdateCheckResult(null);
+    const v = await window.electronAPI?.appVersion?.().catch(() => null);
+    const result = v ? await checkForUpdate(v) : { error: true };
+    setUpdateCheckResult(result);
+    setUpdateCheckState('done');
+  }
 
   // Changing the root with tracks already in the library only makes sense
   // if the folder itself was moved — every stored path is relative to it,
@@ -183,6 +200,12 @@ export default function SettingsModal({
         section: 'about',
         label: 'Version',
         keywords: 'about version build release playdisc'
+      },
+      {
+        key: 'check-updates',
+        section: 'about',
+        label: 'Check for updates',
+        keywords: 'about update updates check version release github new latest'
       }
     ];
     for (const [action, b] of Object.entries(keybindings)) {
@@ -471,6 +494,47 @@ export default function SettingsModal({
             </span>
           </div>
         );
+      case 'check-updates': {
+        let statusText = null;
+        if (updateCheckState === 'checking') {
+          statusText = 'Checking…';
+        } else if (updateCheckState === 'done' && updateCheckResult) {
+          if (updateCheckResult.error) {
+            statusText = "Couldn't check for updates — you may be offline.";
+          } else if (updateCheckResult.updateAvailable) {
+            statusText = `${withV(updateCheckResult.latest)} is available (you're on ${withV(updateCheckResult.current)}).`;
+          } else {
+            statusText = `You're up to date (${withV(updateCheckResult.current)}).`;
+          }
+        }
+        return (
+          <div className="settings-field" key={key}>
+            <div className="settings-field-main">
+              <span className="settings-field-label">Check for updates</span>
+              {statusText && (
+                <span
+                  className="settings-field-desc"
+                  onClick={
+                    updateCheckResult?.updateAvailable
+                      ? () => window.electronAPI?.openExternal?.(updateCheckResult.htmlUrl)
+                      : undefined
+                  }
+                  style={updateCheckResult?.updateAvailable ? { cursor: 'pointer', textDecoration: 'underline' } : undefined}
+                >
+                  {statusText}
+                </span>
+              )}
+            </div>
+            <button
+              className="settings-reset-btn settings-field-control"
+              onClick={handleCheckForUpdates}
+              disabled={updateCheckState === 'checking'}
+            >
+              {updateCheckState === 'checking' ? 'Checking…' : 'Check for updates'}
+            </button>
+          </div>
+        );
+      }
       default:
         return null;
     }
@@ -520,6 +584,7 @@ export default function SettingsModal({
           <>
             <h3 className="settings-section-title">About</h3>
             {renderField('version')}
+            {renderField('check-updates')}
           </>
         );
       default:

@@ -71,6 +71,7 @@ playdisc/                # repo lives at ~/Developer/playdisc (was ~/Developer/s
 │   │   ├── FocusView.jsx      # fullscreen "focus mode" view
 │   │   ├── MiniPlayer.jsx     # content shown when the OS window is shrunk to mini mode
 │   │   ├── BackgroundPlayBar.jsx  # floating pill shown when browsing ≠ playing track
+│   │   ├── UpdateToast.jsx    # quiet "newer release available" card — see "Beta distribution & update checks"
 │   │   ├── Waveform.jsx       # owns the single WaveSurfer instance; heatmap + EQ bars
 │   │   ├── WaveformSlot.jsx   # reparents the shared waveform DOM node into whichever view needs it
 │   │   ├── SettingsModal.jsx  # theme toggle + keybinding editor
@@ -89,8 +90,10 @@ playdisc/                # repo lives at ~/Developer/playdisc (was ~/Developer/s
 │       ├── media.js           # relPath contract (assertRelPath), mediaUrl, makeVersion, tag reading
 │       ├── mediaFingerprint.js# size + edge-hash content fingerprint (import dedupe)
 │       ├── syncSnapshot.js    # library <-> per-machine snapshot JSON + content-addressed art refs
-│       └── syncMerge.js       # PURE per-item merge (newest wins, tombstones, per-note stamps) — tested
+│       ├── syncMerge.js       # PURE per-item merge (newest wins, tombstones, per-note stamps) — tested
+│       └── updateCheck.js     # fetches the latest GitHub release, compares to app.getVersion() — see "Beta distribution & update checks"
 ├── test/syncMerge.test.mjs   # `npm test` (node --test) — the only test suite in the repo
+├── scripts/release.mjs   # `npm run release -- X.Y.Z`: bumps package.json's version, commits, tags, pushes — see "Beta distribution & update checks"
 ├── docs/LIBRARY_SYNC_PLAN.md # how sync was planned + staged (history; CLAUDE.md is current truth)
 ├── docs/deferred/crossfade.md # crossfade feature: scoped, shelved, not implemented — read before starting it
 ├── vite.config.js        # dev server port 5173; ignores release/ in the watcher
@@ -156,8 +159,11 @@ Already fixed — don't remove that config.
   `chooseLibraryRoot`), **sync** (`syncListArt` / `syncWriteSnapshot` /
   `syncReadSnapshots` / `syncReadArt` / `syncDeleteOwnSnapshot` /
   `syncDeleteConflictedCopies`, plus the push channels `onSyncDirChanged` /
-  `onLibraryFilesChanged`), and **app** (`appVersion`, `onOpenSettings`,
-  `setModalOpen` / `onCloseActiveModal`, `onMediaKey`). For mini mode the main
+  `onLibraryFilesChanged`), and **app** (`appVersion`, `openExternal`, `onOpenSettings`,
+  `setModalOpen` / `onCloseActiveModal`, `onMediaKey`). `openExternal` is the only IPC
+  call that opens something outside the app window (`shell.openExternal`, main-process
+  scheme-checked to `http(s)` only) — see "Beta distribution & update checks" below. For
+  mini mode the main
   process remembers the pre-mini `getBounds()` in a module-level
   `boundsBeforeMini` variable and restores it on exit. Mini mode **really resizes the
   OS window** (`win.setBounds`, `win.setResizable(false)`, temporarily shrinks
@@ -313,6 +319,71 @@ Nothing here is a server, an account, or a cloud API — it's files in a folder.
   debounce + a millisecond merge). The rest is Dropbox: typically 3–8 s machine to
   machine, 20–30 s when a big WAV shares its upload queue with the JSON. Don't chase
   that in our code.
+
+## Beta distribution & update checks
+
+Shipped 2026-09-07. No paid Apple Developer account, so the app stays
+**ad-hoc signed** — Gatekeeper warns on first launch for anyone Griffin shares
+it with, and they have to right-click → Open once (README.md has the exact
+steps for friends). Nothing here is CI/automated; Griffin cuts every release
+by hand.
+
+- **DMG build.** `package.json`'s `build.mac.target` is `["dmg"]` and
+  `build.dmg.artifactName` is `${productName}-${version}.dmg`, so
+  `npm run electron:build` produces a versioned DMG under `release/` (e.g.
+  `Playdisc-0.2.0.dmg`) alongside the existing `.app`. Still needs the same
+  `codesign --sign - --force --deep` re-sign as the `.app` before it's usable
+  — the DMG just packages the same (unsigned-by-electron-builder) bundle.
+  Upload the DMG to a GitHub Release by hand; nothing here automates that step.
+- **Keeping `package.json`'s version in sync with the git tag.** The update
+  check (below) only works if they agree — a pushed tag `v0.2.0` with
+  `package.json` still at `0.1.0` makes every build of that release think
+  it's already out of date, on every launch, permanently, since app's own
+  version is what's compared against. `scripts/release.mjs` (`npm run
+  release -- 0.2.0`) is the ONE place this bump is supposed to happen: it
+  edits `package.json`, commits `chore: release vX.Y.Z`, creates an annotated
+  tag, and pushes both. It refuses to run off `main`, with a dirty tree, or
+  onto an already-existing tag. It does NOT build or sign the DMG — that
+  stays the manual `electron:build` + `codesign` step afterward, so a tag can
+  be pushed (and the update check start working for existing installs) before
+  the artifact is actually uploaded.
+- **The check itself** (`src/lib/updateCheck.js`, `checkForUpdate(currentVersion)`):
+  fetches `https://api.github.com/repos/GriffinChaney/playdisc/releases/latest`
+  from the **renderer** (a plain `fetch` — GitHub's API allows CORS for this,
+  no main-process proxying needed, no CSP in this app blocks it), reads
+  `tag_name`/`html_url` from the response, and compares versions with a pure
+  dotted-numeric `compareVersions()` (no semver prerelease handling — tags
+  here are always plain `X.Y.Z`). **Never throws** — every failure path
+  (network error, non-OK response, missing fields) resolves to `{ error:
+  true }` instead, so a launch-time check can never block launch or surface
+  an error. `App.jsx` runs this once on mount, independent of
+  `libraryPhase`/the setup gate (update availability has nothing to do with
+  whether the library is ready).
+- **The banner** (`UpdateToast.jsx`, `.update-toast` in `styles.css`): a
+  small rectangular card, `top: 20px; right: 20px` — the opposite corner from
+  `BackgroundPlayBar`'s bottom-center pill, and a distinct silhouette (14px
+  card radius, not the pill's 999px), specifically so it never reads as
+  playback UI at a glance. Same floating material as `.bg-play-bar` though
+  (`color-mix` surface + `backdrop-filter: blur(20px) saturate(1.6)`) — that
+  part IS meant to feel consistent with the app's other floating chrome.
+  Text-led, no icon, no accent color, on purpose: "Playdisc vX.Y.Z is
+  available" / "You're on vX.Y.Z" (both normalized to a leading `v` via
+  `withV()`, since `app.getVersion()` has none but a GitHub tag does) — a
+  notice, not an alert. Rendered only in `view === 'sidebar'`, same footprint
+  as `BackgroundPlayBar`. Clicking the card body calls
+  `window.electronAPI.openExternal(htmlUrl)` (`shell.openExternal` in main,
+  scheme-checked to `http`/`https` — see `electron/main.js`'s
+  `shell:open-external` handler); the small `×` stops propagation so
+  dismissing doesn't also open the link. **Dismissal is per-version**:
+  `localStorage.dismissedUpdateVersion` is stamped with the dismissed tag, so
+  a still-newer release surfaces normally later — the check only suppresses
+  showing the exact release you already dismissed.
+- **Settings › About › "Check for updates"** (`SettingsModal.jsx`) calls the
+  same `checkForUpdate()` directly — no plumbing through `App.jsx`, no
+  interaction with the dismissed-version stamp — and always reports a result
+  inline (checking… / "you're up to date" / "vX.Y.Z is available" / "couldn't
+  check — you may be offline"), specifically so the check can be verified
+  without waiting for a real newer release to exist.
 
 ## State architecture (`App.jsx`)
 

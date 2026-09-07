@@ -2474,6 +2474,64 @@ body {
   flex-shrink: 0;
 }
 
+/* ---------- Update toast ---------- */
+/* Same floating material as .bg-play-bar (surface + blur), deliberately a
+   different silhouette (rectangular card, not a pill) and the opposite
+   corner, so it never gets misread as playback UI at a glance. Quiet by
+   design: text only, no icon, no accent color — a notice, not an alert. */
+
+.update-toast {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  max-width: 300px;
+  width: max-content;
+  padding: 10px 26px 10px 14px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  backdrop-filter: blur(20px) saturate(1.6);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  border: 0.5px solid var(--border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  z-index: 56;
+  animation: view-enter 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.update-toast-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.update-toast-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.update-toast-dismiss {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.update-toast-dismiss:hover {
+  color: var(--text-primary);
+}
+
 /* ---------- Import progress overlay ---------- */
 
 .import-overlay {

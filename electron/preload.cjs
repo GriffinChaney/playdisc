@@ -75,6 +75,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // --- app / settings ---
   appVersion: () => ipcRenderer.invoke('app:version'),
+  // opens a URL in the user's real default browser (shell.openExternal),
+  // never inside an Electron window. Used by the update-check banner/
+  // Settings button to open a GitHub release page. Resolves false if main
+  // rejected the url (non-http(s) scheme).
+  openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
   // native menu "Settings…" (Cmd+,) asks the renderer to open its settings
   // window. Returns an unsubscribe fn.
   onOpenSettings: (cb) => {

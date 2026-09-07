@@ -93,6 +93,39 @@ The ad-hoc re-sign is required every build — electron-builder doesn't sign
 `CLAUDE.md` for the full rebuild → re-sign → replace `/Applications/Playdisc.app`
 loop.
 
+`npm run electron:build` also produces a versioned DMG at `release/Playdisc-<version>.dmg`
+— that's what gets uploaded to a GitHub Release (see "Got sent this by a friend?"
+below, and `scripts/release.mjs` for cutting a release).
+
+## Got sent this by a friend?
+
+Playdisc isn't in the App Store and isn't signed with a paid Apple developer
+certificate, so macOS doesn't recognize it as coming from an identified
+developer. That's expected — here's how to open it anyway.
+
+1. **Download** the `.dmg` from the
+   [Releases page](https://github.com/GriffinChaney/playdisc/releases/latest),
+   open it, and drag Playdisc into your Applications folder.
+2. **First launch**: double-clicking will get you a warning that Playdisc
+   "cannot be opened because the developer cannot be verified" (or similar).
+   Don't click "Move to Trash" — instead, **right-click (or Control-click)
+   Playdisc.app in Applications and choose "Open"**, then confirm "Open" in
+   the dialog that follows. This only has to be done once; after that it
+   opens normally.
+3. **Still won't open?** Go to **System Settings → Privacy & Security**,
+   scroll down, and you should see a note that Playdisc was blocked, with an
+   **"Open Anyway"** button next to it — click that, then confirm once more
+   when it relaunches. If even that doesn't show up, the download may have
+   been quarantined by your browser; open Terminal and run:
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/Playdisc.app
+   ```
+   then try opening it again.
+
+Playdisc checks GitHub for newer releases on launch and shows a small notice
+in the top-right corner of the library view if one's available — it just
+links to the release page, it doesn't auto-update.
+
 ## Stack
 
 React 18 (no state library — all state in `App.jsx`), Vite 5, Electron 31
@@ -115,6 +148,7 @@ src/
     NowPlaying.jsx     # right column: artwork + waveform + transport
     FocusView.jsx      MiniPlayer.jsx        Waveform.jsx       WaveformSlot.jsx
     TrackItem.jsx      QueuePanel.jsx        HistoryPanel.jsx   BackgroundPlayBar.jsx
+    UpdateToast.jsx    # "newer release available" notice, library view only
     VersionsModal.jsx  PlaylistEditModal.jsx SettingsModal.jsx
     ContextMenu.jsx    PromptModal.jsx       ChoiceModal.jsx    TagMenu.jsx
     ShuffleIcon.jsx    RepeatIcon.jsx        RestartIcon.jsx    VolumeIcon.jsx
@@ -126,7 +160,9 @@ src/
     mediaFingerprint.js  parseTrack.js       audioQuality.js
     dominantColor.js   useDominantColor.js   # cover-art palette sampling
     useObjectUrl.js    useListSelection.js   artworkTilt.js     imageResize.js
-    keybindings.js
+    keybindings.js     updateCheck.js        # GitHub release check for beta distribution
   App.jsx              # all state + orchestration
   styles.css
+scripts/
+  release.mjs          # npm run release -- X.Y.Z: bumps version, tags, pushes
 ```
