@@ -3296,28 +3296,23 @@ export default function App() {
       const isTyping = isTypingTarget(e);
       const keyStr = eventToKeyString(e);
 
-      // W/A/S/D (+ arrow keys as an alias), mini mode only: move the card
-      // between corners game-movement-style. Fixed, not in the rebindable
-      // keybindings map — same precedent as Option+Space/Cmd+W above, this
-      // is a mode-specific spatial control, not a track-list/playback
-      // action. Takes priority over whatever these keys are otherwise
-      // bound to (shuffle defaults to 's', scrollDownFast to 'd', arrows to
-      // next/prev/volume) for exactly as long as mini mode is showing —
+      // W/A/S/D, mini mode only: move the card between corners
+      // game-movement-style. Fixed, not in the rebindable keybindings map —
+      // same precedent as Option+Space/Cmd+W above, this is a mode-specific
+      // spatial control, not a track-list/playback action. Takes priority
+      // over whatever these keys are otherwise bound to (shuffle defaults
+      // to 's', scrollDownFast to 'd') for exactly as long as mini mode is showing —
       // their on-screen equivalents (the mini transport buttons, the
       // right-click shuffle toggle) still work. electron/main.js does the
       // actual moving (it owns the window + screen APIs), animated the
       // same way the corner-snap glide is.
       if (view === 'mini' && !isTyping && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        // W/A/S/D only. The arrow keys were briefly aliases (2026-09-07) and
+        // were taken back: in mini mode they do what they do everywhere —
+        // prev/next track and volume — which is worth more than a second
+        // way to nudge the window.
         const dir =
-          keyStr === 'w' || keyStr === 'arrowup'
-            ? 'up'
-            : keyStr === 's' || keyStr === 'arrowdown'
-              ? 'down'
-              : keyStr === 'a' || keyStr === 'arrowleft'
-                ? 'left'
-                : keyStr === 'd' || keyStr === 'arrowright'
-                  ? 'right'
-                  : null;
+          keyStr === 'w' ? 'up' : keyStr === 's' ? 'down' : keyStr === 'a' ? 'left' : keyStr === 'd' ? 'right' : null;
         if (dir) {
           e.preventDefault();
           window.electronAPI?.moveMiniWindow?.(dir);

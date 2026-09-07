@@ -5,7 +5,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
   enterMiniMode: (width, height) => ipcRenderer.send('enter-mini-mode', { width, height }),
   exitMiniMode: () => ipcRenderer.send('exit-mini-mode'),
-  // W/A/S/D + arrow keys, sent from App.jsx only while view === 'mini' —
+  // W/A/S/D, sent from App.jsx only while view === 'mini' —
   // moves the card one edge at a time on whichever axis `direction`
   // names ('up' | 'down' | 'left' | 'right'), animated the same way the
   // corner-snap glide is. See main.js's 'move-mini-window' handler.
