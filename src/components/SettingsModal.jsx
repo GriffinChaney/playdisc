@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { eventToKeyString, formatKeyLabel } from '../lib/keybindings';
 import { useWheelSlider } from '../lib/useWheelSlider';
 import { checkForUpdate, withV } from '../lib/updateCheck';
+import { formatListenTime, formatDay } from '../lib/listening';
 
 // Settings surface: a sidebar of sections + a content pane, with a search
 // bar across the top that filters settings from every section into a flat
@@ -18,6 +19,7 @@ const SECTIONS = [
   { id: 'playback', label: 'Playback' },
   { id: 'shortcuts', label: 'Keyboard Shortcuts' },
   { id: 'library', label: 'Library' },
+  { id: 'listening', label: 'Listening' },
   { id: 'about', label: 'About' }
 ];
 
@@ -55,6 +57,9 @@ export default function SettingsModal({
   lastSnapshotAt = null,
   lastSyncAt = null,
   trackCount = 0,
+  // listening stats, computed in App (src/lib/listening.js): { empty,
+  // totalSeconds, totalPlays, since, machines, topTracks, topArtists }
+  listening = null,
   onClose
 }) {
   const [activeSection, setActiveSection] = useState('appearance');
@@ -194,6 +199,24 @@ export default function SettingsModal({
         section: 'library',
         label: 'Reset library',
         keywords: 'library reset wipe clear erase delete database fresh start'
+      },
+      {
+        key: 'listening-total',
+        section: 'listening',
+        label: 'Total time listened',
+        keywords: 'listening stats statistics total time listened hours plays play count history'
+      },
+      {
+        key: 'listening-tracks',
+        section: 'listening',
+        label: 'Top tracks',
+        keywords: 'listening stats top tracks most played songs plays time'
+      },
+      {
+        key: 'listening-artists',
+        section: 'listening',
+        label: 'Top artists',
+        keywords: 'listening stats top artists most played plays time'
       },
       {
         key: 'version',
@@ -483,6 +506,73 @@ export default function SettingsModal({
             </button>
           </div>
         );
+      case 'listening-total': {
+        const l = listening;
+        const scope =
+          !l || l.machines <= 1
+            ? 'this Mac only'
+            : `this Mac and ${l.machines - 1} other${l.machines - 1 === 1 ? '' : 's'}`;
+        return (
+          <div className="settings-field" key={key}>
+            <div className="settings-field-main">
+              <span className="settings-field-label">Total time listened</span>
+              <span className="settings-field-desc">
+                {l?.since ? `since ${formatDay(l.since)} · ${scope}` : 'nothing recorded yet'}
+              </span>
+            </div>
+            <span className="settings-field-control settings-field-value">
+              {formatListenTime(l?.totalSeconds || 0)} · {l?.totalPlays || 0} {l?.totalPlays === 1 ? 'play' : 'plays'}
+            </span>
+          </div>
+        );
+      }
+      case 'listening-tracks': {
+        const rows = listening?.topTracks || [];
+        if (!rows.length) return null;
+        return (
+          <div className="settings-field settings-field-stack" key={key}>
+            <div className="settings-field-main">
+              <span className="settings-field-label">Top tracks</span>
+              <span className="settings-field-desc">by time listened · plays</span>
+              <ol className="settings-rank-list">
+                {rows.map((r, i) => (
+                  <li key={r.track.id}>
+                    <span className="settings-rank-n">{i + 1}</span>
+                    <span className="settings-rank-title" title={r.track.title}>{r.track.title}</span>
+                    <span className="settings-rank-sub" title={r.track.artist}>{r.track.artist}</span>
+                    <span className="settings-rank-nums">
+                      {formatListenTime(r.seconds)} · {r.plays}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </div>
+        );
+      }
+      case 'listening-artists': {
+        const rows = listening?.topArtists || [];
+        if (!rows.length) return null;
+        return (
+          <div className="settings-field settings-field-stack" key={key}>
+            <div className="settings-field-main">
+              <span className="settings-field-label">Top artists</span>
+              <span className="settings-field-desc">by time listened · plays</span>
+              <ol className="settings-rank-list artists">
+                {rows.map((r, i) => (
+                  <li key={r.name}>
+                    <span className="settings-rank-n">{i + 1}</span>
+                    <span className="settings-rank-title" title={r.name}>{r.name}</span>
+                    <span className="settings-rank-nums">
+                      {formatListenTime(r.seconds)} · {r.plays}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </div>
+        );
+      }
       case 'version':
         return (
           <div className="settings-field" key={key}>
@@ -577,6 +667,21 @@ export default function SettingsModal({
             {renderField('lib-count')}
             {renderField('lib-sync')}
             {renderField('lib-reset')}
+          </>
+        );
+      case 'listening':
+        return (
+          <>
+            <h3 className="settings-section-title">Listening</h3>
+            {!listening || listening.empty ? (
+              <p className="settings-placeholder">Nothing yet. Listening stats start from today.</p>
+            ) : (
+              <>
+                {renderField('listening-total')}
+                {renderField('listening-tracks')}
+                {renderField('listening-artists')}
+              </>
+            )}
           </>
         );
       case 'about':

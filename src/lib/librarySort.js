@@ -12,10 +12,28 @@
 //               recently liked first (the view's default), 'asc' = oldest
 //               like first. Never offered outside the Liked view — nothing
 //               else has a meaningful likedAt to sort by.
+//   'plays'   — "Most played" (2026-09-07): by play count desc, from the
+//               `plays` map (trackId -> { seconds, plays }, this machine's
+//               listening summed with every other machine's — see
+//               src/lib/listening.js). Ties newest first. `dir` ignored.
+//   'neverPlayed' — "Never played first": 0 plays on top (newest first),
+//               then ascending play count. `dir` ignored. Both are single
+//               menu entries like 'liked', available wherever 'liked' is.
 
 const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
+const NO_PLAYS = new Map();
 
-export function sortLibrary(tracks, sort = 'added', dir = 'desc', order = []) {
+export function sortLibrary(tracks, sort = 'added', dir = 'desc', order = [], plays = NO_PLAYS) {
+  if (sort === 'plays' || sort === 'neverPlayed') {
+    const playsOf = (t) => plays.get(t.id)?.plays || 0;
+    return [...tracks].sort((a, b) => {
+      const ap = playsOf(a);
+      const bp = playsOf(b);
+      if (ap !== bp) return sort === 'plays' ? bp - ap : ap - bp;
+      return b.dateAdded - a.dateAdded;
+    });
+  }
+
   if (sort === 'custom') {
     const pos = new Map(order.map((id, i) => [id, i]));
     // anything missing from the saved order (e.g. imported while another sort

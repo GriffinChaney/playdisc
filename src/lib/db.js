@@ -1,9 +1,10 @@
 import { openDB, deleteDB } from 'idb';
 
 const DB_NAME = 'my-music-player';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE = 'tracks';
 const PLAYLISTS = 'playlists';
+const LISTENING = 'listening';
 
 let dbPromise = null;
 
@@ -22,6 +23,16 @@ function getDB() {
         // touches the tracks themselves.
         if (oldVersion < 2) {
           db.createObjectStore(PLAYLISTS, { keyPath: 'id' });
+        }
+        // v3: listening stats (2026-09-07). One row per (trackId, local
+        // day). Rows are THIS machine's own listening only — never merged,
+        // never written by sync; other machines' rows are read from their
+        // snapshots at display time (src/lib/listening.js). A deleted
+        // track's rows are deliberately left in place: they still count
+        // toward total time, and a resurrected track gets its history back.
+        if (oldVersion < 3) {
+          const store = db.createObjectStore(LISTENING, { keyPath: ['trackId', 'day'] });
+          store.createIndex('trackId', 'trackId');
         }
       }
     });
@@ -116,7 +127,32 @@ export async function deletePlaylistRecord(id) {
   await db.delete(PLAYLISTS, id);
 }
 
-// Drop the whole database (tracks + playlists). Settings > Library > "Reset
+// listening row shape (see src/lib/listening.js):
+// { trackId: string, day: 'YYYY-MM-DD', seconds: number, plays: number }
+
+export async function getAllListening() {
+  const db = await getDB();
+  return db.getAll(LISTENING);
+}
+
+// Add deltas to their rows in one transaction (read-modify-write per
+// (trackId, day)). Returns the rows as stored.
+export async function addListening(deltas) {
+  if (!deltas.length) return [];
+  const db = await getDB();
+  const tx = db.transaction(LISTENING, 'readwrite');
+  const out = [];
+  for (const d of deltas) {
+    const cur = (await tx.store.get([d.trackId, d.day])) || { trackId: d.trackId, day: d.day, seconds: 0, plays: 0 };
+    const row = { ...cur, seconds: cur.seconds + d.seconds, plays: cur.plays + d.plays };
+    await tx.store.put(row);
+    out.push(row);
+  }
+  await tx.done;
+  return out;
+}
+
+// Drop the whole database (tracks + playlists + listening). Settings > Library > "Reset
 // library…". Closes our own connection first — deleteDB blocks for as long
 // as any connection is open, and ours is the only one. The caller reloads
 // the renderer afterwards so every piece of derived state starts clean; a

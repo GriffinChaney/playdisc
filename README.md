@@ -68,6 +68,10 @@ that folder is in Dropbox, your library syncs between your own Macs.
   adjustable volume
 - Fully rebindable keyboard shortcuts (Settings) — play/pause, next/prev, seek,
   volume, shuffle, grid/list, focus/mini toggles, and more
+- **Listening stats** (Settings › Listening): total time listened, top tracks
+  and top artists with play counts, summed across your Macs. A play needs 30 s
+  at normal speed; time counts at any speed. Sort any view by **Most played**
+  or **Never played first**.
 - **Option+Space** quick search — a Spotlight-style palette over any view for
   tracks, artists, playlists, Imported and Liked. Selecting a result jumps to it;
   it never changes what's playing.
@@ -176,8 +180,9 @@ src/
     ShuffleIcon.jsx    RepeatIcon.jsx        RestartIcon.jsx    VolumeIcon.jsx
     HeartIcon.jsx      StarIcon.jsx          NotesIcon.jsx      GearIcon.jsx
   lib/
-    db.js              # IndexedDB (idb): tracks + playlists stores (DB v2). Stores
-                       #   metadata and paths only — audio stays on disk
+    db.js              # IndexedDB (idb): tracks + playlists + listening stores (DB v3).
+                       #   Stores metadata and paths only — audio stays on disk
+    listening.js       # listening-stats accounting (sessions, totals, top lists)
     media.js           # media-library helpers, relPath contract, mediaUrl()
     syncSnapshot.js    syncMerge.js          # per-machine snapshot JSON + the pure merge (npm test)
     parseTrack.js      mediaFingerprint.js   audioQuality.js
