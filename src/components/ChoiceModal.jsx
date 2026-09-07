@@ -5,13 +5,23 @@ import { createPortal } from 'react-dom';
 // offers OK/Cancel, and some choices (merge / add copy / cancel) need three.
 // Controlled from App: pass `config = { title, message, choices: [{ value,
 // label, primary, danger }], onChoose }` or null. `onChoose` gets the picked
-// value; closing via Esc / backdrop counts as no choice.
+// value; closing via Esc / backdrop counts as no choice. Enter picks the
+// `primary` choice (the default) — so a dialog whose safe answer is the
+// default can be dismissed from the keyboard without ever landing on the
+// destructive one; a config with no primary choice ignores Enter.
 export default function ChoiceModal({ config, onClose }) {
   useEffect(() => {
     if (!config) return;
     function onKey(e) {
       if (e.key === 'Escape') {
         e.stopPropagation();
+        onClose();
+      } else if (e.key === 'Enter') {
+        const def = config.choices.find((c) => c.primary);
+        if (!def) return;
+        e.stopPropagation();
+        e.preventDefault();
+        config.onChoose?.(def.value);
         onClose();
       }
     }

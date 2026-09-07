@@ -705,6 +705,19 @@ persisted to `localStorage.navWidth`) / `1fr` / `var(--np-width)` (fixed 278px).
   `upgrade` callback is now `oldVersion`-guarded so existing v1 dbs migrate cleanly).
   Every mutation writes the whole record through via `persistPlaylist` /
   `putPlaylist`. `handleDeleteTrack` also prunes the id from every playlist.
+  **A playlist never holds a track twice** — `handleAddTracksToPlaylist`
+  dedupes, and it's load-bearing: rows are keyed by `track.id`, multi-select
+  is a Set of ids, and "Remove from this playlist" strips every copy of an id.
+  Don't relax it without changing all three. The add-to-playlist menus
+  (`playlistMenuItems` in `LibraryList.jsx`, one builder shared by the row
+  right-click submenu and the bulk bar's "+ playlist", 2026-09-07) show
+  membership per playlist with the sort menu's `.ctx-check` glyph — `✓` all
+  target tracks in it, `–` some, blank none — and, because of the invariant,
+  treat "already there" as a notice rather than an "add anyway" choice: all
+  present → a `ChoiceModal` with one OK; some present → "Skip duplicates"
+  (adds the rest; the default) or Cancel. Enter in `ChoiceModal` now picks
+  the `primary` choice (Esc still cancels), so keyboard-only dismissal can't
+  land on a non-default button.
 - `libraryViewMode`: `'list' | 'grid'`, persisted to `localStorage.libraryViewMode`.
   Toggled by the `toggleLibraryView` keybinding (default `v`) as well as the header
   buttons.

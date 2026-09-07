@@ -3753,6 +3753,7 @@ export default function App() {
             onReorderPlaylistTracks={handleReorderPlaylistTracks}
             onOpenMenu={setContextMenu}
             onPrompt={setPromptConfig}
+            onChoice={setChoiceConfig}
             onAddVersion={handleAddVersion}
             onOpenVersions={setVersionsModalTrackId}
             onEditCover={setCoverEditTrackIds}

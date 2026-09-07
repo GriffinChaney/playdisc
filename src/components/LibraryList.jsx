@@ -111,9 +111,11 @@ function GridItem({
 // Middle column of the library view: header (title / count / total time /
 // list-grid toggle), search + tag filter, the track list or grid, the
 // multi-select bulk bar, and (in an unfiltered playlist view) drag-to-reorder.
+
 // shared empty default for the excludedTags prop, so a missing prop is a
 // stable identity (no memo churn) rather than a fresh Set per render
 const EMPTY_TAG_SET = new Set();
+
 function LibraryList({
   tracks, // already resolved + ordered for the active view
   viewTitle,
@@ -152,6 +154,7 @@ function LibraryList({
   onReorderPlaylistTracks,
   onOpenMenu,
   onPrompt,
+  onChoice, // App's setChoiceConfig — the 2+ button dialog (ChoiceModal)
   onAddVersion,
   onOpenVersions,
   onEditCover,
@@ -539,6 +542,60 @@ function LibraryList({
     }
   }
 
+  // The "add to playlist" list, shared by the row right-click submenu and
+  // the bulk bar's "+ playlist" menu so the two can't drift (2026-09-07).
+  // Each playlist shows membership at a glance — ✓ when every target track
+  // is already in it, – when some are, nothing when none — same .ctx-check
+  // glyph the sort menu uses. Playlists never hold a track twice
+  // (handleAddTracksToPlaylist dedupes, and row keys / multi-select /
+  // "remove from playlist" all assume one entry per id), so "already
+  // there" is a notice, not an "add anyway" choice: all present → an OK
+  // dialog; some present → "Skip duplicates" (adds the rest, the default)
+  // or Cancel. `onDone` is the selection-clear that follows a real add.
+  function playlistMenuItems(ids, onDone) {
+    return playlists.map((pl) => {
+      const present = ids.filter((id) => pl.trackIds.includes(id));
+      const mark = present.length === ids.length ? '✓' : present.length ? '–' : '';
+      return {
+        label: (
+          <span className="ctx-label">
+            <span className="ctx-check">{mark}</span>
+            {pl.name}
+          </span>
+        ),
+        onClick: () => {
+          const absent = ids.filter((id) => !pl.trackIds.includes(id));
+          if (absent.length === ids.length) {
+            onAddTracksToPlaylist(pl.id, ids);
+            onDone?.();
+            return;
+          }
+          if (absent.length === 0) {
+            onChoice?.({
+              title: `Already in ${pl.name}`,
+              message: ids.length === 1 ? 'This track is already in the playlist.' : 'These tracks are already in the playlist.',
+              choices: [{ value: 'ok', label: 'OK', primary: true }]
+            });
+            return;
+          }
+          onChoice?.({
+            title: `Some tracks are already in ${pl.name}`,
+            message: "Add only the ones that aren't?",
+            choices: [
+              { value: 'skip', label: 'Skip duplicates', primary: true },
+              { value: 'cancel', label: 'Cancel' }
+            ],
+            onChoose: (v) => {
+              if (v !== 'skip') return;
+              onAddTracksToPlaylist(pl.id, absent);
+              onDone?.();
+            }
+          });
+        }
+      };
+    });
+  }
+
   function openTrackMenu(e, trackId) {
     e.preventDefault();
     const ids = menuTargets(trackId);
@@ -546,13 +603,7 @@ function LibraryList({
     const label = many ? `${ids.length} tracks` : 'track';
 
     const addToPlaylistSub = [
-      ...playlists.map((pl) => ({
-        label: pl.name,
-        onClick: () => {
-          onAddTracksToPlaylist(pl.id, ids);
-          setSelectedIds(new Set());
-        }
-      })),
+      ...playlistMenuItems(ids, () => setSelectedIds(new Set())),
       ...(playlists.length ? [{ separator: true }] : []),
       {
         label: 'New playlist…',
@@ -1053,13 +1104,7 @@ function LibraryList({
                 x: e.clientX,
                 y: e.clientY,
                 items: [
-                  ...playlists.map((pl) => ({
-                    label: pl.name,
-                    onClick: () => {
-                      onAddTracksToPlaylist(pl.id, selectedInOrder());
-                      setSelectedIds(new Set());
-                    }
-                  })),
+                  ...playlistMenuItems(selectedInOrder(), () => setSelectedIds(new Set())),
                   ...(playlists.length ? [{ separator: true }] : []),
                   {
                     label: 'New playlist…',

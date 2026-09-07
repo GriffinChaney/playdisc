@@ -47,7 +47,8 @@ that folder is in Dropbox, your library syncs between your own Macs.
 - **Right** — now playing: artwork (click for fullscreen), color-reactive
   waveform, pixel-art EQ, transport
 - Add to a playlist by right-clicking a track (or a multi-selection), or the
-  `+ playlist` button on the selection bar
+  `+ playlist` button on the selection bar — the menu marks playlists the
+  track is already in, and a playlist never holds the same track twice
 - Both side columns are drag-resizable and the layout scales with the window — by
   default the track list and the artwork zone split the space after the nav roughly
   evenly. **Tab** hides the playlist nav and splits the window evenly between the
