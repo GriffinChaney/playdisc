@@ -181,16 +181,25 @@ test('sortLibrary: Most played and Never played first', () => {
   ];
   const plays = new Map([
     ['a', { seconds: 1, plays: 5 }],
-    ['b', { seconds: 1, plays: 0 }],
+    ['b', { seconds: 45, plays: 0 }], // skimmed, never a full play
     ['c', { seconds: 1, plays: 2 }]
   ]);
   assert.deepEqual(
     sortLibrary(tracks, 'plays', 'desc', [], plays).map((t) => t.id),
-    ['a', 'c', 'd', 'b'] // ties (0 plays) newest first
+    ['a', 'c', 'b', 'd'] // 0-play tie broken by time listened: b (45 s) over d (never touched)
   );
   assert.deepEqual(
     sortLibrary(tracks, 'neverPlayed', 'desc', [], plays).map((t) => t.id),
-    ['d', 'b', 'c', 'a'] // never played (newest first), then ascending plays
+    ['d', 'b', 'c', 'a'] // never played (newest first, time NOT considered), then ascending plays
+  );
+  // plays tie AND time tie -> newest first
+  const tied = new Map([
+    ['a', { seconds: 10, plays: 1 }],
+    ['b', { seconds: 10, plays: 1 }]
+  ]);
+  assert.deepEqual(
+    sortLibrary(tracks.slice(0, 2), 'plays', 'desc', [], tied).map((t) => t.id),
+    ['b', 'a']
   );
   // no plays map at all: everything is "never played"
   assert.deepEqual(

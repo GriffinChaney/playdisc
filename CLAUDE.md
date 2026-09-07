@@ -463,9 +463,12 @@ and the snapshot.
   artist pages. Empty state is one placeholder line. Ranked-list markup is
   `.settings-rank-list` in `styles.css`.
 - **Sorting.** `sortLibrary()` takes a fifth arg, the totals map;
-  `'plays'` ("Most played", desc, ties newest first) and `'neverPlayed'`
-  ("Never played first": 0 plays newest-first, then ascending) are single
-  menu entries like `'liked'`, offered in every sort menu. The ref-based
+  `'plays'` ("Most played": plays desc, ties by time listened desc, then
+  newest — so 45 s of skimming outranks a track never touched) and
+  `'neverPlayed'` ("Never played first": 0 plays newest-first, then
+  ascending; deliberately NOT time-aware — 0 plays is "never played" however
+  much it was skimmed) are single menu entries like `'liked'`, offered in
+  every sort menu. The ref-based
   callers (`handlePlayLibrary`, `orderedContextTracks`) read
   `listeningTotalsRef` so a "Most played" playback context doesn't reorder
   what "next" plays every time a play is counted.
