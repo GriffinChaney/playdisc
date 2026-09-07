@@ -29,6 +29,9 @@
      a hover fill lighter than that to read (library rows sit on --surface,
      lighter, so they can reuse --surface-2) */
   --queue-hover: #3a3a3a;
+  /* scrollbar thumb only — see the `scrollbar-color` rule below for why the
+     track has no color of its own (transparent, always) */
+  --scrollbar-thumb: rgba(255, 255, 255, 0.3);
   color-scheme: dark;
 }
 
@@ -47,11 +50,41 @@
   --playing: #3d8fc4;
   --placeholder-bg: #dedede;
   --queue-hover: #ffffff;
+  --scrollbar-thumb: rgba(0, 0, 0, 0.22);
   color-scheme: light;
 }
 
 * {
   box-sizing: border-box;
+}
+
+/* Chromium's default scrollbar track is a flat mid-grey that ignores
+   color-scheme, so it read as a visible channel against this app's much
+   darker (or, in light mode, much lighter) backgrounds.
+   History: a `::-webkit-scrollbar-track { background: transparent }`-only
+   rule was tried first, on the theory that leaving the thumb pseudo-element
+   untouched keeps Chromium's native, color-scheme-aware thumb — that held
+   up in an isolated test page but NOT against this app's real content
+   (verified live in the packaged app and reproduced in the dev preview):
+   the channel stayed, because Chromium's non-overlay ("classic") scrollbar
+   apparently still needs its OWN pseudo-elements to actually go transparent
+   rather than inheriting from -track — leaving the thumb undeclared kept
+   the whole scrollbar in a hybrid rendering mode. `scrollbar-track-piece`
+   alone didn't fix it either (tested); only declaring
+   `::-webkit-scrollbar-thumb` did.
+   Landed on `scrollbar-color` (the standard property, Chromium-supported
+   since well before Electron 31's bundled Chromium 126) instead of the
+   webkit pseudo-elements: verified live that it alone — no
+   `::-webkit-scrollbar-*` rules at all — removes the channel in both list
+   and grid, in both themes, with no `scrollbar-width` override needed (the
+   default width already reads fine). The thumb color has to be a real
+   theme-aware value, not "leave it alone": `--scrollbar-thumb` is
+   redeclared per theme below, the same pattern as every other themed
+   token in this file. Global (`*`), so every scrollable surface (track
+   list, grid, sidebar, settings, notes panel, ...) gets this for free with
+   no per-component rule. */
+* {
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
 html, body, #root {
@@ -3387,6 +3420,24 @@ body {
   flex-shrink: 0;
   border-radius: 3px;
   background: var(--placeholder-bg) center / cover no-repeat;
+}
+
+/* ---------- Edit artist modal (multi-selection) ---------- */
+.edit-artist-set-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+.edit-artist-set-row .vm-label-input {
+  flex: 1;
+}
+.edit-artist-set-row .cover-edit-btn {
+  flex: none;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+.edit-artist-reset-btn {
+  width: 100%;
 }
 
 /* ---------- Track row: version / notes markers ---------- */

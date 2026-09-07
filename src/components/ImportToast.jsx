@@ -34,7 +34,7 @@ export default function ImportToast({ toast, onDismiss }) {
     const extras = [failed && `${failed} failed`, skipped && `${skipped} already in library`]
       .filter(Boolean)
       .join(', ');
-    text = `${count} ${count === 1 ? 'sample' : 'samples'} imported${extras ? ` · ${extras}` : ''}`;
+    text = `${count} ${count === 1 ? 'song' : 'songs'} imported${extras ? ` · ${extras}` : ''}`;
   }
 
   return (

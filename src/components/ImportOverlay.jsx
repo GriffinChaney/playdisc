@@ -1,9 +1,9 @@
-// Full-screen overlay shown while samples are being imported. Determinate
+// Full-screen overlay shown while songs are being imported. Determinate
 // progress bar (done / total), with a moving sheen on the fill for a bit of
 // "loading" motion. Rendered only while an import is in flight.
 export default function ImportOverlay({ done, total, label }) {
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-  const noun = total === 1 ? 'sample' : 'samples';
+  const noun = total === 1 ? 'song' : 'songs';
 
   return (
     <div className="import-overlay">

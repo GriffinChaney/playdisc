@@ -149,6 +149,7 @@ function LibraryList({
   onAddVersion,
   onOpenVersions,
   onEditCover,
+  onEditArtist,
   missingPaths,
   searchInputRef,
   scrollPosRef,
@@ -468,6 +469,14 @@ function LibraryList({
     menuTargets(trackId).forEach((id) => onAddTag(id, tag));
   }
 
+  // the row's own tag "×" — same "whole selection vs. just this row" logic
+  // as handleRowAddTag above. This one was wired straight to onRemoveTag
+  // (bypassing menuTargets), so removing a shared tag via one row's × only
+  // ever affected that row, never the rest of the selection.
+  function handleRowRemoveTag(trackId, tag) {
+    menuTargets(trackId).forEach((id) => onRemoveTag(id, tag));
+  }
+
   // the row's "+" queue button — same "whole selection vs. just this row"
   // logic as menuTargets above: queues every selected track (in displayed
   // order, since menuTargets/visibleTracks preserve that) if the clicked
@@ -562,7 +571,13 @@ function LibraryList({
     if (onEditCover) {
       items.push({ label: many ? `Edit cover… (${label})` : 'Edit cover…', onClick: () => onEditCover(ids) });
     }
-    if ((!many && onAddVersion) || onEditCover) items.push({ separator: true });
+    // Edit artist… is multi-selection ONLY — a single track already has its
+    // own inline artist rename inside Versions & notes above; this menu item
+    // exists for exactly the case that one can't cover.
+    if (many && onEditArtist) {
+      items.push({ label: `Edit artist… (${label})`, onClick: () => onEditArtist(ids) });
+    }
+    if ((!many && onAddVersion) || onEditCover || (many && onEditArtist)) items.push({ separator: true });
     items.push({
       label: many ? `Add ${label} to queue` : 'Add to queue',
       onClick: () => {
@@ -1074,7 +1089,7 @@ function LibraryList({
                 onMouseDownTrack={onItemMouseDown}
                 onContextMenuTrack={openTrackMenu}
                 onAddTag={handleRowAddTag}
-                onRemoveTag={onRemoveTag}
+                onRemoveTag={handleRowRemoveTag}
                 allTags={allTags}
                 multiTagCount={
                   selectedIds.has(track.id) && selectedIds.size > 1 ? selectedIds.size : 0

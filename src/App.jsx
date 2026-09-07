@@ -18,6 +18,7 @@ import ImportOverlay from './components/ImportOverlay';
 import ImportToast from './components/ImportToast';
 import VersionsModal from './components/VersionsModal';
 import CoverEditModal from './components/CoverEditModal';
+import EditArtistModal from './components/EditArtistModal';
 import ChoiceModal from './components/ChoiceModal';
 import LibrarySetup from './components/LibrarySetup';
 import {
@@ -321,6 +322,10 @@ export default function App() {
   // a single-track edit, several when the right-clicked row was part of a
   // selection — see LibraryList's menuTargets)
   const [coverEditTrackIds, setCoverEditTrackIds] = useState(null);
+  // null when closed; a multi-selection's track ids while open — see
+  // EditArtistModal.jsx (multi-selection only; a single track keeps its
+  // existing inline rename in VersionsModal)
+  const [editArtistTrackIds, setEditArtistTrackIds] = useState(null);
   // multi-choice confirm (e.g. merge / copy / cancel when adding a version
   // from a file that's already its own track). null when nothing to ask.
   const [choiceConfig, setChoiceConfig] = useState(null);
@@ -1465,11 +1470,12 @@ export default function App() {
   // of these three modals is open so main can gate the window's real close
   // event on it, and close whichever one is open when asked to instead of
   // letting the window close. One coordination point here rather than
-  // touching PlaylistEditModal/VersionsModal/CoverEditModal individually —
-  // they already each expose a plain onClose prop wired to these setters.
-  const anyModalOpen = !!(editingPlaylistId || versionsModalTrackId || coverEditTrackIds);
-  const modalStateRef = useRef({ editingPlaylistId, versionsModalTrackId, coverEditTrackIds });
-  modalStateRef.current = { editingPlaylistId, versionsModalTrackId, coverEditTrackIds };
+  // touching PlaylistEditModal/VersionsModal/CoverEditModal/EditArtistModal
+  // individually — they already each expose a plain onClose prop wired to
+  // these setters.
+  const anyModalOpen = !!(editingPlaylistId || versionsModalTrackId || coverEditTrackIds || editArtistTrackIds);
+  const modalStateRef = useRef({ editingPlaylistId, versionsModalTrackId, coverEditTrackIds, editArtistTrackIds });
+  modalStateRef.current = { editingPlaylistId, versionsModalTrackId, coverEditTrackIds, editArtistTrackIds };
   useEffect(() => {
     window.electronAPI?.setModalOpen?.(anyModalOpen);
   }, [anyModalOpen]);
@@ -1478,6 +1484,7 @@ export default function App() {
       window.electronAPI?.onCloseActiveModal?.(() => {
         const m = modalStateRef.current;
         if (m.coverEditTrackIds) setCoverEditTrackIds(null);
+        else if (m.editArtistTrackIds) setEditArtistTrackIds(null);
         else if (m.versionsModalTrackId) setVersionsModalTrackId(null);
         else if (m.editingPlaylistId) setEditingPlaylistId(null);
       }),
@@ -2863,6 +2870,11 @@ export default function App() {
         const kept = open.filter((id) => !gone.has(id));
         return kept.length === open.length ? open : kept.length ? kept : null;
       });
+      setEditArtistTrackIds((open) => {
+        if (!open) return open;
+        const kept = open.filter((id) => !gone.has(id));
+        return kept.length === open.length ? open : kept.length ? kept : null;
+      });
       setQueue((q) => (q.some((e) => gone.has(e.trackId)) ? q.filter((e) => !gone.has(e.trackId)) : q));
       const filtered = historyRef.current.filter((h) => !gone.has(h.trackId));
       if (filtered.length !== historyRef.current.length) {
@@ -3032,6 +3044,7 @@ export default function App() {
         e.preventDefault();
         const m = modalStateRef.current;
         if (m.coverEditTrackIds) setCoverEditTrackIds(null);
+        else if (m.editArtistTrackIds) setEditArtistTrackIds(null);
         else if (m.versionsModalTrackId) setVersionsModalTrackId(null);
         else if (m.editingPlaylistId) setEditingPlaylistId(null);
         return;
@@ -3434,6 +3447,7 @@ export default function App() {
             onAddVersion={handleAddVersion}
             onOpenVersions={setVersionsModalTrackId}
             onEditCover={setCoverEditTrackIds}
+            onEditArtist={setEditArtistTrackIds}
             missingPaths={missingPaths}
             searchInputRef={searchInputRef}
           />
@@ -3621,6 +3635,11 @@ export default function App() {
         tracks={coverEditTrackIds ? tracks.filter((t) => coverEditTrackIds.includes(t.id)) : []}
         onClose={() => setCoverEditTrackIds(null)}
         onSave={handleSaveCover}
+      />
+      <EditArtistModal
+        tracks={editArtistTrackIds ? tracks.filter((t) => editArtistTrackIds.includes(t.id)) : []}
+        onClose={() => setEditArtistTrackIds(null)}
+        onRenameArtist={handleRenameArtist}
       />
     </div>
   );
