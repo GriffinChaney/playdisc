@@ -91,8 +91,10 @@ playdisc/                # repo lives at ~/Developer/playdisc (was ~/Developer/s
 │       ├── mediaFingerprint.js# size + edge-hash content fingerprint (import dedupe)
 │       ├── syncSnapshot.js    # library <-> per-machine snapshot JSON + content-addressed art refs
 │       ├── syncMerge.js       # PURE per-item merge (newest wins, tombstones, per-note stamps) — tested
-│       └── updateCheck.js     # fetches the latest GitHub release, compares to app.getVersion() — see "Beta distribution & update checks"
-├── test/syncMerge.test.mjs   # `npm test` (node --test) — the only test suite in the repo
+│       ├── updateCheck.js     # fetches the latest GitHub release, compares to app.getVersion() — see "Beta distribution & update checks"
+│       └── listening.js       # PURE listening-stats accounting (sessions, rows, totals, top lists) — tested; see "Listening stats"
+├── test/syncMerge.test.mjs   # `npm test` (node --test) — the sync merge rules
+├── test/listening.test.mjs   # `npm test` — listening sessions/thresholds/totals + the two play-count sorts
 ├── scripts/release.mjs   # `npm run release -- X.Y.Z`: bumps package.json's version, commits, tags, pushes — see "Beta distribution & update checks"
 ├── docs/LIBRARY_SYNC_PLAN.md # how sync was planned + staged (history; CLAUDE.md is current truth)
 ├── docs/deferred/crossfade.md # crossfade feature: scoped, shelved, not implemented — read before starting it
@@ -106,7 +108,7 @@ playdisc/                # repo lives at ~/Developer/playdisc (was ~/Developer/s
 ```bash
 npm run electron:dev      # vite dev server + electron pointed at localhost:5173
 npm run electron:build    # vite build + electron-builder -> release/mac-arm64/Playdisc.app
-npm test                  # node --test test/ — the sync merge rules (pure, fast)
+npm test                  # node --test test/ — sync merge rules + listening stats (pure, fast)
 ```
 
 **Always fully restart** `electron:dev` (kill both processes, don't rely on HMR) after
@@ -392,6 +394,86 @@ by hand.
   inline (checking… / "you're up to date" / "vX.Y.Z is available" / "couldn't
   check — you may be offline"), specifically so the check can be verified
   without waiting for a real newer release to exist.
+
+## Listening stats
+
+Built 2026-09-07 on branch `listening-stats` (`pre-listening-stats` tags main
+before it). Records how much Griffin actually listens to each track; nothing
+retroactive — history starts at zero on the first launch with this build.
+The accounting is pure and tested (`src/lib/listening.js`,
+`test/listening.test.mjs`); `App.jsx` only wires it to playback, IndexedDB,
+and the snapshot.
+
+- **Unit of storage.** IndexedDB store `listening` (**DB_VERSION 2→3**, a
+  third `oldVersion < 3` block in `db.js`'s upgrade), keyPath
+  `['trackId', 'day']`, index on `trackId`. One row per (track, **local**
+  calendar day): `{ trackId, day: 'YYYY-MM-DD', seconds, plays }`. Day buckets
+  exist so time windows are possible later; the only UI today is all-time.
+  Seconds are fractional (sub-second remainders carried, rounded at display).
+- **Sessions and the two 2x rules.** A *session* is one adoption of a track
+  (`playingTrackId` change); repeat-one's loop restarts the session
+  (`restartSession` in `handleFinish`) so each loop can count a play. Ticks
+  ride on `handleTimeUpdate`'s existing 200 ms throttle — ref math only, no
+  state — as wall-clock `performance.now()` slices attributed to
+  `playingTrackId`. A slice over `MAX_TICK_GAP_MS` (2 s) is a pause/seek/
+  sleep and is dropped; the pause effect also drops the anchor
+  (`suspendSession`) so a quick pause/unpause can't count. **Time listened
+  counts every slice at any speed; a "play" needs `PLAY_THRESHOLD_MS` (30 s)
+  of slices at 1x within one session** — `spaceHoldActiveRef` is exactly
+  "the rate is 2x right now", so no separate rate tracking exists. A session
+  starts with no anchor, so the decode gap between adopt and first audio is
+  never counted.
+- **Flush cadence.** In-memory rows first (`listeningRowsRef`, so a snapshot
+  written next already reflects them), then `addListening()` (one
+  read-modify-write transaction). Flushes happen every `LISTENING_FLUSH_MS`
+  (15 s) while playing, on pause, on track change, the tick a play is
+  counted, and on `pagehide` — never per tick.
+- **Sync: owned, never merged.** Stats are NOT items in the merge —
+  per-item newest-wins would throw one machine's listening away. Each
+  machine's rows ride in its own snapshot as a top-level `listening` array
+  (**schemaless at format 2, deliberately not a format bump** — see the note
+  in `syncSnapshot.js`: a bump would make a not-yet-updated machine skip the
+  whole snapshot). `runSync` reads every OTHER machine's `listening` on the
+  same read it already does, aggregates it (`remoteListening()` in the lib,
+  filtered by **`doc.machineId`, not file name** — a Dropbox conflicted copy
+  of our own snapshot carries our id and would double-count), and stores it
+  as `remoteListening` state behind a cheap signature so a focus re-read
+  doesn't re-render for nothing. That update sits *before* the "nothing to
+  merge" early return on purpose. Display and sorting read `listeningTotals`
+  = local + remote summed. The edit guard applies for free: a deferred
+  `runSync` defers the stats refresh too, and stats never touch a track
+  record. **Snapshot churn**: a listening change triggers a snapshot write
+  ONLY when a play is counted (`listeningSnapshotTick`) and on quit; seconds
+  ride along with whatever write happens next. So Dropbox sees roughly one
+  write per song, same as a like.
+- **Deletion / tombstones / reset.** Rows are keyed by track id and are
+  deliberately **kept** when a track is deleted (locally or via a remote
+  tombstone): they still count toward total time, and a track resurrected by
+  a newer edit gets its history back. Top lists only show tracks that exist.
+  Settings › Library › "Reset library…" drops the whole DB including this
+  store and this machine's snapshot, so this machine's stats are gone after
+  a reset; the other machine's survive in its own snapshot. Known gap
+  inherited from sync: the same song imported on both machines has two ids
+  and its stats split.
+- **Display** (Settings › Listening, between Library and About): total time ·
+  plays with a "since <first day> · this Mac and N others" line; top 10
+  tracks and top 10 artists by time with plays alongside. **Artist totals
+  are summed from tracks at display time through `primaryArtist()`** — no
+  separate tracking, and "Daft Punk feat. X" rolls into Daft Punk like the
+  artist pages. Empty state is one placeholder line. Ranked-list markup is
+  `.settings-rank-list` in `styles.css`.
+- **Sorting.** `sortLibrary()` takes a fifth arg, the totals map;
+  `'plays'` ("Most played": plays desc, ties by time listened desc, then
+  newest — so 45 s of skimming outranks a track never touched) and
+  `'leastPlayed'` ("Least played": the exact mirror — plays asc, time asc,
+  then newest; untouched tracks stay on top, a skimmed 0-play track sorts
+  after them instead of mixing in by date) are single menu entries like
+  `'liked'`, offered in every sort menu. One comparator, sign-flipped. (An
+  earlier `'neverPlayed'` key existed for a day on this branch; a saved
+  value of it just falls through to newest-first.) The ref-based
+  callers (`handlePlayLibrary`, `orderedContextTracks`) read
+  `listeningTotalsRef` so a "Most played" playback context doesn't reorder
+  what "next" plays every time a play is counted.
 
 ## State architecture (`App.jsx`)
 
@@ -911,8 +993,9 @@ This isn't an exhaustive list of every field on a track record — schemaless ad
 `patchTrack`/`updateTrack` without necessarily being added here. Treat this as "the
 shape as of the last time someone updated this comment," not a strict schema.
 
-IndexedDB database name is `"my-music-player"` (stores `"tracks"` and, since
-DB_VERSION 2, `"playlists"`) — **not** renamed when the app was rebranded (twice now:
+IndexedDB database name is `"my-music-player"` (stores `"tracks"`, since
+DB_VERSION 2 `"playlists"`, and since DB_VERSION 3 `"listening"` — see "Listening
+stats") — **not** renamed when the app was rebranded (twice now:
 `my music player` → `Sona` → `Playdisc`).
 Harmless (it's an internal identifier the user never sees), but don't be surprised
 finding it while debugging storage, and don't
@@ -1120,3 +1203,7 @@ All of this lives in `src/components/Waveform.jsx`.
     live in `src/lib/syncMerge.js` with tests. Never snapshot an empty/half-loaded
     library as this machine's truth, never stamp an unstamped record with `Date.now()`
     (see "Merge rules"), and never apply a merge while a text field has focus.
+11. **Listening stats are owned per machine and never merged.** Don't add the
+    `listening` rows to `mergeLibraries`, don't bump the snapshot `format` for
+    them, and don't let a listening tick trigger a snapshot write — only a
+    counted play (and quit) may. See "Listening stats".

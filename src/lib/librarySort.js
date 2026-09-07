@@ -12,10 +12,40 @@
 //               recently liked first (the view's default), 'asc' = oldest
 //               like first. Never offered outside the Liked view — nothing
 //               else has a meaningful likedAt to sort by.
+//   'plays'   — "Most played" (2026-09-07): by play count desc, from the
+//               `plays` map (trackId -> { seconds, plays }, this machine's
+//               listening summed with every other machine's — see
+//               src/lib/listening.js). Ties by time listened desc — 45 s of
+//               listening with 0 plays outranks a track never touched —
+//               then newest first. `dir` ignored.
+//   'leastPlayed' — "Least played": the exact mirror — plays asc, then time
+//               listened asc, then newest first. Untouched tracks stay on
+//               top; a track skimmed for 45 s with 0 plays sorts after them
+//               rather than mixing in by date. `dir` ignored. Both are
+//               single menu entries like 'liked', available wherever
+//               'liked' is.
 
 const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
+const NO_PLAYS = new Map();
 
-export function sortLibrary(tracks, sort = 'added', dir = 'desc', order = []) {
+export function sortLibrary(tracks, sort = 'added', dir = 'desc', order = [], plays = NO_PLAYS) {
+  if (sort === 'plays' || sort === 'leastPlayed') {
+    // one comparator, sign-flipped: 'plays' is most-first, 'leastPlayed' is
+    // least-first, on plays then time; the newest-first tiebreak is shared
+    const s = sort === 'plays' ? -1 : 1;
+    return [...tracks].sort((a, b) => {
+      const av = plays.get(a.id);
+      const bv = plays.get(b.id);
+      const ap = av?.plays || 0;
+      const bp = bv?.plays || 0;
+      if (ap !== bp) return s * (ap - bp);
+      const as = av?.seconds || 0;
+      const bs = bv?.seconds || 0;
+      if (as !== bs) return s * (as - bs);
+      return b.dateAdded - a.dateAdded;
+    });
+  }
+
   if (sort === 'custom') {
     const pos = new Map(order.map((id, i) => [id, i]));
     // anything missing from the saved order (e.g. imported while another sort

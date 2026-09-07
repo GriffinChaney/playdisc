@@ -31,8 +31,26 @@ import {
   getAllPlaylists,
   putPlaylist,
   deletePlaylistRecord,
-  resetLibraryDatabase
+  resetLibraryDatabase,
+  getAllListening,
+  addListening
 } from './lib/db';
+import {
+  startSession,
+  restartSession,
+  suspendSession,
+  tickSession,
+  drainSession,
+  aggregateRows,
+  applyDeltas,
+  sumTotals,
+  grandTotal,
+  earliestDay,
+  remoteListening as aggregateRemoteListening,
+  totalsSignature,
+  topTracks,
+  topArtists
+} from './lib/listening';
 import { buildImportedTrack } from './lib/parseTrack';
 import {
   mediaUrl,
@@ -385,6 +403,25 @@ export default function App() {
   // The writer runs ONLY in 'ready'. Anything earlier would snapshot an
   // empty or half-merged library as if it were this machine's truth.
   const [libraryPhase, setLibraryPhase] = useState('loading');
+
+  // ---- listening stats (src/lib/listening.js; CLAUDE.md "Listening stats") ----
+  // This machine's own rows, mirrored from IndexedDB's `listening` store:
+  // rowKey(trackId, day) -> { trackId, day, seconds, plays }. Never merged —
+  // the other machines' rows are read from THEIR snapshots (remoteListening
+  // below) and only ever summed for display/sorting.
+  const listeningRowsRef = useRef(new Map());
+  const [localListening, setLocalListening] = useState({ totals: new Map(), since: null });
+  const [remoteListening, setRemoteListening] = useState({ totals: new Map(), machines: 0, since: null });
+  const remoteListeningSigRef = useRef('');
+  // The ONLY listening event that triggers a snapshot write: a play being
+  // counted (and quit, see the pagehide effect). Seconds accrued between
+  // plays ride along with whatever write happens next — so listening
+  // churns Dropbox about once per song, not every few seconds.
+  const [listeningSnapshotTick, setListeningSnapshotTick] = useState(0);
+  const listenSessionRef = useRef(null);
+  // how often accrued listening is written to IndexedDB while playing (plus
+  // on pause, track change, a counted play, and quit) — never per tick
+  const LISTENING_FLUSH_MS = 15_000;
   // when this machine's snapshot was last written / other machines' last
   // merged in (Settings > Library)
   const [lastSnapshotAt, setLastSnapshotAt] = useState(null);
@@ -670,7 +707,10 @@ export default function App() {
   }
 
   useEffect(() => {
-    Promise.all([getAllTracks(), getAllPlaylists()]).then(([all, pls]) => {
+    Promise.all([getAllTracks(), getAllPlaylists(), getAllListening()]).then(([all, pls, listened]) => {
+      const rows = new Map(listened.map((r) => [`${r.trackId}|${r.day}`, r]));
+      listeningRowsRef.current = rows;
+      setLocalListening({ totals: aggregateRows(listened), since: earliestDay(listened) });
       // see legacyLibrary above — a single pre-rework record blocks the
       // whole library rather than loading a mix of usable and unusable rows
       const legacy = all.filter(
@@ -774,6 +814,20 @@ export default function App() {
           return false;
         })
         .map((s) => ({ file: s.file, doc: s.doc, fallbackStamp: s.doc.writtenAt || 0 }));
+
+      // Other machines' listening rows: read-only aggregates, never merged
+      // (each machine owns its rows). Filtered by the doc's machineId, not
+      // the file name — a Dropbox conflicted copy of OUR snapshot carries
+      // our id and would otherwise double-count us. Happens before the
+      // "nothing to merge" early return below on purpose: a listening-only
+      // change on the other machine changes no track record.
+      const ownMachineId = libraryRootRef.current?.machineId || own?.doc?.machineId || null;
+      const rl = aggregateRemoteListening(snaps.filter((s) => s.doc).map((s) => s.doc), ownMachineId);
+      const rlSig = totalsSignature(rl);
+      if (rlSig !== remoteListeningSigRef.current) {
+        remoteListeningSigRef.current = rlSig;
+        setRemoteListening(rl);
+      }
 
       // Records from before stage 4 carry no updatedAt. On the first stage-4
       // launch they're stamped ONCE with this machine's last snapshot's
@@ -1002,9 +1056,78 @@ export default function App() {
     };
   }, [libraryPhase, libraryReady, runSync]);
 
+  // ---- listening: session accounting ----
+  // A session is one adoption of a track (adopt -> next adopt; repeat-one's
+  // loop restarts it). Ticks come from handleTimeUpdate's existing 200 ms
+  // throttle — wall-clock slices at any speed count as time, only 1x slices
+  // count toward the 30 s play threshold (spaceHoldActiveRef is exactly
+  // "the rate is 2x right now"). Flushes go in-memory first so a snapshot
+  // written right after reflects them, then to IndexedDB.
+  const publishLocalListening = useCallback(() => {
+    const arr = [...listeningRowsRef.current.values()];
+    setLocalListening({ totals: aggregateRows(arr), since: earliestDay(arr) });
+  }, []);
+
+  const flushListening = useCallback(() => {
+    const s = listenSessionRef.current;
+    if (!s) return;
+    const { session, deltas } = drainSession(s);
+    listenSessionRef.current = session;
+    if (!deltas.length) return;
+    applyDeltas(listeningRowsRef.current, deltas);
+    publishLocalListening();
+    addListening(deltas).catch((err) => console.error('[listening] write failed:', err));
+  }, [publishLocalListening]);
+
+  // a new adoption = a new session; the old one is flushed first, still
+  // attributed to the track it belonged to
+  useEffect(() => {
+    flushListening();
+    listenSessionRef.current = playingTrackId ? startSession(playingTrackId) : null;
+  }, [playingTrackId, flushListening]);
+
+  // pause: drop the anchor so the paused gap can never be counted, and
+  // flush what's accrued
+  useEffect(() => {
+    if (isPlaying) return;
+    listenSessionRef.current = suspendSession(listenSessionRef.current);
+    flushListening();
+  }, [isPlaying, flushListening]);
+
+  // steady flush while playing — a cadence, never per tick
+  useEffect(() => {
+    if (!isPlaying) return;
+    const id = setInterval(flushListening, LISTENING_FLUSH_MS);
+    return () => clearInterval(id);
+  }, [isPlaying, flushListening]);
+
+  // this machine's + every other machine's, summed — what sorting and the
+  // Settings > Listening section read
+  const listeningTotals = useMemo(
+    () => sumTotals(localListening.totals, remoteListening.totals),
+    [localListening.totals, remoteListening.totals]
+  );
+  const listeningTotalsRef = useRef(listeningTotals);
+  listeningTotalsRef.current = listeningTotals;
+  const listeningStats = useMemo(() => {
+    const g = grandTotal(listeningTotals);
+    const since = [localListening.since, remoteListening.since].filter(Boolean).sort()[0] || null;
+    return {
+      empty: listeningTotals.size === 0,
+      totalSeconds: g.seconds,
+      totalPlays: g.plays,
+      since,
+      machines: 1 + remoteListening.machines,
+      topTracks: topTracks(tracks, listeningTotals, 10),
+      topArtists: topArtists(tracks, listeningTotals, primaryArtist, 10)
+    };
+  }, [tracks, listeningTotals, localListening.since, remoteListening.since, remoteListening.machines]);
+
   // Writer: this machine's snapshot is rewritten (debounced) after any
   // change to tracks / playlists / tombstones / the hand-dragged library
-  // order. Art bytes go over IPC only for files main doesn't already have
+  // order — and after a play is counted (listeningSnapshotTick; the
+  // listening rows themselves ride along with every write, see
+  // serializeLibrary). Art bytes go over IPC only for files main doesn't already have
   // (knownArtRef is refreshed from disk by every merge and grows with each
   // write). Writes are serialized; a change landing mid-write marks it
   // dirty and the loop goes round again, so the last write always reflects
@@ -1027,6 +1150,7 @@ export default function App() {
           tombstones: tombstonesRef.current,
           libraryOrder: libraryOrderRef.current,
           libraryOrderUpdatedAt: libraryOrderUpdatedAtRef.current,
+          listening: [...listeningRowsRef.current.values()],
           machineId
         });
         const known = knownArtRef.current || new Set();
@@ -1058,7 +1182,22 @@ export default function App() {
       flushSnapshot();
     }, 500);
     return () => clearTimeout(snapshotTimerRef.current);
-  }, [tracks, playlists, tombstones, libraryOrder, libraryOrderUpdatedAt, libraryPhase, libraryReady, flushSnapshot]);
+  }, [tracks, playlists, tombstones, libraryOrder, libraryOrderUpdatedAt, listeningSnapshotTick, libraryPhase, libraryReady, flushSnapshot]);
+
+  // Quit / reload: flush the session (IndexedDB, local — lands) and request
+  // one last snapshot write (async IPC — best effort; if it doesn't finish,
+  // the rows are safe in IndexedDB and ride along with the next write after
+  // relaunch, the other machine just sees the last few minutes late).
+  useEffect(() => {
+    if (libraryPhase !== 'ready' || !libraryReady) return;
+    const onHide = () => {
+      flushListening();
+      snapshotDirtyRef.current = true;
+      flushSnapshot();
+    };
+    window.addEventListener('pagehide', onHide);
+    return () => window.removeEventListener('pagehide', onHide);
+  }, [libraryPhase, libraryReady, flushListening, flushSnapshot]);
 
   // sweep for active-version files that have gone missing from disk. Waits
   // for the root: main throws on every media IPC without one, and a legacy
@@ -1640,7 +1779,7 @@ export default function App() {
       const plTracks = activePlaylist.trackIds.map((id) => byId.get(id)).filter(Boolean);
       const sort = activePlaylist.sort || 'custom';
       if (sort === 'custom') return plTracks;
-      return sortLibrary(plTracks, sort, activePlaylist.sortDir || 'desc', activePlaylist.trackIds);
+      return sortLibrary(plTracks, sort, activePlaylist.sortDir || 'desc', activePlaylist.trackIds, listeningTotals);
     }
     if (isLikedView) {
       // likedViewIds is a frozen snapshot (see its declaration above) —
@@ -1649,15 +1788,22 @@ export default function App() {
       // etc.) still comes from the live `tracks` array via this lookup.
       const byId = new Map(tracks.map((t) => [t.id, t]));
       const likedTracks = likedViewIds.map((id) => byId.get(id)).filter(Boolean);
-      return sortLibrary(likedTracks, likedSort, likedSortDir, []);
+      return sortLibrary(likedTracks, likedSort, likedSortDir, [], listeningTotals);
     }
     if (isArtistView) {
       // live filter, not a snapshot — see artistSort's declaration above for
       // why that's the right call here (unlike Liked's likedViewIds)
-      return sortLibrary(tracks.filter((t) => primaryArtist(t.artist) === activeArtistName), artistSort, artistSortDir, []);
+      return sortLibrary(
+        tracks.filter((t) => primaryArtist(t.artist) === activeArtistName),
+        artistSort,
+        artistSortDir,
+        [],
+        listeningTotals
+      );
     }
-    return sortLibrary(tracks, librarySort, librarySortDir, libraryOrder);
+    return sortLibrary(tracks, librarySort, librarySortDir, libraryOrder, listeningTotals);
   }, [
+    listeningTotals,
     tracks,
     activePlaylist,
     isLikedView,
@@ -1828,7 +1974,8 @@ export default function App() {
       tracksRef.current,
       librarySortRef.current,
       librarySortDirRef.current,
-      libraryOrderRef.current
+      libraryOrderRef.current,
+      listeningTotalsRef.current
     );
     const startId = startTrackFor(ordered.map((t) => t.id));
     if (!startId) return;
@@ -2287,7 +2434,7 @@ export default function App() {
           const sort = ctx.sort || pl.sort || 'custom';
           return sort === 'custom'
             ? list
-            : sortLibrary(list, sort, ctx.dir || pl.sortDir || 'desc', pl.trackIds);
+            : sortLibrary(list, sort, ctx.dir || pl.sortDir || 'desc', pl.trackIds, listeningTotalsRef.current);
         }
       }
     }
@@ -2299,7 +2446,8 @@ export default function App() {
         tracks.filter((t) => t.liked),
         ctx.sort || 'likedAt',
         ctx.dir || 'desc',
-        []
+        [],
+        listeningTotalsRef.current
       );
     }
     if (ctx.type === 'artist') {
@@ -2307,14 +2455,18 @@ export default function App() {
         tracks.filter((t) => primaryArtist(t.artist) === ctx.name),
         ctx.sort || 'added',
         ctx.dir || 'desc',
-        []
+        [],
+        listeningTotalsRef.current
       );
     }
+    // play counts read through the ref: a "Most played" context shouldn't
+    // reorder what "next" plays every time a play is counted mid-listen
     return sortLibrary(
       tracks,
       ctx.sort || 'added',
       ctx.dir || 'desc',
-      libraryOrderRef.current
+      libraryOrderRef.current,
+      listeningTotalsRef.current
     );
   }, [tracks]);
 
@@ -2515,6 +2667,9 @@ export default function App() {
     resetSpaceHold();
     // repeat-one: loop the current track, bypassing queue / context entirely
     if (repeatMode === 'one' && playingTrackId) {
+      // each loop is a fresh listening session: another 30 s at 1x counts
+      // another play (time keeps accruing either way)
+      listenSessionRef.current = restartSession(listenSessionRef.current, performance.now());
       waveformRef.current?.seekTo(0);
       setCurrentTime(0);
       waveformRef.current?.play();
@@ -2593,7 +2748,18 @@ export default function App() {
     if (now - lastTimeUpdateRef.current < 200) return;
     lastTimeUpdateRef.current = now;
     setCurrentTime(t);
-  }, []);
+    // listening stats ride on this same 200 ms cadence — ref math only, no
+    // extra state; the only state write is when a play is first counted
+    const s = listenSessionRef.current;
+    if (s && isPlayingRef.current && s.trackId === playingTrackIdRef.current) {
+      const r = tickSession(s, now, !spaceHoldActiveRef.current);
+      listenSessionRef.current = r.session;
+      if (r.newPlay) {
+        flushListening();
+        setListeningSnapshotTick((n) => n + 1);
+      }
+    }
+  }, [flushListening]);
 
   // ---- versions & notes -------------------------------------------------
 
@@ -3710,6 +3876,7 @@ export default function App() {
           lastSnapshotAt={lastSnapshotAt}
           lastSyncAt={lastSyncAt}
           trackCount={tracks.length}
+          listening={listeningStats}
           onClose={handleCloseSettings}
         />
       )}

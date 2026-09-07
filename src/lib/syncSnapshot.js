@@ -20,6 +20,13 @@ import { isRelPath } from './media';
 // alongside `libraryOrder`. Format 1 documents (stage 3) are still readable —
 // their records just have no stamps, which the merge handles by falling
 // back to the document's `writtenAt` (see syncMerge.js).
+//
+// `listening` (2026-09-07) is a schemaless addition at format 2, NOT a
+// format bump: it's this machine's own listening rows (src/lib/listening.js),
+// purely additive, and the merge never reads it — so a reader that predates
+// it ignores the key and keeps merging everything else. A bump to 3 would
+// have made a not-yet-updated machine skip the WHOLE snapshot (likes, tags,
+// notes too) until it was updated — see runSync's READABLE_FORMATS check.
 
 export const SNAPSHOT_FORMAT = 2;
 export const READABLE_FORMATS = new Set([1, 2]);
@@ -74,6 +81,7 @@ export async function serializeLibrary({
   tombstones = [],
   libraryOrder,
   libraryOrderUpdatedAt = 0,
+  listening = [],
   machineId
 }) {
   const art = new Map();
@@ -117,7 +125,8 @@ export async function serializeLibrary({
       tracks: outTracks,
       playlists: outPlaylists,
       libraryOrder: Array.isArray(libraryOrder) ? libraryOrder : [],
-      libraryOrderUpdatedAt
+      libraryOrderUpdatedAt,
+      listening: Array.isArray(listening) ? listening : []
     },
     art
   };

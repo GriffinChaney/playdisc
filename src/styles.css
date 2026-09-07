@@ -1948,6 +1948,55 @@ body {
   font-size: 13px;
   margin: 0;
 }
+
+/* Settings > Listening: a field whose body is a ranked list (top tracks /
+   top artists). Same row chrome as .settings-field, stacked instead of
+   label-left / control-right. Quiet: no accent, tabular numbers. */
+.settings-field-stack {
+  flex-direction: column;
+  align-items: stretch;
+}
+.settings-rank-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.settings-rank-list li {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 12px;
+  min-width: 0;
+}
+.settings-rank-list.artists li {
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+}
+.settings-rank-n {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.settings-rank-title {
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.settings-rank-sub {
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.settings-rank-nums {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .settings-result-group {
   margin-bottom: 16px;
 }

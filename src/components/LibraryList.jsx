@@ -746,6 +746,13 @@ function LibraryList({
   // row already shares this page's own artist — sortLibrary's 'artist' mode
   // ties on title, so it degrades to a plain title sort, which is exactly
   // as meaningful here as it is anywhere else.
+  // 'Most played' / 'Least played' (2026-09-07) are single entries like
+  // 'Liked first', offered everywhere — play counts come from listening
+  // stats summed across machines (src/lib/listening.js, via App's plays map).
+  const PLAY_SORTS = [
+    ['plays', 'desc', 'Most played'],
+    ['leastPlayed', 'desc', 'Least played']
+  ];
   const SORT_OPTIONS = isLikedView
     ? [
         ['likedAt', 'desc', 'Recently liked'],
@@ -753,7 +760,8 @@ function LibraryList({
         ['added', 'desc', 'Newest first'],
         ['added', 'asc', 'Oldest first'],
         ['artist', 'asc', 'Artist · A–Z'],
-        ['artist', 'desc', 'Artist · Z–A']
+        ['artist', 'desc', 'Artist · Z–A'],
+        ...PLAY_SORTS
       ]
     : isArtistView
       ? [
@@ -761,7 +769,8 @@ function LibraryList({
           ['added', 'asc', 'Oldest first'],
           ['artist', 'asc', 'Artist · A–Z'],
           ['artist', 'desc', 'Artist · Z–A'],
-          ['liked', 'desc', 'Liked first']
+          ['liked', 'desc', 'Liked first'],
+          ...PLAY_SORTS
         ]
       : [
           ['custom', 'desc', 'Custom order'],
@@ -769,10 +778,13 @@ function LibraryList({
           ['added', 'asc', 'Oldest first'],
           ['artist', 'asc', 'Artist · A–Z'],
           ['artist', 'desc', 'Artist · Z–A'],
-          ['liked', 'desc', 'Liked first']
+          ['liked', 'desc', 'Liked first'],
+          ...PLAY_SORTS
         ];
+  // sorts with one menu entry (no asc/desc pair): active on the sort key alone
+  const isSingleEntry = (s) => s === 'custom' || s === 'liked' || s === 'plays' || s === 'leastPlayed';
   const activeSortLabel =
-    SORT_OPTIONS.find(([s, d]) => s === sort && (s === 'custom' || s === 'liked' || d === sortDir))?.[2] || 'Sort';
+    SORT_OPTIONS.find(([s, d]) => s === sort && (isSingleEntry(s) || d === sortDir))?.[2] || 'Sort';
 
   function openSortMenu(e) {
     const r = e.currentTarget.getBoundingClientRect();
@@ -780,7 +792,7 @@ function LibraryList({
       x: r.left,
       y: r.bottom + 4,
       items: SORT_OPTIONS.map(([s, d, label]) => {
-        const active = s === sort && (s === 'custom' || s === 'liked' || d === sortDir);
+        const active = s === sort && (isSingleEntry(s) || d === sortDir);
         return {
           label: (
             <span className="ctx-label">
