@@ -1165,6 +1165,16 @@ All of this lives in `src/components/Waveform.jsx`.
   asked to remove it from the volume slider and from tag-filter chips in both themes —
   those now use `var(--text-primary)`/neutral grays instead of `var(--accent-dim)`.
   Don't reintroduce purple on generic UI chrome without checking first.
+  **`var(--playing)` is the one sanctioned "on" color on chrome** — the filled
+  heart, the now-playing row, and (2026-09-07) shuffle/repeat when active: tinted
+  icon + a 4px dot centered under it (`::after`, anchored to the icon so the
+  button box never changes), the same in the main transport, fullscreen, mini,
+  and the library header. Over cover-art backdrops the rules hardcode the
+  dark-theme blue `#8ec5e8` (the light theme's `--playing` is a navy that's
+  wrong on art) with a dark halo on the icon and a 1.5px dark ring on the dot so
+  it reads on any backdrop color. This replaced the old "on" states (brighter
+  icon / white icon in a translucent circle), which were brightness-only and
+  didn't read when the backdrop changed per track.
 - **Subtle "Apple-like" micro-interactions are wanted broadly**: hover-scale on
   tracks/buttons/inputs (~1.01–1.15x, `transition: transform 0.12–0.15s ease`), a
   cursor-tracking 3D tilt on album art (`src/lib/artworkTilt.js`,

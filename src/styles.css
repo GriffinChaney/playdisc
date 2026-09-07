@@ -1226,9 +1226,25 @@ body {
   color: rgba(244, 244, 242, 0.82);
   filter: drop-shadow(0 1px 6px rgba(0, 0, 0, 0.45));
 }
+/* Over a cover-art backdrop the theme's --playing can be the light-theme
+   navy, which is wrong on art (these contexts hardcode #f4f4f2 for the same
+   reason) — use the dark-theme blue outright. Survival on ANY backdrop
+   color: a tighter dark halo on the icon than the neutral buttons get, and
+   a 1.5px dark ring around the dot — a pale backdrop is carried by the
+   ring/halo, a dark one by the blue itself. */
 .focus-view.has-backdrop .shuffle-btn.active,
-.focus-view.has-backdrop .repeat-btn.active {
-  color: #f4f4f2;
+.focus-view.has-backdrop .repeat-btn.active,
+.mini-player.has-backdrop .mini-shuffle-btn.active,
+.lib-header.has-backdrop .lib-shuffle-btn.active {
+  color: #8ec5e8;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.6));
+}
+.focus-view.has-backdrop .shuffle-btn.active::after,
+.focus-view.has-backdrop .repeat-btn.active::after,
+.mini-player.has-backdrop .mini-shuffle-btn.active::after,
+.lib-header.has-backdrop .lib-shuffle-btn.active::after {
+  background: #8ec5e8;
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.4);
 }
 .focus-view.has-backdrop .transport .play-btn,
 .mini-player.has-backdrop .mini-transport .play-btn {
@@ -1313,26 +1329,45 @@ body {
 .shuffle-btn,
 .restart-btn,
 .repeat-btn {
+  position: relative; /* anchors the active dot; .mini-shuffle-btn's own absolute wins (declared later) */
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 15px;
 }
+/* Shuffle / repeat "on" (2026-09-07): tinted icon + a small dot centered
+   under it, Spotify-style, the same in every transport (main, fullscreen,
+   mini, library header). Brightness alone (the old --text-primary /
+   white-on-glass-circle states) didn't read over cover-art backdrops whose
+   color changes per track. The tint is var(--playing) — the app's one "on"
+   color (filled heart, now-playing row) — NOT the accent, which stays off
+   neutral chrome. The dot is a ::after so the button's box never changes
+   (the mini transport is centered on exactly three buttons). It's anchored
+   to the 15px icon, not the button edge, so it sits the same distance
+   below the glyph in a 22px, 32px or unboxed button. */
 .shuffle-btn.active,
-.repeat-btn.active {
-  color: var(--text-primary);
+.repeat-btn.active,
+.lib-shuffle-btn.active {
+  color: var(--playing);
 }
-/* FocusView shuffle: filled circle when active (matches the library header),
-   but only over a backdrop — on an art-less focus view a white icon on the
-   plain light-theme background would vanish. MiniPlayer has no shuffle button. */
+.shuffle-btn.active::after,
+.repeat-btn.active::after,
+.lib-shuffle-btn.active::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 10px);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--playing);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
 .focus-view .shuffle-btn {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-}
-.focus-view.has-backdrop .shuffle-btn.active {
-  background: rgba(255, 255, 255, 0.18);
-  color: #f4f4f2;
 }
 .transport button:disabled {
   opacity: 0.35;
@@ -2396,12 +2431,8 @@ body {
   opacity: 1;
   pointer-events: auto;
 }
-/* filled-circle active state, same treatment as the focus view's shuffle
-   button over a backdrop */
-.mini-player.has-backdrop .mini-shuffle-btn.active {
-  background: rgba(255, 255, 255, 0.18);
-  color: #f4f4f2;
-}
+/* active state: tint + dot, see .shuffle-btn.active (the old glass circle
+   was the brightness-only signal that didn't read over art) */
 .mini-transport .play-btn {
   width: 28px;
   height: 28px;
@@ -3139,6 +3170,7 @@ body {
 /* the shuffle toggle wears its state as a filled circle — white-on-grey icon
    alone was too subtle to read at a glance */
 .lib-shuffle-btn {
+  position: relative; /* anchors the active dot */
   border-radius: 50%;
 }
 .lib-shuffle-btn:hover,
@@ -3150,14 +3182,8 @@ body {
 .lib-overflow-btn:active {
   transform: scale(0.92);
 }
-/* active toggle = filled circle. On the plain header it's the neutral surface
-   so a light-theme icon stays legible; over the mesh backdrop it's glass
-   (see the .has-backdrop override further down). FocusView keeps its own
-   .shuffle-btn rule; MiniPlayer has no shuffle button. */
-.lib-shuffle-btn.active {
-  background: var(--surface-2);
-  color: var(--text-primary);
-}
+/* active toggle = tint + dot, shared with .shuffle-btn.active above (the
+   filled-circle state is gone everywhere). Hover keeps its surface circle. */
 .lib-play-btn:disabled {
   opacity: 0.4;
   cursor: default;
@@ -3344,10 +3370,8 @@ body {
   background: rgba(255, 255, 255, 0.12);
   color: #f4f4f2;
 }
-.lib-header.has-backdrop .lib-shuffle-btn.active {
-  background: rgba(255, 255, 255, 0.18);
-  color: #f4f4f2;
-}
+/* .lib-shuffle-btn.active over a backdrop: see the shared has-backdrop
+   tint + ringed-dot rule next to .focus-view.has-backdrop .shuffle-btn.active */
 
 /* sort menu + view toggle control the list, not the playlist, so they stay
    top-right — but their --border / --text-secondary chrome washes out on a
