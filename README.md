@@ -8,15 +8,15 @@
 
 A personal, local-only music player. You add exactly the songs you want — your
 own tracks, friends' mixes, downloads — and nothing else ever shows up. Desktop
-app (Electron + React); library metadata in IndexedDB, audio files copied to
-`~/Music/Sona Library/` and streamed from disk. No server, no account, no sync,
-no catalog.
+app (Electron + React); library metadata in IndexedDB, audio files live in a
+folder you choose and stream from disk. No server, no account, no catalog — if
+that folder is in Dropbox, your library syncs between your own Macs.
 
 ## What it does
 
 **Library**
-- Drag-free multi-file import for `mp3 / wav / flac / m4a / aac / ogg`, with a
-  progress overlay and a slide-in confirmation toast
+- Import files or whole folders of `mp3 / wav / flac / m4a / aac / ogg` from a
+  native picker, with a progress overlay and a confirmation toast
 - Automatic ID3 / atom metadata + embedded artwork extraction on import
 - Search, per-track tags (inline `+ tag`, plus bulk tag / delete on a selection),
   tag-group filtering
@@ -33,11 +33,16 @@ no catalog.
 - **Left** — "Imported" (your whole library) + your playlists. Drag playlists to
   reorder; pin one to the top; rename; ⌘/shift-select several and delete them at
   once. Deleting a playlist never touches the songs.
+- **Liked Songs** — heart any track (row, right-click, or the `like` key); Liked
+  is its own view beside Imported, sorted by recently-liked, and every other view
+  can sort liked-first.
+- **Artist pages** — click any artist name (rows, grid tiles, now playing, focus
+  view) for a page of everything by them. "Daft Punk feat. Todd Edwards" lands on
+  the Daft Punk page. Escape goes back.
 - **Middle** — the track list for whatever's selected, as a list or an album-art
   grid (`v` toggles); drag to reorder within a playlist. The row `×` removes from the
   current playlist (only deletes from the library in the "Imported" view). Press `z`
-  to keep the current track zoomed (with date added / format / size); the zoom
-  follows as you skip.
+  to zoom into the current track (shows date added / format / size).
 - **Right** — now playing: artwork (click for fullscreen), color-reactive
   waveform, pixel-art EQ, transport
 - Add to a playlist by right-clicking a track (or a multi-selection), or the
@@ -63,12 +68,55 @@ no catalog.
   adjustable volume
 - Fully rebindable keyboard shortcuts (Settings) — play/pause, next/prev, seek,
   volume, shuffle, grid/list, focus/mini toggles, and more
+- **Option+Space** quick search — a Spotlight-style palette over any view for
+  tracks, artists, playlists, Imported and Liked. Selecting a result jumps to it;
+  it never changes what's playing.
 
 **Views**
 - Normal 3-column library view, a fullscreen **focus** view (ambient backdrop
   sampled from the cover art), and a real OS-window **mini** mode
 - The single audio engine is shared across all views — switching never restarts
   playback
+
+Playdisc also checks GitHub for a newer release on launch and shows a small,
+dismissible notice if there is one — a link to the release page, never an
+auto-update.
+
+## Got sent this by a friend?
+
+**Apple Silicon Macs only (M1 or later).** It won't run on an Intel Mac.
+
+Playdisc isn't in the App Store and isn't signed with an Apple developer
+certificate, so macOS will refuse to open it the first time. That's expected,
+and getting past it takes about a minute — once.
+
+1. **Download** `Playdisc-<version>.dmg` from the
+   [Releases page](https://github.com/GriffinChaney/playdisc/releases/latest),
+   open it, and drag Playdisc into the Applications folder shown next to it.
+2. **Open Playdisc from your Applications folder.** macOS will block it with
+   one of these, depending on your version:
+   - *"Apple could not verify "Playdisc" is free of malware that may harm your
+     Mac or compromise your privacy."* (macOS 15 Sequoia)
+   - *""Playdisc" cannot be opened because the developer cannot be verified."*
+     (macOS 14 Sonoma and earlier)
+
+   Click **Done** or **Cancel** — **not "Move to Trash."**
+3. **Open System Settings → Privacy & Security** and scroll down to the
+   *Security* section. You'll see a line saying Playdisc was blocked, with an
+   **Open Anyway** button next to it. Click it, enter your Mac password or use
+   Touch ID if asked, then click **Open** in the last dialog.
+
+That's it — after this one-time step it opens normally, like any other app.
+
+> On macOS 14 (Sonoma) and earlier you can also skip step 3: right-click (or
+> Control-click) Playdisc in Applications, choose **Open**, then **Open**
+> again. This shortcut no longer works on macOS 15.
+
+**If it still won't open, text me** — don't fight it.
+
+Playdisc checks GitHub for newer releases when it starts and shows a small
+notice in the top-right corner if there's one. It just links to the release
+page — it never updates itself.
 
 ## Setup
 
@@ -89,41 +137,11 @@ npm run electron:build
 
 electron-builder doesn't sign (no paid Apple cert), and unsigned the app hits a
 hard Gatekeeper block — so `scripts/afterPack.cjs` ad-hoc signs the app during
-the build, before it's packaged into the DMG. See `CLAUDE.md` for the full
-rebuild → replace `/Applications/Playdisc.app` loop.
+the build, before it's packaged into the DMG.
 
 `npm run electron:build` also produces a versioned DMG at `release/Playdisc-<version>.dmg`
 — that's what gets uploaded to a GitHub Release (see "Got sent this by a friend?"
-below, and `scripts/release.mjs` for cutting a release).
-
-## Got sent this by a friend?
-
-Playdisc isn't in the App Store and isn't signed with a paid Apple developer
-certificate, so macOS doesn't recognize it as coming from an identified
-developer. That's expected — here's how to open it anyway.
-
-1. **Download** the `.dmg` from the
-   [Releases page](https://github.com/GriffinChaney/playdisc/releases/latest),
-   open it, and drag Playdisc into your Applications folder.
-2. **First launch**: double-clicking will get you a warning that Playdisc
-   "cannot be opened because the developer cannot be verified" (or similar).
-   Don't click "Move to Trash" — instead, **right-click (or Control-click)
-   Playdisc.app in Applications and choose "Open"**, then confirm "Open" in
-   the dialog that follows. This only has to be done once; after that it
-   opens normally.
-3. **Still won't open?** Go to **System Settings → Privacy & Security**,
-   scroll down, and you should see a note that Playdisc was blocked, with an
-   **"Open Anyway"** button next to it — click that, then confirm once more
-   when it relaunches. If even that doesn't show up, the download may have
-   been quarantined by your browser; open Terminal and run:
-   ```bash
-   xattr -dr com.apple.quarantine /Applications/Playdisc.app
-   ```
-   then try opening it again.
-
-Playdisc checks GitHub for newer releases on launch and shows a small notice
-in the top-right corner of the library view if one's available — it just
-links to the release page, it doesn't auto-update.
+above, and `scripts/release.mjs` for cutting a release).
 
 ## Stack
 
@@ -136,7 +154,8 @@ with custom properties, no framework, no TypeScript.
 ```
 electron/
   main.js          # window + mini-mode IPC, playdisc-media:// protocol,
-                   #   media-library IPC, one-time Sona→Playdisc profile migration
+                   #   media-library IPC, sync file watcher, one-time profile
+                   #   migration from the app's previous name
   preload.cjs      # contextBridge (must stay .cjs)
 build/
   icon.png         # app icon source — electron-builder generates .icns from it
@@ -145,20 +164,28 @@ src/
     PlaylistNav.jsx    # left column: Imported + playlists + queue/history panels
     LibraryList.jsx    # middle column: track list / grid, search, tags, bulk bar
     NowPlaying.jsx     # right column: artwork + waveform + transport
+    NowPlayingNotes.jsx  # notes panel under now playing
     FocusView.jsx      MiniPlayer.jsx        Waveform.jsx       WaveformSlot.jsx
     TrackItem.jsx      QueuePanel.jsx        HistoryPanel.jsx   BackgroundPlayBar.jsx
+    SearchOverlay.jsx  # Option+Space quick-search palette
     UpdateToast.jsx    # "newer release available" notice, library view only
-    VersionsModal.jsx  PlaylistEditModal.jsx SettingsModal.jsx
-    ContextMenu.jsx    PromptModal.jsx       ChoiceModal.jsx    TagMenu.jsx
+    LibrarySetup.jsx   # first-launch gate: choose the library folder
+    VersionsModal.jsx  PlaylistEditModal.jsx SettingsModal.jsx  CoverEditModal.jsx
+    EditArtistModal.jsx ContextMenu.jsx      PromptModal.jsx    ChoiceModal.jsx
+    TagMenu.jsx        UploadButton.jsx      ImportOverlay.jsx  ImportToast.jsx
     ShuffleIcon.jsx    RepeatIcon.jsx        RestartIcon.jsx    VolumeIcon.jsx
-    ImportOverlay.jsx  ImportToast.jsx       UploadButton.jsx
+    HeartIcon.jsx      StarIcon.jsx          NotesIcon.jsx      GearIcon.jsx
   lib/
-    db.js              # IndexedDB (idb): tracks + playlists stores (DB v2).
-                       #   Audio is on disk now, not blobs — only paths are stored
-    media.js           # media-library helpers, mediaUrl(), readAudioMeta()
-    mediaFingerprint.js  parseTrack.js       audioQuality.js
-    dominantColor.js   useDominantColor.js   # cover-art palette sampling
-    useObjectUrl.js    useListSelection.js   artworkTilt.js     imageResize.js
+    db.js              # IndexedDB (idb): tracks + playlists stores (DB v2). Stores
+                       #   metadata and paths only — audio stays on disk
+    media.js           # media-library helpers, relPath contract, mediaUrl()
+    syncSnapshot.js    syncMerge.js          # per-machine snapshot JSON + the pure merge (npm test)
+    parseTrack.js      mediaFingerprint.js   audioQuality.js
+    librarySort.js     tagOrder.js           artistName.js      shuffle.js       notes.js
+    dominantColor.js   useDominantColor.js   meshBackdrop.js    # cover-art palette + backdrops
+    likedBackdrop.js   artistBackdrop.js     useGradientDrift.js
+    useObjectUrl.js    useListSelection.js   useNoteReorder.js  usePlaylistMosaic.js
+    artworkTilt.js     artworkHash.js        imageResize.js     useWheelSlider.js
     keybindings.js     updateCheck.js        # GitHub release check for beta distribution
   App.jsx              # all state + orchestration
   styles.css
