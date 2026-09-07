@@ -9,6 +9,7 @@ import { meshBackdropStyle } from '../lib/meshBackdrop';
 import { likedBackdropStyle } from '../lib/likedBackdrop';
 import { artistBackdropStyle } from '../lib/artistBackdrop';
 import { usePlaylistMosaic } from '../lib/usePlaylistMosaic';
+import { orderTags } from '../lib/tagOrder';
 import HeartIcon from './HeartIcon';
 
 function formatTotal(seconds) {
@@ -138,6 +139,8 @@ function LibraryList({
   onAddTag,
   onRemoveTag,
   onDeleteTagGroup,
+  tagOrder = [],
+  onReorderTags,
   onDeleteTrack,
   onAddToQueue,
   onAddTracksToPlaylist,
@@ -220,6 +223,11 @@ function LibraryList({
   // fullscreen/mini round trip — same reason scrollPosRef is lifted, see
   // the scroll-restore effect below.
   const [bulkTagMenu, setBulkTagMenu] = useState(null); // 'add' | 'remove' | null
+  // drag-reorder for tag filter chips — native HTML5 drag, same pattern as
+  // PlaylistNav's playlist reorder (dragIdRef + a { id/tag, before } drop
+  // target), just horizontal (clientX) instead of vertical (clientY).
+  const [tagDropTarget, setTagDropTarget] = useState(null); // { tag, before }
+  const tagDragRef = useRef(null);
 
   // inline playlist-title rename (playlists only — "Imported" isn't a
   // playlist and stays non-editable). Saves through onUpdatePlaylist, the
@@ -406,11 +414,15 @@ function LibraryList({
     });
   }
 
+  // Ordered by the GLOBAL tag order (App.jsx), not alphabetically — see
+  // tagOrder.js. The SET of tags shown still comes from this view's own
+  // tracks (Liked only shows tags actually on a liked track, same as
+  // before); only their relative ORDER is shared across every view.
   const allTags = useMemo(() => {
     const set = new Set();
     tracks.forEach((t) => t.tags.forEach((tag) => set.add(tag)));
-    return Array.from(set).sort();
-  }, [tracks]);
+    return orderTags(Array.from(set), tagOrder);
+  }, [tracks, tagOrder]);
 
   // search + tag filter. Playlist views keep their manual order; the Imported
   // view keeps the newest-first order it arrives in.
@@ -906,7 +918,39 @@ function LibraryList({
             all
           </button>
           {allTags.map((tag) => (
-            <span key={tag} className={`tag-filter-item${activeTag === tag ? ' active' : ''}`}>
+            <span
+              key={tag}
+              className={`tag-filter-item${activeTag === tag ? ' active' : ''}`}
+              draggable={!!onReorderTags}
+              onDragStart={(e) => {
+                tagDragRef.current = tag;
+                e.dataTransfer.effectAllowed = 'move';
+              }}
+              onDragOver={(e) => {
+                if (!tagDragRef.current || tagDragRef.current === tag) return;
+                e.preventDefault();
+                const rect = e.currentTarget.getBoundingClientRect();
+                const before = e.clientX < rect.left + rect.width / 2;
+                setTagDropTarget({ tag, before });
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                const draggedTag = tagDragRef.current;
+                const dt = tagDropTarget;
+                tagDragRef.current = null;
+                setTagDropTarget(null);
+                if (draggedTag && dt && dt.tag !== draggedTag) {
+                  onReorderTags?.(draggedTag, dt.tag, dt.before);
+                }
+              }}
+              onDragEnd={() => {
+                tagDragRef.current = null;
+                setTagDropTarget(null);
+              }}
+            >
+              {tagDropTarget?.tag === tag && (
+                <span className={`tag-filter-drop-line ${tagDropTarget.before ? 'left' : 'right'}`} />
+              )}
               <button className="tag-filter-select" onClick={() => onSetActiveTag(tag)}>
                 {tag}
               </button>

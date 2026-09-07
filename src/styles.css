@@ -268,14 +268,41 @@ body {
 }
 
 .tag-filter-item {
+  position: relative;
   display: inline-flex;
   align-items: center;
   border-radius: 8px;
   border: 0.5px solid var(--border);
   overflow: hidden;
+  cursor: grab;
+}
+.tag-filter-item:active {
+  cursor: grabbing;
 }
 .tag-filter-item.active {
   border-color: var(--text-primary);
+}
+/* drag-reorder insertion marker (App.jsx owns the one global tag order —
+   see tagOrder.js — this is purely the drop-line UI). Sits at the chip's
+   own inner edge rather than just outside it (like .playlist-drop-line's
+   -1px) because .tag-filter-item's overflow:hidden — needed to clip the
+   select/delete buttons into one pill shape — would clip anything drawn
+   outside its box. */
+.tag-filter-drop-line {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--selection);
+  pointer-events: none;
+  z-index: 2;
+}
+.tag-filter-drop-line.left {
+  left: 0;
+}
+.tag-filter-drop-line.right {
+  right: 0;
 }
 .tag-filter-select {
   font-size: 12px;

@@ -50,6 +50,7 @@ import {
 import { useArtworkPalette } from './lib/useDominantColor';
 import { loadKeybindings, saveKeybindings, eventToKeyString, DEFAULT_KEYBINDINGS } from './lib/keybindings';
 import { sortLibrary, reconcileLibraryOrder } from './lib/librarySort';
+import { reconcileTagOrder, reorderTags } from './lib/tagOrder';
 import { noteRank } from './lib/notes';
 import { invalidateArtworkHash } from './lib/artworkHash';
 import { fisherYates } from './lib/shuffle';
@@ -171,6 +172,16 @@ export default function App() {
   const [libraryOrderUpdatedAt, setLibraryOrderUpdatedAt] = useState(() => {
     const n = Number(localStorage.getItem('libraryOrderUpdatedAt'));
     return Number.isFinite(n) ? n : 0;
+  });
+  // Global tag chip order (drag-reorderable in the tag row) — ONE array
+  // shared by every view (Imported, Liked, playlists, artist pages), not
+  // per-view. Per-machine display preference, not synced (see tagOrder.js).
+  const [tagOrder, setTagOrder] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('tagOrder') || '[]');
+    } catch {
+      return [];
+    }
   });
   // Deleted tracks/playlists, kept so the delete propagates through this
   // machine's snapshot instead of the other machine's copy resurrecting it:
@@ -1087,6 +1098,10 @@ export default function App() {
   }, [libraryOrderUpdatedAt]);
 
   useEffect(() => {
+    localStorage.setItem('tagOrder', JSON.stringify(tagOrder));
+  }, [tagOrder]);
+
+  useEffect(() => {
     localStorage.setItem('syncTombstones', JSON.stringify(tombstones));
   }, [tombstones]);
 
@@ -1097,6 +1112,19 @@ export default function App() {
     if (!tracks.length) return;
     setLibraryOrder((prev) => reconcileLibraryOrder(prev, tracks));
   }, [tracks]);
+
+  // same reconcile contract as libraryOrder above, for the global tag order
+  useEffect(() => {
+    if (!tracks.length) return;
+    setTagOrder((prev) => reconcileTagOrder(prev, tracks));
+  }, [tracks]);
+
+  // drag-reorder a tag chip (any view) — moves it in the GLOBAL order, see
+  // tagOrder.js for why that's correct even when dragging within a view's
+  // filtered subset.
+  const handleReorderTags = useCallback((draggedTag, targetTag, before) => {
+    setTagOrder((prev) => reorderTags(prev, draggedTag, targetTag, before));
+  }, []);
 
   // pick a sort; the menu always passes an explicit dir
   const handleSetLibrarySort = useCallback((sort, dir) => {
@@ -1418,7 +1446,7 @@ export default function App() {
       window.alert('Reset failed — nothing was changed. See the console for details.');
       return;
     }
-    for (const key of ['libraryOrder', 'libraryOrderUpdatedAt', 'syncTombstones', 'playHistory', 'seenRelPaths']) {
+    for (const key of ['libraryOrder', 'libraryOrderUpdatedAt', 'tagOrder', 'syncTombstones', 'playHistory', 'seenRelPaths']) {
       try {
         localStorage.removeItem(key);
       } catch {
@@ -3436,6 +3464,8 @@ export default function App() {
             onAddTag={handleAddTag}
             onRemoveTag={handleRemoveTag}
             onDeleteTagGroup={handleDeleteTagGroup}
+            tagOrder={tagOrder}
+            onReorderTags={handleReorderTags}
             onDeleteTrack={handleDeleteTrack}
             onAddToQueue={handleAddToQueue}
             onAddTracksToPlaylist={handleAddTracksToPlaylist}
