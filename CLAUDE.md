@@ -115,22 +115,28 @@ not hot-reload. Frontend-only changes (`src/**`) hot-reload fine via Vite, but i
 several files changed or state feels stale, a fresh restart is cheap and safer than
 debugging an HMR ghost.
 
-### macOS code-signing gotcha (do this every rebuild)
+### macOS code-signing gotcha (now automatic — know why it's there)
 
 electron-builder does **not** sign the app (no paid Apple Developer certificate
 configured), which corrupts/omits the code signature enough that Gatekeeper shows
 **"[App] will damage your computer"** — a hard block, not the milder "unidentified
-developer" prompt. Fix every time after `electron:build`:
+developer" prompt. Since 2026-09-07 the fix runs inside the build:
+`scripts/afterPack.cjs` ad-hoc signs (`codesign --sign - --force --deep`) and
+verifies the packed `.app` **before electron-builder wraps it in the DMG**. That
+placement is the whole point — afterPack is the only hook that runs between "app
+assembled" and "DMG built", so it's the only place a signature can reach the copy
+*inside* the DMG. It used to be a manual step after `electron:build`, which was
+fine while only the `.app` mattered, and silently wrong the moment the DMG did:
+the first `v0.2.0` DMG shipped the raw unsigned bundle (`Identifier=Electron`,
+`Sealed Resources=none`, `codesign --verify` failing) because the manual re-sign
+ran after the DMG was already sealed. You cannot re-sign an app inside a finished
+DMG; rebuild instead.
 
-```bash
-codesign --sign - --force --deep "release/mac-arm64/Playdisc.app"
-```
-
-This produces a valid ad-hoc signature (`Sealed Resources` present) that Gatekeeper
-accepts for local execution. The user has established this workflow: rebuild → re-sign
-→ quit the running app → replace `/Applications/Playdisc.app` → relaunch. He explicitly
-asked me to do the `/Applications` replacement directly (not just hand him the file) —
-that consent was scoped to this specific rebuild-and-replace loop for this app.
+Running the manual command on `release/mac-arm64/Playdisc.app` afterward is
+harmless and redundant. The install loop is unchanged: rebuild → quit the running
+app → replace `/Applications/Playdisc.app` → relaunch. Griffin explicitly asked me
+to do the `/Applications` replacement directly (not just hand him the file) — that
+consent was scoped to this specific rebuild-and-replace loop for this app.
 
 ### Vite watcher gotcha
 
@@ -331,10 +337,12 @@ by hand.
 - **DMG build.** `package.json`'s `build.mac.target` is `["dmg"]` and
   `build.dmg.artifactName` is `${productName}-${version}.dmg`, so
   `npm run electron:build` produces a versioned DMG under `release/` (e.g.
-  `Playdisc-0.2.0.dmg`) alongside the existing `.app`. Still needs the same
-  `codesign --sign - --force --deep` re-sign as the `.app` before it's usable
-  — the DMG just packages the same (unsigned-by-electron-builder) bundle.
-  Upload the DMG to a GitHub Release by hand; nothing here automates that step.
+  `Playdisc-0.2.0.dmg`) alongside the existing `.app`. The app inside the DMG is
+  signed because `scripts/afterPack.cjs` signs it before the DMG is built (see
+  the code-signing gotcha above) — **verify that, don't assume it**: mount the
+  DMG and run `codesign --verify --deep --strict` on the app inside before
+  uploading. Upload the DMG to a GitHub Release by hand; nothing here automates
+  that step.
 - **Keeping `package.json`'s version in sync with the git tag.** The update
   check (below) only works if they agree — a pushed tag `v0.2.0` with
   `package.json` still at `0.1.0` makes every build of that release think
@@ -1089,8 +1097,11 @@ All of this lives in `src/components/Waveform.jsx`.
    metadata/artwork parsing with no visible error.
 3. **`electron/preload.cjs` must stay `.cjs`**, and `electron/main.js` must reference
    it as `preload.cjs`, not `.js`.
-4. **Re-sign after every `electron:build`** (`codesign --sign - --force --deep`)
-   before trying to launch the packaged app, or Gatekeeper hard-blocks it.
+4. **The ad-hoc `codesign` in `scripts/afterPack.cjs` must stay, and must stay in
+   afterPack** — not moved to a manual post-build step or an npm script that runs
+   after `electron-builder`. It's the only hook between "app packed" and "DMG
+   built"; anywhere later, the app inside the DMG ships unsigned and Gatekeeper
+   hard-blocks it for everyone you send it to.
 5. **`vite.config.js`'s `server.watch.ignored: ['**/release/**']`** — removing it
    brings back spurious full-page reloads whenever a packaged build exists on disk.
 6. **`currentTime` throttle in `App.jsx`** (`handleTimeUpdate`, 200ms) — don't feed

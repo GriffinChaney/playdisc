@@ -33,4 +33,17 @@ module.exports = async function afterPack(context) {
       // key wasn't present — fine, nothing to remove
     }
   }
+
+  // Ad-hoc sign HERE, not as a manual step after the build: afterPack runs
+  // after the .app is assembled but BEFORE electron-builder packages it into
+  // the DMG, so this is the only point where a signature can make it into
+  // the DMG at all. A signature applied to release/mac-arm64/Playdisc.app
+  // after the build never reaches the copy inside the DMG (found the hard
+  // way on the first v0.2.0 DMG: the app inside failed codesign --verify
+  // with "code has no resources", the exact "will damage your computer"
+  // hard-block state). Must run after the plist edits above — changing
+  // Info.plist after signing would invalidate the seal.
+  const appPath = path.join(context.appOutDir, appName);
+  execFileSync('codesign', ['--sign', '-', '--force', '--deep', appPath], { stdio: 'inherit' });
+  execFileSync('codesign', ['--verify', '--deep', '--strict', appPath], { stdio: 'inherit' });
 };

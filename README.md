@@ -85,13 +85,12 @@ like mini mode, but faster to iterate on UI).
 
 ```bash
 npm run electron:build
-codesign --sign - --force --deep "release/mac-arm64/Playdisc.app"
 ```
 
-The ad-hoc re-sign is required every build — electron-builder doesn't sign
-(no paid Apple cert), and unsigned the app hits a hard Gatekeeper block. See
-`CLAUDE.md` for the full rebuild → re-sign → replace `/Applications/Playdisc.app`
-loop.
+electron-builder doesn't sign (no paid Apple cert), and unsigned the app hits a
+hard Gatekeeper block — so `scripts/afterPack.cjs` ad-hoc signs the app during
+the build, before it's packaged into the DMG. See `CLAUDE.md` for the full
+rebuild → replace `/Applications/Playdisc.app` loop.
 
 `npm run electron:build` also produces a versioned DMG at `release/Playdisc-<version>.dmg`
 — that's what gets uploaded to a GitHub Release (see "Got sent this by a friend?"
