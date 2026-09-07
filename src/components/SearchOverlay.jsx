@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useObjectUrl } from '../lib/useObjectUrl';
+import { primaryArtist } from '../lib/artistName';
 
 // Raycast/Spotlight-style quick-search (2026-09-06): Option+Space (see
 // App.jsx's global keydown effect) opens this over whatever view is
@@ -81,11 +82,18 @@ export default function SearchOverlay({ tracks, playlists, onSelectResult, onClo
   // There's no artist entity in the data model (see CLAUDE.md) — built here
   // as the distinct set of non-empty track artists, case-insensitively
   // deduped (first-seen casing wins), with a track count for the subtitle.
+  // Grouped by primaryArtist (2026-09-06), not the raw string, so "Daft
+  // Punk feat. X" tracks count toward the single "Daft Punk" result
+  // instead of each spawning their own artist entry — matches the artist
+  // page's own grouping (openArtist normalizes the same way). Track
+  // results below keep showing each track's full, literal artist string;
+  // only this identity list is grouped.
   const artists = useMemo(() => {
     const map = new Map();
     for (const t of tracks) {
-      const name = (t.artist || '').trim();
-      if (!name) continue;
+      const raw = (t.artist || '').trim();
+      if (!raw) continue;
+      const name = primaryArtist(raw);
       const key = name.toLowerCase();
       const entry = map.get(key);
       if (entry) entry.count += 1;

@@ -51,6 +51,7 @@ import { useArtworkPalette } from './lib/useDominantColor';
 import { loadKeybindings, saveKeybindings, eventToKeyString, DEFAULT_KEYBINDINGS } from './lib/keybindings';
 import { sortLibrary, reconcileLibraryOrder } from './lib/librarySort';
 import { reconcileTagOrder, reorderTags } from './lib/tagOrder';
+import { primaryArtist } from './lib/artistName';
 import { noteRank } from './lib/notes';
 import { invalidateArtworkHash } from './lib/artworkHash';
 import { fisherYates } from './lib/shuffle';
@@ -1290,7 +1291,7 @@ export default function App() {
       const stayPut =
         activeView.type === 'imported' ||
         (activeView.type === 'liked' && !!track.liked) ||
-        (activeView.type === 'artist' && track.artist === activeView.name) ||
+        (activeView.type === 'artist' && primaryArtist(track.artist) === activeView.name) ||
         (activeView.type === 'playlist' &&
           playlists.find((p) => p.id === activeView.id)?.trackIds.includes(id));
       // (leaving the artist page this way, via a search result, is handled
@@ -1313,9 +1314,14 @@ export default function App() {
   // started.
   const openArtist = useCallback(
     (artistName) => {
+      // normalize here, once, so every call site (track rows, grid tiles,
+      // Now Playing, Focus view, search) can keep passing the raw
+      // track.artist string — "Daft Punk feat. X" and "Daft Punk" land on
+      // the SAME page. See src/lib/artistName.js.
+      const name = primaryArtist(artistName);
       setArtistPageReturn((prev) => prev ?? { view, activeView });
       setView('sidebar');
-      setActiveView({ type: 'artist', name: artistName });
+      setActiveView({ type: 'artist', name });
     },
     [view, activeView]
   );
@@ -1605,7 +1611,7 @@ export default function App() {
     if (isArtistView) {
       // live filter, not a snapshot — see artistSort's declaration above for
       // why that's the right call here (unlike Liked's likedViewIds)
-      return sortLibrary(tracks.filter((t) => t.artist === activeArtistName), artistSort, artistSortDir, []);
+      return sortLibrary(tracks.filter((t) => primaryArtist(t.artist) === activeArtistName), artistSort, artistSortDir, []);
     }
     return sortLibrary(tracks, librarySort, librarySortDir, libraryOrder);
   }, [
@@ -1817,7 +1823,7 @@ export default function App() {
       const ids =
         orderedIds && orderedIds.length
           ? orderedIds
-          : tracksRef.current.filter((t) => t.artist === name).map((t) => t.id);
+          : tracksRef.current.filter((t) => primaryArtist(t.artist) === name).map((t) => t.id);
       const startId = startTrackFor(ids);
       if (!startId) return;
       setPlaybackContext({ type: 'artist', name, sort: artistSortRef.current, dir: artistSortDirRef.current });
@@ -2255,7 +2261,7 @@ export default function App() {
     }
     if (ctx.type === 'artist') {
       return sortLibrary(
-        tracks.filter((t) => t.artist === ctx.name),
+        tracks.filter((t) => primaryArtist(t.artist) === ctx.name),
         ctx.sort || 'added',
         ctx.dir || 'desc',
         []

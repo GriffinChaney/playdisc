@@ -471,11 +471,26 @@ persisted to `localStorage.navWidth`) / `1fr` / `var(--np-width)` (fixed 278px).
   state, `contextFromActiveView`, `orderedContextTracks`, `handlePlayArtist` alongside
   `handlePlayLiked`, `headerViewPlaying`, `handleHeaderPlayPause`) — playback, shuffle,
   and skip all treat it as a real context, not a filtered view of another one. Unlike
-  Liked, membership is a **live filter** (`tracks.filter(t => t.artist === name)`), not a
-  snapshot — a track's artist only ever changes via the deliberate rename flow in
+  Liked, membership is a **live filter** (`tracks.filter(t => primaryArtist(t.artist) === name)`),
+  not a snapshot — a track's artist only ever changes via the deliberate rename flow in
   `VersionsModal`, not a quick misclick, so there's no vanishing-row concern to guard
   against. No sidebar entry — it's not one of the left-nav zones, just a page you land on
   (see "getting there/back" below).
+  - **Featured-artist grouping** (2026-09-06): `src/lib/artistName.js`'s `primaryArtist()`
+    is the ONE place that decides which artist page a track belongs to — it splits ONLY
+    on a word-bounded `feat`/`feat.`/`ft`/`ft.` (case-insensitive), so "Daft Punk feat.
+    Todd Edwards" groups under the existing "Daft Punk" page instead of spawning its own.
+    `&`, `with`, `x`, and `,` are deliberately NOT treated as separators, checked against
+    the real library first rather than assumed: "Bob Marley & The Wailers" is a band's
+    actual name, and splitting on `&` would have broken it into "Bob Marley" plus a
+    dangling "The Wailers". `x` is a real separator Griffin's own bounces use ("Griffin x
+    Marley Chaney") but none are imported yet, so there's nothing to verify the parsing
+    against — add it (and re-check the real library the same way first) once there is.
+    `primaryArtist()` is ONLY for grouping/navigation (`openArtist`, the artist-view
+    membership filter, `handlePlayArtist`, `orderedContextTracks`'s artist branch, and
+    `SearchOverlay`'s artist-result dedup) — every actual DISPLAY of an artist string
+    (track rows, grid tiles, Now Playing, Focus view, search subtitles) stays the full,
+    literal `track.artist` value untouched.
   - **Header**: reuses `LibraryList` itself (a new `isArtistView` branch alongside
     `isLikedView`/`isPlaylistView`, not a separate component) so every per-row
     interaction — select, play, tag, queue, like, delete, right-click menu — comes for
