@@ -746,12 +746,12 @@ function LibraryList({
   // row already shares this page's own artist — sortLibrary's 'artist' mode
   // ties on title, so it degrades to a plain title sort, which is exactly
   // as meaningful here as it is anywhere else.
-  // 'Most played' / 'Never played first' (2026-09-07) are single entries
-  // like 'Liked first', offered everywhere — play counts come from listening
+  // 'Most played' / 'Least played' (2026-09-07) are single entries like
+  // 'Liked first', offered everywhere — play counts come from listening
   // stats summed across machines (src/lib/listening.js, via App's plays map).
   const PLAY_SORTS = [
     ['plays', 'desc', 'Most played'],
-    ['neverPlayed', 'desc', 'Never played first']
+    ['leastPlayed', 'desc', 'Least played']
   ];
   const SORT_OPTIONS = isLikedView
     ? [
@@ -782,7 +782,7 @@ function LibraryList({
           ...PLAY_SORTS
         ];
   // sorts with one menu entry (no asc/desc pair): active on the sort key alone
-  const isSingleEntry = (s) => s === 'custom' || s === 'liked' || s === 'plays' || s === 'neverPlayed';
+  const isSingleEntry = (s) => s === 'custom' || s === 'liked' || s === 'plays' || s === 'leastPlayed';
   const activeSortLabel =
     SORT_OPTIONS.find(([s, d]) => s === sort && (isSingleEntry(s) || d === sortDir))?.[2] || 'Sort';
 

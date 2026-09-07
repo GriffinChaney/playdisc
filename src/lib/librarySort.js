@@ -18,36 +18,30 @@
 //               src/lib/listening.js). Ties by time listened desc — 45 s of
 //               listening with 0 plays outranks a track never touched —
 //               then newest first. `dir` ignored.
-//   'neverPlayed' — "Never played first": 0 plays on top (newest first),
-//               then ascending play count. Deliberately NOT time-aware —
-//               "never played" means 0 plays, however much it was skimmed.
-//               `dir` ignored. Both are single menu entries like 'liked',
-//               available wherever 'liked' is.
+//   'leastPlayed' — "Least played": the exact mirror — plays asc, then time
+//               listened asc, then newest first. Untouched tracks stay on
+//               top; a track skimmed for 45 s with 0 plays sorts after them
+//               rather than mixing in by date. `dir` ignored. Both are
+//               single menu entries like 'liked', available wherever
+//               'liked' is.
 
 const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
 const NO_PLAYS = new Map();
 
 export function sortLibrary(tracks, sort = 'added', dir = 'desc', order = [], plays = NO_PLAYS) {
-  if (sort === 'plays') {
+  if (sort === 'plays' || sort === 'leastPlayed') {
+    // one comparator, sign-flipped: 'plays' is most-first, 'leastPlayed' is
+    // least-first, on plays then time; the newest-first tiebreak is shared
+    const s = sort === 'plays' ? -1 : 1;
     return [...tracks].sort((a, b) => {
       const av = plays.get(a.id);
       const bv = plays.get(b.id);
       const ap = av?.plays || 0;
       const bp = bv?.plays || 0;
-      if (ap !== bp) return bp - ap;
+      if (ap !== bp) return s * (ap - bp);
       const as = av?.seconds || 0;
       const bs = bv?.seconds || 0;
-      if (as !== bs) return bs - as;
-      return b.dateAdded - a.dateAdded;
-    });
-  }
-
-  if (sort === 'neverPlayed') {
-    const playsOf = (t) => plays.get(t.id)?.plays || 0;
-    return [...tracks].sort((a, b) => {
-      const ap = playsOf(a);
-      const bp = playsOf(b);
-      if (ap !== bp) return ap - bp;
+      if (as !== bs) return s * (as - bs);
       return b.dateAdded - a.dateAdded;
     });
   }

@@ -465,10 +465,12 @@ and the snapshot.
 - **Sorting.** `sortLibrary()` takes a fifth arg, the totals map;
   `'plays'` ("Most played": plays desc, ties by time listened desc, then
   newest — so 45 s of skimming outranks a track never touched) and
-  `'neverPlayed'` ("Never played first": 0 plays newest-first, then
-  ascending; deliberately NOT time-aware — 0 plays is "never played" however
-  much it was skimmed) are single menu entries like `'liked'`, offered in
-  every sort menu. The ref-based
+  `'leastPlayed'` ("Least played": the exact mirror — plays asc, time asc,
+  then newest; untouched tracks stay on top, a skimmed 0-play track sorts
+  after them instead of mixing in by date) are single menu entries like
+  `'liked'`, offered in every sort menu. One comparator, sign-flipped. (An
+  earlier `'neverPlayed'` key existed for a day on this branch; a saved
+  value of it just falls through to newest-first.) The ref-based
   callers (`handlePlayLibrary`, `orderedContextTracks`) read
   `listeningTotalsRef` so a "Most played" playback context doesn't reorder
   what "next" plays every time a play is counted.

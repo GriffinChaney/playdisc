@@ -172,7 +172,7 @@ test('formatListenTime', () => {
   assert.equal(formatListenTime(3605), '1h 00m');
 });
 
-test('sortLibrary: Most played and Never played first', () => {
+test('sortLibrary: Most played and Least played are exact mirrors', () => {
   const tracks = [
     { id: 'a', title: 'A', dateAdded: 1 },
     { id: 'b', title: 'B', dateAdded: 2 },
@@ -189,8 +189,15 @@ test('sortLibrary: Most played and Never played first', () => {
     ['a', 'c', 'b', 'd'] // 0-play tie broken by time listened: b (45 s) over d (never touched)
   );
   assert.deepEqual(
-    sortLibrary(tracks, 'neverPlayed', 'desc', [], plays).map((t) => t.id),
-    ['d', 'b', 'c', 'a'] // never played (newest first, time NOT considered), then ascending plays
+    sortLibrary(tracks, 'leastPlayed', 'desc', [], plays).map((t) => t.id),
+    ['d', 'b', 'c', 'a'] // untouched d first, then skimmed b (0 plays, 45 s), then ascending plays
+  );
+  // the 0-play tie inside leastPlayed is by time ASC: untouched before skimmed
+  // even when the skimmed track is newer
+  const skimmedNewer = new Map([['d', { seconds: 45, plays: 0 }]]);
+  assert.deepEqual(
+    sortLibrary(tracks.slice(2), 'leastPlayed', 'desc', [], skimmedNewer).map((t) => t.id),
+    ['c', 'd']
   );
   // plays tie AND time tie -> newest first
   const tied = new Map([
@@ -201,9 +208,13 @@ test('sortLibrary: Most played and Never played first', () => {
     sortLibrary(tracks.slice(0, 2), 'plays', 'desc', [], tied).map((t) => t.id),
     ['b', 'a']
   );
-  // no plays map at all: everything is "never played"
+  // no plays map at all: every track ties on 0/0 -> newest first, both ways
   assert.deepEqual(
     sortLibrary(tracks, 'plays', 'desc', []).map((t) => t.id),
+    ['d', 'c', 'b', 'a']
+  );
+  assert.deepEqual(
+    sortLibrary(tracks, 'leastPlayed', 'desc', []).map((t) => t.id),
     ['d', 'c', 'b', 'a']
   );
 });

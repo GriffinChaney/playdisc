@@ -71,7 +71,7 @@ that folder is in Dropbox, your library syncs between your own Macs.
 - **Listening stats** (Settings › Listening): total time listened, top tracks
   and top artists with play counts, summed across your Macs. A play needs 30 s
   at normal speed; time counts at any speed. Sort any view by **Most played**
-  or **Never played first**.
+  or **Least played**.
 - **Option+Space** quick search — a Spotlight-style palette over any view for
   tracks, artists, playlists, Imported and Liked. Selecting a result jumps to it;
   it never changes what's playing.
