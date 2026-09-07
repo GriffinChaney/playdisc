@@ -1,7 +1,7 @@
 {
   "name": "playdisc",
   "productName": "Playdisc",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "main": "electron/main.js",
@@ -43,7 +43,9 @@
     },
     "mac": {
       "icon": "build/icon.png",
-      "target": ["dmg"]
+      "target": [
+        "dmg"
+      ]
     },
     "dmg": {
       "artifactName": "${productName}-${version}.dmg"
