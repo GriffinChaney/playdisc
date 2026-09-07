@@ -92,6 +92,7 @@ playdisc/                # repo lives at ~/Developer/playdisc (was ~/Developer/s
 │       └── syncMerge.js       # PURE per-item merge (newest wins, tombstones, per-note stamps) — tested
 ├── test/syncMerge.test.mjs   # `npm test` (node --test) — the only test suite in the repo
 ├── docs/LIBRARY_SYNC_PLAN.md # how sync was planned + staged (history; CLAUDE.md is current truth)
+├── docs/deferred/crossfade.md # crossfade feature: scoped, shelved, not implemented — read before starting it
 ├── vite.config.js        # dev server port 5173; ignores release/ in the watcher
 ├── index.html             # <title>Playdisc</title>
 └── package.json           # name: "playdisc", productName: "Playdisc"
