@@ -111,6 +111,9 @@ function GridItem({
 // Middle column of the library view: header (title / count / total time /
 // list-grid toggle), search + tag filter, the track list or grid, the
 // multi-select bulk bar, and (in an unfiltered playlist view) drag-to-reorder.
+// shared empty default for the excludedTags prop, so a missing prop is a
+// stable identity (no memo churn) rather than a fresh Set per render
+const EMPTY_TAG_SET = new Set();
 function LibraryList({
   tracks, // already resolved + ordered for the active view
   viewTitle,
@@ -160,6 +163,11 @@ function LibraryList({
   onSetQuery,
   activeTag,
   onSetActiveTag,
+  // tag exclusion (2026-09-07): a Set of tag names whose tracks are hidden;
+  // Option-click on a chip toggles membership. See CLAUDE.md "Tags".
+  excludedTags = EMPTY_TAG_SET,
+  onToggleExcludedTag,
+  onClearTagFilters,
   onUpdatePlaylist,
   isLikedView = false,
   isArtistView = false,
@@ -435,13 +443,15 @@ function LibraryList({
         t.title.toLowerCase().includes(q) ||
         (t.versions || []).some((v) => v.title && v.title.toLowerCase().includes(q));
       const matchesTag = !activeTag || t.tags.includes(activeTag);
-      return matchesQuery && matchesTag;
+      const excluded = excludedTags.size > 0 && t.tags.some((tg) => excludedTags.has(tg));
+      return matchesQuery && matchesTag && !excluded;
     });
-  }, [tracks, query, activeTag]);
+  }, [tracks, query, activeTag, excludedTags]);
 
   // drag-reorder only under the "Custom" sort (library or playlist), and not
-  // while a search/tag filter or grid view is on
-  const reorderEnabled = !query && !activeTag && viewMode === 'list' && sort === 'custom';
+  // while a search/tag filter (include or exclude) or grid view is on
+  const reorderEnabled =
+    !query && !activeTag && excludedTags.size === 0 && viewMode === 'list' && sort === 'custom';
 
   const totalSeconds = useMemo(
     () => visibleTracks.reduce((sum, t) => sum + (t.duration || 0), 0),
@@ -926,13 +936,16 @@ function LibraryList({
 
       {allTags.length > 0 && (
         <div className="tag-filter">
-          <button className={!activeTag ? 'active' : ''} onClick={() => onSetActiveTag(null)}>
+          <button
+            className={!activeTag && excludedTags.size === 0 ? 'active' : ''}
+            onClick={() => onClearTagFilters?.()}
+          >
             all
           </button>
           {allTags.map((tag) => (
             <span
               key={tag}
-              className={`tag-filter-item${activeTag === tag ? ' active' : ''}`}
+              className={`tag-filter-item${activeTag === tag ? ' active' : ''}${excludedTags.has(tag) ? ' excluded' : ''}`}
               draggable={!!onReorderTags}
               onDragStart={(e) => {
                 tagDragRef.current = tag;
@@ -963,7 +976,14 @@ function LibraryList({
               {tagDropTarget?.tag === tag && (
                 <span className={`tag-filter-drop-line ${tagDropTarget.before ? 'left' : 'right'}`} />
               )}
-              <button className="tag-filter-select" onClick={() => onSetActiveTag(tag)}>
+              {/* plain click includes (as always); Option-click toggles
+                  exclude — tracks with this tag are hidden. A tag is never
+                  both: App clears the other state on each transition. */}
+              <button
+                className="tag-filter-select"
+                title={excludedTags.has(tag) ? `${tag} — excluded (⌥-click to clear)` : `⌥-click to exclude`}
+                onClick={(e) => (e.altKey ? onToggleExcludedTag?.(tag) : onSetActiveTag(tag))}
+              >
                 {tag}
               </button>
               <button

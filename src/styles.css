@@ -331,6 +331,16 @@ body {
 .tag-filter-delete:hover {
   color: #ff6b6b;
 }
+/* Excluded tag (Option-click on the chip name): tracks carrying it are
+   hidden. Outline shape kept (never filled like .active), name struck
+   through and muted — reads as "crossed out". No red, no accent. */
+.tag-filter-item.excluded {
+  border-color: var(--text-muted);
+}
+.tag-filter-item.excluded .tag-filter-select {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
 
 .library-count {
   font-size: 12px;
@@ -3392,6 +3402,9 @@ body {
 .library-list.has-backdrop .tag-filter-item:not(.active) .tag-filter-select {
   color: #f4f4f2;
   text-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+}
+.library-list.has-backdrop .tag-filter-item.excluded .tag-filter-select {
+  color: rgba(244, 244, 242, 0.55);
 }
 /* the × stays a notch quieter than the label (same relative hierarchy as
    --text-muted vs --text-secondary in the no-backdrop case). This selector

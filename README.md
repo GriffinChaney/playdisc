@@ -19,7 +19,8 @@ that folder is in Dropbox, your library syncs between your own Macs.
   native picker, with a progress overlay and a confirmation toast
 - Automatic ID3 / atom metadata + embedded artwork extraction on import
 - Search, per-track tags (inline `+ tag`, plus bulk tag / delete on a selection),
-  tag-group filtering
+  tag-group filtering — click a tag chip to show only that tag, ⌥-click to
+  hide everything with it
 - Multi-select in both list and grid view — ⌘-click, shift-click, ⌘-drag to paint
   a contiguous range — with a floating action bar (queue / add-to-playlist / tag /
   delete)

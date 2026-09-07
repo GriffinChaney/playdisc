@@ -169,6 +169,35 @@ export default function App() {
   // behavior); only an actual LibraryList unmount ever used to lose them.
   const [librarySearchQuery, setLibrarySearchQuery] = useState('');
   const [libraryActiveTag, setLibraryActiveTag] = useState(null);
+  // Tag exclusion (2026-09-07): tags whose tracks are hidden from the list.
+  // A Set (several at once) beside the single include above. A tag is never
+  // in both — each transition clears the other. Not persisted, same as the
+  // include. See CLAUDE.md "Tags".
+  const [libraryExcludedTags, setLibraryExcludedTags] = useState(() => new Set());
+  const handleSetLibraryActiveTag = useCallback((tag) => {
+    setLibraryActiveTag(tag);
+    if (tag) {
+      setLibraryExcludedTags((prev) => {
+        if (!prev.has(tag)) return prev;
+        const next = new Set(prev);
+        next.delete(tag);
+        return next;
+      });
+    }
+  }, []);
+  const handleToggleExcludedTag = useCallback((tag) => {
+    setLibraryExcludedTags((prev) => {
+      const next = new Set(prev);
+      if (next.has(tag)) next.delete(tag);
+      else next.add(tag);
+      return next;
+    });
+    setLibraryActiveTag((cur) => (cur === tag ? null : cur));
+  }, []);
+  const handleClearTagFilters = useCallback(() => {
+    setLibraryActiveTag(null);
+    setLibraryExcludedTags((prev) => (prev.size ? new Set() : prev));
+  }, []);
   // Imported-view sort. 'added' | 'artist' | 'custom'; dir 'desc' | 'asc'.
   // Playlists are unaffected — they keep their manual trackIds order.
   const [librarySort, setLibrarySort] = useState(
@@ -2132,6 +2161,14 @@ export default function App() {
       for (const t of tracksRef.current) {
         if (t.tags.includes(tag)) patchTrack(t.id, { tags: t.tags.filter((tg) => tg !== tag) });
       }
+      // a deleted tag can't stay crossed out (LibraryList already clears the
+      // include for it before calling this)
+      setLibraryExcludedTags((prev) => {
+        if (!prev.has(tag)) return prev;
+        const next = new Set(prev);
+        next.delete(tag);
+        return next;
+      });
     },
     [patchTrack]
   );
@@ -3687,7 +3724,10 @@ export default function App() {
             query={librarySearchQuery}
             onSetQuery={setLibrarySearchQuery}
             activeTag={libraryActiveTag}
-            onSetActiveTag={setLibraryActiveTag}
+            onSetActiveTag={handleSetLibraryActiveTag}
+            excludedTags={libraryExcludedTags}
+            onToggleExcludedTag={handleToggleExcludedTag}
+            onClearTagFilters={handleClearTagFilters}
             onUpdatePlaylist={handleUpdatePlaylist}
             sort={activeSort}
             sortDir={activeSortDir}

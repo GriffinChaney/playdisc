@@ -782,6 +782,19 @@ persisted to `localStorage.navWidth`) / `1fr` / `var(--np-width)` (fixed 278px).
   songs" note. The bulk bar has `+ tag` (same menu, `allTags`) and `− tag` (only shown
   when the selection has tags; options = union of tags across selected tracks, removes
   from all). The old inline `<input>`/`window.prompt`-style tag entry is gone.
+  - **Tag exclusion** (2026-09-07): ⌥-click (Option-click) a chip's name to
+    toggle it *excluded* — tracks carrying that tag are hidden. Plain click is
+    unchanged (include). The include stays **single** (`libraryActiveTag`, one
+    or null); exclusions are a **set** (`libraryExcludedTags`), so several can
+    be crossed out at once. Result = tracks with the included tag (if any)
+    minus any track carrying *any* excluded tag; search applies on top. A tag
+    is never both — including clears its exclusion, excluding the included tag
+    clears the include; "all" clears both, and is only highlighted when both
+    are empty. Deleting a tag group drops it from the exclusions too. Look:
+    `.tag-filter-item.excluded` keeps the outline shape with the name struck
+    through and muted — no fill, no red, no accent. Neither state persists
+    across restarts (same as `activeTag`). Drag-reorder of chips is disabled
+    while any exclusion is active, same as while a tag is included.
 
 ### Other App.jsx state
 
